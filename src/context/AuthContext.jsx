@@ -10,7 +10,6 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check active session
     supabase.auth.getSession().then(({ data }) => {
       const session = data.session;
       console.log('Session data:', session);
@@ -18,7 +17,6 @@ export const AuthProvider = ({ children }) => {
       if (session) {
         setUser(session.user);
         
-        // Fetch role from profiles table
         supabase
           .from('profiles')
           .select('role')
@@ -42,7 +40,6 @@ export const AuthProvider = ({ children }) => {
       }
     });
 
-    // Listen to auth state changes
     const { data: listener } = supabase.auth.onAuthStateChange(
       (event, session) => {
         console.log('Auth state changed:', event, session);
