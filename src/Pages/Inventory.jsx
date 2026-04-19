@@ -1,12 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
-import { createClient } from "@supabase/supabase-js";
 import { LayoutDashboard, Package, ShoppingCart, Megaphone, Factory, Settings, ChevronRight, ChevronDown,ChevronLeft, Menu, X, Search, LogOut } from "lucide-react";
+import { supabase } from "../api/supabase";
 
 
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_KEY,
-);
 
 function Inventory() {
   const [inventory, setInventory] = useState([]);

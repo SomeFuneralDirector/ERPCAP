@@ -2,11 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import CSVImport from '../Components/Csvimport'
 import { LayoutDashboard, Package, ShoppingCart, Megaphone, Factory, Settings, ChevronRight, ChevronDown,ChevronLeft, Menu, X, Search, LogOut } from "lucide-react";
-
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_KEY
-)
+import { supabase } from "../api/supabase";
 
 const PLATFORM_BADGE = {
   shopee: 'bg-red-100 text-red-700',
@@ -185,7 +181,7 @@ function Sales() {
               ) : orders.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-16 text-center text-gray-400">
-                    <div className="text-4xl mb-3">📭</div>
+                    <div className="text-4xl mb-3"></div>
                     <p className="font-medium text-gray-500">No completed orders found</p>
                     <p className="text-sm mt-1">
                       {search || filterPlatform !== 'all'

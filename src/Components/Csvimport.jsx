@@ -1,11 +1,7 @@
 import { useState, useCallback } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { parseCSV } from '../lib/csv-parser'
-
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_KEY
-)
+import { supabase } from "../api/supabase";
 
 const PLATFORM_STYLES = {
   shopee: { dot: 'bg-red-500',    label: 'Shopee' },
@@ -282,8 +278,8 @@ export default function CSVImport({ onImportComplete }) {
             className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all
               ${dragOver ? 'border-indigo-400 bg-indigo-50' : 'border-gray-300 bg-gray-50 hover:bg-gray-100'}`}
           >
-            <div className="text-5xl mb-3">📂</div>
-            <p className="font-semibold text-gray-700 text-base">Drop CSV or Excel file here</p>
+            <div className="text-5xl mb-3"></div>
+            <p className="font-semibold text-gray-700 text-base">Import CSV or Excel file here</p>
             <p className="text-gray-400 text-sm mt-2">
               Shopee (.csv / .xlsx) · Lazada (.csv / .xlsx) · TikTok Shop (.csv / .xlsx)
             </p>
@@ -319,15 +315,15 @@ export default function CSVImport({ onImportComplete }) {
       {step === 'preview' && parsed && (
         <div>
           <div className="mb-4 p-3 bg-green-50 border border-green-300 rounded-lg flex items-center gap-2">
-            <span className="text-green-500 text-lg">✅</span>
+            <span className="text-green-500 text-lg"></span>
             <p className="text-green-800 text-sm font-medium">
-              Showing COMPLETED orders only — all other statuses have been excluded.
+              Showing COMPLETED orders only, all other statuses have been excluded.
             </p>
           </div>
 
           {warning && (
             <div className="mb-4 p-3 bg-yellow-50 border border-yellow-300 rounded-lg text-yellow-800 text-sm">
-              ⚠️ {warning}
+               {warning}
             </div>
           )}
 
@@ -394,7 +390,7 @@ export default function CSVImport({ onImportComplete }) {
       {/* ── IMPORTING ── */}
       {step === 'importing' && (
         <div className="text-center py-16">
-          <div className="text-5xl mb-4">⏳</div>
+          <div className="text-5xl mb-4"></div>
           <p className="text-lg font-semibold text-gray-800 mb-2">Importing completed orders…</p>
           <p className="text-gray-500 text-sm mb-6">{progress.current} of {progress.total} saved</p>
           <div className="bg-gray-200 rounded-full h-2 max-w-sm mx-auto">
@@ -410,7 +406,7 @@ export default function CSVImport({ onImportComplete }) {
       {step === 'done' && importResult && (
         <div>
           <div className="text-center p-8 bg-green-50 border border-green-200 rounded-xl mb-5">
-            <div className="text-5xl mb-3">✅</div>
+            <div className="text-5xl mb-3"></div>
             <h3 className="text-lg font-bold text-green-700">Import Complete</h3>
             {importResult.dateRange?.dateFrom && (
               <p className="text-green-600 text-sm mt-1">

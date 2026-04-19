@@ -1,4 +1,3 @@
-// ─── Column Maps (verified against real export files) ────────────────────────
 const COLUMN_MAPS = {
   shopee: {
     order_id:        "Order ID",

@@ -41,7 +41,8 @@ function Login() {
       admin: '/admin',
       marketing: '/marketing',
       sales: '/sales',
-      inventory: '/inventory'
+      inventory: '/inventory',
+      production: '/production'
     };
 
     navigate(roleRoutes[profile.role] || '/')
