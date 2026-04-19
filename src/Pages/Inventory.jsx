@@ -109,39 +109,7 @@ function Inventory() {
         </button>
       </div>
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <SummaryCard
-          label="Stock on Hand"
-          value={totals.stock}
-          bg="bg-amber-400"
-          text="text-amber-900"
-        />
-        <SummaryCard
-          label="Total Sold"
-          value={totals.sold}
-          bg="bg-gray-700"
-          text="text-white"
-        />
-        <SummaryCard
-          label="Shopee Sold"
-          value={totals.shopee}
-          bg="bg-[#EE4D2D]"
-          text="text-white"
-        />
-        <SummaryCard
-          label="Lazada Sold"
-          value={totals.lazada}
-          bg="bg-violet-700"
-          text="text-white"
-        />
-        <SummaryCard
-          label="TikTok Sold"
-          value={totals.tiktok}
-          bg="bg-gray-900"
-          text="text-white"
-        />
-      </div>
+      
 
       {/* Filters */}
       <div className="bg-white rounded-lg shadow px-4 py-3 flex flex-col md:flex-row gap-3 items-center">
