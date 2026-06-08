@@ -6,6 +6,7 @@ import Admin from "./Pages/Admin.jsx";
 import Marketing from "./Pages/Marketing.jsx";
 import Sales from './Pages/Sales.jsx';
 import Inventory from './Pages/Inventory.jsx';
+import Inventory_db from './Pages/Inventory_db.jsx';
 import Production from './Pages/Production.jsx';
 import ProtectedRoute from "./Routes/ProtectedRoutes.jsx";
 import Nav from "./Components/Navigation.jsx";
@@ -35,6 +36,7 @@ const DashboardLayout = () => {
           <Route path="/marketing" element={<Marketing />} />
           <Route path="/sales" element={<Sales />} />
           <Route path="/inventory" element={<Inventory />} />
+          <Route path="/inventory_db" element={<Inventory_db />} />
           <Route path="/production" element={<Production />} />
           <Route path="/" element={<Navigate to="/admin" replace />} />
         </Routes>
