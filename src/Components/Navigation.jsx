@@ -48,8 +48,8 @@ const navItems = [
     icon: ShoppingCart,
     role: "sales",
     children: [
-      { id: "sales-dashboard", label: "Dashboard", icon: LayoutDashboard, path: "/sales" },
-      { id: "sales-transactions", label: "Transactions", icon: PhilippinePesoIcon, path: "/sales/transactions" },
+      { id: "sales-dashboard", label: "Dashboard", icon: LayoutDashboard, path: "/sales_db" },
+      { id: "sales-transactions", label: "Transactions", icon: PhilippinePesoIcon, path: "/sales" },
     ],
   },
   {
@@ -188,8 +188,6 @@ function Nav() {
                   <Icon size={16} className="text-red-600 flex-shrink-0" strokeWidth={1.6} />
                 </div>
               )}
-
-              {/* Children — always visible */}
               {children && (
                 <div className={!collapsed ? "ml-4 pl-3 border-l border-gray-100 space-y-0.5" : "space-y-0.5"}>
                   {children.map(({ id: childId, label: childLabel, icon: ChildIcon, path }) => {

@@ -1,45 +1,25 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
+import {
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+} from "recharts";
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
   import.meta.env.VITE_SUPABASE_KEY,
 );
 
-// ─── DonutChart ──────────────────────────────────────────────
-
-function DonutChart({ cats }) {
-  const ref = useRef(null);
-
-  useEffect(() => {
-    const canvas = ref.current;
-    if (!canvas || !cats.length) return;
-    const ctx = canvas.getContext("2d");
-    const total = cats.reduce((a, c) => a + c.qty, 0);
-    if (total === 0) return;
-    let angle = -Math.PI / 2;
-    ctx.clearRect(0, 0, 100, 100);
-    cats.forEach((c) => {
-      const slice = (c.qty / total) * 2 * Math.PI;
-      ctx.beginPath();
-      ctx.moveTo(50, 50);
-      ctx.arc(50, 50, 44, angle, angle + slice);
-      ctx.closePath();
-      ctx.fillStyle = c.color;
-      ctx.fill();
-      angle += slice;
-    });
-    ctx.globalCompositeOperation = "destination-out";
-    ctx.beginPath();
-    ctx.arc(50, 50, 28, 0, 2 * Math.PI);
-    ctx.fill();
-    ctx.globalCompositeOperation = "source-over";
-  }, [cats]);
-
-  return <canvas ref={ref} width={100} height={100} className="shrink-0" />;
-}
-
-// ─── Category colours ────────────────────────────────────────
+// ─── Colours ──────────────────────────────────────────────────
 
 const CAT_COLORS = {
   Men: "#2563eb",
@@ -47,10 +27,32 @@ const CAT_COLORS = {
   Unisex: "#9b0aa0",
 };
 
+const PLATFORM_COLORS = {
+  Shopee: "#EE4D2D",
+  Lazada: "#7C3AED",
+  TikTok: "#1f2937",
+};
+
 // ─── Skeleton ────────────────────────────────────────────────
 
 function Skeleton({ className = "h-8 w-16" }) {
   return <div className={`${className} bg-gray-100 rounded animate-pulse mt-1`} />;
+}
+
+// ─── Custom tooltips ───────────────────────────────────────────
+
+function UnitsTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs">
+      {label && <p className="font-semibold text-gray-700 mb-1">{label}</p>}
+      {payload.map((p) => (
+        <p key={p.dataKey} style={{ color: p.color || p.fill }}>
+          {p.name}: {(p.value ?? 0).toLocaleString()} units
+        </p>
+      ))}
+    </div>
+  );
 }
 
 // ─── Main component ──────────────────────────────────────────
@@ -83,19 +85,7 @@ function Inventory_db() {
     }
 
     if (inv && inv.length > 0) {
-      // Summary cards - calculate total stock as sum of all platforms
-      setTotals(
-        inv.reduce(
-          (acc, r) => ({
-            shopee: acc.shopee + (r.shopee_stock || 0),
-            lazada: acc.lazada + (r.lazada_stock || 0),
-            tiktok: acc.tiktok + (r.tiktok_stock || 0),
-          }),
-          { shopee: 0, lazada: 0, tiktok: 0 }
-        )
-      );
-
-      // Add total as sum of all platforms
+      // Platform totals
       const totalsData = inv.reduce(
         (acc, r) => ({
           shopee: acc.shopee + (r.shopee_stock || 0),
@@ -104,11 +94,10 @@ function Inventory_db() {
         }),
         { shopee: 0, lazada: 0, tiktok: 0 }
       );
-      
       totalsData.total = totalsData.shopee + totalsData.lazada + totalsData.tiktok;
       setTotals(totalsData);
 
-      // Stock by category (donut) - use total stock (sum of all platforms)
+      // Stock by category
       const catMap = {};
       inv.forEach((r) => {
         const c = r.category || "Uncategorized";
@@ -147,11 +136,6 @@ function Inventory_db() {
       setLowStock(low);
 
       // Top movers - products with highest total stock
-      const maxStock = Math.max(
-        ...inv.map((r) => (r.shopee_stock || 0) + (r.lazada_stock || 0) + (r.tiktok_stock || 0)),
-        1
-      );
-      
       const topPlatform = (r) => {
         const s = r.shopee_stock || 0;
         const l = r.lazada_stock || 0;
@@ -160,7 +144,7 @@ function Inventory_db() {
         if (l >= s && l >= t) return "Lazada";
         return "TikTok";
       };
-      
+
       const top = [...inv]
         .filter((r) => {
           const total = (r.shopee_stock || 0) + (r.lazada_stock || 0) + (r.tiktok_stock || 0);
@@ -171,19 +155,18 @@ function Inventory_db() {
           const bTotal = (b.shopee_stock || 0) + (b.lazada_stock || 0) + (b.tiktok_stock || 0);
           return bTotal - aTotal;
         })
-        .slice(0, 5)
+        .slice(0, 6)
         .map((r) => {
           const total = (r.shopee_stock || 0) + (r.lazada_stock || 0) + (r.tiktok_stock || 0);
           return {
             name: r.product_name || "Unknown",
             platform: topPlatform(r),
-            mv: total,
-            bar: Math.round((total / maxStock) * 100),
+            qty: total,
           };
         });
       setTopMovers(top);
 
-      // Slow movers - products with low total stock that haven't been updated recently
+      // Slow movers - low stock, not updated recently
       const now = Date.now();
       const slow = [...inv]
         .filter((r) => {
@@ -226,7 +209,6 @@ function Inventory_db() {
   useEffect(() => {
     fetchAll();
 
-    // Real-time: refresh when inventory or logs change
     const channel = supabase
       .channel("inventory-realtime")
       .on(
@@ -243,6 +225,17 @@ function Inventory_db() {
 
     return () => supabase.removeChannel(channel);
   }, [fetchAll]);
+
+  // ── Derived chart data ─────────────────────────────────────
+
+  const platformData = useMemo(() => {
+    if (!totals) return [];
+    return [
+      { platform: "Shopee", qty: totals.shopee, color: PLATFORM_COLORS.Shopee },
+      { platform: "Lazada", qty: totals.lazada, color: PLATFORM_COLORS.Lazada },
+      { platform: "TikTok", qty: totals.tiktok, color: PLATFORM_COLORS.TikTok },
+    ];
+  }, [totals]);
 
   const fmt = (n) => (n ?? 0).toLocaleString();
 
@@ -276,91 +269,88 @@ function Inventory_db() {
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
             Total stock
           </p>
-          {loading ? (
-            <Skeleton />
-          ) : (
-            <p className="text-3xl font-bold mt-1 text-gray-800">
-              {fmt(totals?.total)}
-            </p>
+          {loading ? <Skeleton /> : (
+            <p className="text-3xl font-bold mt-1 text-gray-800">{fmt(totals?.total)}</p>
           )}
           <p className="text-xs mt-1 text-gray-400">Units on hand</p>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-[#EE4D2D] inline-block" /> Shopee
-          </p>
-          {loading ? (
-            <Skeleton />
-          ) : (
-            <p className="text-3xl font-bold mt-1 text-[#EE4D2D]">
-              {fmt(totals?.shopee)}
-            </p>
-          )}
-          <p className="text-xs mt-1 text-gray-400">Total units in stock</p>
-        </div>
-
-        <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-violet-700 inline-block" /> Lazada
-          </p>
-          {loading ? (
-            <Skeleton />
-          ) : (
-            <p className="text-3xl font-bold mt-1 text-violet-700">
-              {fmt(totals?.lazada)}
-            </p>
-          )}
-          <p className="text-xs mt-1 text-gray-400">Total units in stock</p>
-        </div>
-
-        <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-gray-800 inline-block" /> TikTok
-          </p>
-          {loading ? (
-            <Skeleton />
-          ) : (
-            <p className="text-3xl font-bold mt-1 text-gray-800">
-              {fmt(totals?.tiktok)}
-            </p>
-          )}
-          <p className="text-xs mt-1 text-gray-400">Total units in stock</p>
-        </div>
+        {["Shopee", "Lazada", "TikTok"].map((platform) => {
+          const key = platform.toLowerCase();
+          const color = PLATFORM_COLORS[platform];
+          return (
+            <div key={platform} className="bg-white rounded-lg shadow p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full inline-block" style={{ background: color }} />
+                {platform}
+              </p>
+              {loading ? <Skeleton /> : (
+                <p className="text-3xl font-bold mt-1" style={{ color }}>
+                  {fmt(totals?.[key])}
+                </p>
+              )}
+              <p className="text-xs mt-1 text-gray-400">Total units in stock</p>
+            </div>
+          );
+        })}
       </div>
 
-      {/* Stock by category */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-sm font-bold text-gray-700 mb-4">
-          Stock by category
-        </h2>
-        {loading ? (
-          <Skeleton className="h-24 w-full" />
-        ) : (
-          <div className="flex items-center gap-6">
-            <DonutChart cats={cats} />
-            <div className="flex flex-col gap-3 flex-1">
-              {cats.map((c) => (
-                <div key={c.name} className="flex items-center gap-2 text-sm text-gray-500">
-                  <span
-                    className="w-2.5 h-2.5 rounded-full shrink-0"
-                    style={{ background: c.color }}
-                  />
-                  {c.name}
-                  <span className="ml-auto font-semibold text-gray-700">
-                    {c.qty.toLocaleString()}
-                  </span>
-                </div>
-              ))}
-              {cats.length === 0 && <p className="text-xs text-gray-400">No data</p>}
-            </div>
-          </div>
-        )}
+      {/* Stock by category (pie) + Stock by platform (bar) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-sm font-bold text-gray-700 mb-4">Stock by category</h2>
+          {loading ? (
+            <Skeleton className="h-56 w-full" />
+          ) : cats.length === 0 ? (
+            <p className="text-xs text-gray-400">No data</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie
+                  data={cats}
+                  dataKey="qty"
+                  nameKey="name"
+                  innerRadius={55}
+                  outerRadius={80}
+                  paddingAngle={3}
+                >
+                  {cats.map((c) => (
+                    <Cell key={c.name} fill={c.color} />
+                  ))}
+                </Pie>
+                <Tooltip content={<UnitsTooltip />} />
+                <Legend verticalAlign="bottom" height={24} iconType="circle" wrapperStyle={{ fontSize: 12 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-sm font-bold text-gray-700 mb-4">Stock by platform</h2>
+          {loading ? (
+            <Skeleton className="h-56 w-full" />
+          ) : platformData.length === 0 ? (
+            <p className="text-xs text-gray-400">No data</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={platformData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+                <XAxis dataKey="platform" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+                <Tooltip content={<UnitsTooltip />} />
+                <Bar dataKey="qty" name="Stock" radius={[6, 6, 0, 0]}>
+                  {platformData.map((p) => (
+                    <Cell key={p.platform} fill={p.color} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
       </div>
 
       {/* Low stock + Activity */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Low stock alerts */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-sm font-bold text-gray-700 mb-4">
             Low stock alerts
@@ -372,9 +362,7 @@ function Inventory_db() {
           </h2>
           {loading ? (
             <div className="space-y-3">
-              {[1, 2, 3].map((i) => (
-                <Skeleton key={i} className="h-10 w-full" />
-              ))}
+              {[1, 2, 3].map((i) => <Skeleton key={i} className="h-10 w-full" />)}
             </div>
           ) : lowStock.length === 0 ? (
             <p className="text-xs text-gray-400">All items are sufficiently stocked.</p>
@@ -392,9 +380,7 @@ function Inventory_db() {
                       </div>
                       <span
                         className={`px-1.5 py-0.5 text-xs rounded font-medium shrink-0 ${
-                          isOut
-                            ? "bg-red-100 text-red-700"
-                            : "bg-amber-100 text-amber-700"
+                          isOut ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
                         }`}
                       >
                         {isOut ? "Out" : `${p.qty} left`}
@@ -403,10 +389,7 @@ function Inventory_db() {
                     <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
                       <div
                         className="h-full rounded-full"
-                        style={{
-                          width: `${pct}%`,
-                          background: isOut ? "#b91c1c" : "#f59e0b",
-                        }}
+                        style={{ width: `${pct}%`, background: isOut ? "#b91c1c" : "#f59e0b" }}
                       />
                     </div>
                   </div>
@@ -416,14 +399,11 @@ function Inventory_db() {
           )}
         </div>
 
-        {/* Recent activity */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-sm font-bold text-gray-700 mb-4">Recent activity</h2>
           {loading ? (
             <div className="space-y-3">
-              {[1, 2, 3].map((i) => (
-                <Skeleton key={i} className="h-8 w-full" />
-              ))}
+              {[1, 2, 3].map((i) => <Skeleton key={i} className="h-8 w-full" />)}
             </div>
           ) : activity.length === 0 ? (
             <p className="text-xs text-gray-400">No recent activity.</p>
@@ -443,70 +423,54 @@ function Inventory_db() {
         </div>
       </div>
 
-      {/* Top movers + Slow movers */}
+      {/* Top movers (chart) + Slow movers (list) */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Top movers - products with highest stock */}
         <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-sm font-bold text-gray-700 mb-4">
-            Top stocked items
-          </h2>
+          <h2 className="text-sm font-bold text-gray-700 mb-4">Top stocked items</h2>
           {loading ? (
-            <div className="space-y-3">
-              {[1, 2, 3].map((i) => (
-                <Skeleton key={i} className="h-8 w-full" />
-              ))}
-            </div>
+            <Skeleton className="h-56 w-full" />
           ) : topMovers.length === 0 ? (
             <p className="text-xs text-gray-400">No stock data available.</p>
           ) : (
-            <div className="divide-y divide-gray-100">
-              {topMovers.map((m) => (
-                <div key={m.name} className="flex items-center gap-3 py-2.5">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-1">
-                      <p className="text-xs font-medium text-gray-700 truncate">
-                        {m.name}
-                      </p>
-                      <span className="text-xs font-bold text-gray-800 ml-2 shrink-0">
-                        {m.mv}
-                      </span>
-                    </div>
-                    <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-red-600"
-                        style={{ width: `${m.bar}%` }}
-                      />
-                    </div>
-                  </div>
-                  <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded shrink-0">
-                    {m.platform}
-                  </span>
-                </div>
-              ))}
-            </div>
+            <ResponsiveContainer width="100%" height={Math.max(180, topMovers.length * 36)}>
+              <BarChart
+                data={topMovers}
+                layout="vertical"
+                margin={{ top: 0, right: 24, left: 8, bottom: 0 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+                <YAxis
+                  type="category"
+                  dataKey="name"
+                  width={140}
+                  tick={{ fontSize: 11, fill: "#374151" }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip content={<UnitsTooltip />} />
+                <Bar dataKey="qty" name="Stock" radius={[0, 6, 6, 0]} barSize={16}>
+                  {topMovers.map((m) => (
+                    <Cell key={m.name} fill={PLATFORM_COLORS[m.platform] ?? "#b91c1c"} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
           )}
         </div>
 
-        {/* Slow movers - low stock items not updated recently */}
         <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-sm font-bold text-gray-700 mb-4">
-            Items needing attention
-          </h2>
+          <h2 className="text-sm font-bold text-gray-700 mb-4">Items needing attention</h2>
           {loading ? (
             <div className="space-y-3">
-              {[1, 2, 3].map((i) => (
-                <Skeleton key={i} className="h-8 w-full" />
-              ))}
+              {[1, 2, 3].map((i) => <Skeleton key={i} className="h-8 w-full" />)}
             </div>
           ) : slowMovers.length === 0 ? (
             <p className="text-xs text-gray-400">All items are recently updated.</p>
           ) : (
             <div className="divide-y divide-gray-100">
               {slowMovers.map((m) => (
-                <div
-                  key={m.name}
-                  className="flex items-center justify-between py-2.5"
-                >
+                <div key={m.name} className="flex items-center justify-between py-2.5">
                   <div>
                     <p className="text-xs font-medium text-gray-700">{m.name}</p>
                     <p className="text-xs text-gray-400 mt-0.5">
@@ -526,8 +490,6 @@ function Inventory_db() {
   );
 }
 
-// ─── Helpers ─────────────────────────────────────────────────
-
 function formatLogTime(iso) {
   const d = new Date(iso);
   const now = new Date();
@@ -538,8 +500,7 @@ function formatLogTime(iso) {
 
   if (diffMin < 1) return "Just now";
   if (diffMin < 60) return `${diffMin}m ago`;
-  if (diffH < 24)
-    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (diffH < 24) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   if (diffD === 1) return "Yesterday";
   return d.toLocaleDateString();
 }

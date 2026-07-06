@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
 import Admin from "./Pages/Admin.jsx";
 import Marketing from "./Pages/Marketing.jsx";
 import Sales from './Pages/Sales.jsx';
+import Sales_db from './Pages/Sales_db.jsx';
 import Inventory from './Pages/Inventory.jsx';
 import Inventory_db from './Pages/Inventory_db.jsx';
 import Production from './Pages/Production.jsx';
@@ -35,6 +36,7 @@ const DashboardLayout = () => {
           <Route path="/admin" element={<Admin />} />
           <Route path="/marketing" element={<Marketing />} />
           <Route path="/sales" element={<Sales />} />
+          <Route path="/sales_db" element={<Sales_db />} />
           <Route path="/inventory" element={<Inventory />} />
           <Route path="/inventory_db" element={<Inventory_db />} />
           <Route path="/production" element={<Production />} />
