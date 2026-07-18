@@ -24,8 +24,6 @@ const EMPTY_FORM = {
   tiktok_stock: "",
 };
 
-// ── AddProductModal ──────────────────────────────────────────────────────────────
-
 function AddProductModal({ onClose, onSaved, editItem = null }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -488,7 +486,7 @@ function Inventory() {
               setEditItem(null);
               setShowAddModal(true);
             }}
-            className="flex items-center gap-1.5 px-4 py-2 bg-gray-800 text-white rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 px-4 py-2 bg-red-700 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors cursor-pointer"
           >
             <Plus size={15} />
             Add Product

@@ -1,5 +1,4 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { createClient } from "@supabase/supabase-js";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -15,11 +14,7 @@ import {
   BarChart,
   Bar,
 } from "recharts";
-
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_KEY,
-);
+import { supabase } from "../api/supabase";
 
 // ─── Platform colours ────────────────────────────────────────
 
@@ -29,29 +24,12 @@ const PLATFORM_COLORS = {
   TikTok: "#1f2937",
 };
 
-// ─── Skeleton ────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────
 
-function Skeleton({ className = "h-8 w-16" }) {
-  return <div className={`${className} bg-gray-100 rounded animate-pulse mt-1`} />;
-}
+const fmtCurrency = (n) =>
+  `₱${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
-// ─── Custom tooltip ──────────────────────────────────────────
-
-function CurrencyTooltip({ active, payload, label }) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs">
-      <p className="font-semibold text-gray-700 mb-1">{label}</p>
-      {payload.map((p) => (
-        <p key={p.dataKey} style={{ color: p.color || p.fill }}>
-          {p.name}: ₱{(p.value ?? 0).toLocaleString()}
-        </p>
-      ))}
-    </div>
-  );
-}
-
-// ─── Date bucket helpers ─────────────────────────────────────
+const fmtAxis = (v) => `₱${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`;
 
 function getStartOfWeek(d) {
   const date = new Date(d);
@@ -89,42 +67,71 @@ function bucketSales(rows, mode) {
   return Object.values(buckets).sort((a, b) => a.sortKey - b.sortKey);
 }
 
+// ─── Skeleton ────────────────────────────────────────────────
+
+function Skeleton({ className = "h-8 w-16" }) {
+  return <div className={`${className} bg-gray-100 rounded animate-pulse mt-1`} />;
+}
+
+// ─── Custom tooltip ──────────────────────────────────────────
+
+function CurrencyTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs">
+      <p className="font-semibold text-gray-700 mb-1">{label}</p>
+      {payload.map((p) => (
+        <p key={p.dataKey} style={{ color: p.color || p.fill }}>
+          {p.name}: {fmtCurrency(p.value)}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 // ─── Main component ──────────────────────────────────────────
 
 function Sales_db() {
   const [rawSales, setRawSales] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
   const [trendMode, setTrendMode] = useState("weekly"); // 'weekly' | 'monthly' | 'yearly'
 
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
+  const fetchAll = useCallback(async (isInitial = false) => {
+    if (isInitial) {
+      setInitialLoading(true);
+    } else {
+      setRefreshing(true);
+    }
+    setErrorMsg("");
 
-    // NOTE: adjust table/column names below to match your actual
-    // Supabase schema if different.
     const { data, error } = await supabase
       .from("sales")
       .select("id, product_name, platform, quantity, amount, created_at")
       .order("created_at", { ascending: true });
 
     if (error) {
-      console.error("Error fetching sales:", error);
-      setLoading(false);
+      setErrorMsg(error.message || "Couldn't load sales data.");
+      setInitialLoading(false);
+      setRefreshing(false);
       return;
     }
 
     setRawSales(data || []);
-    setLoading(false);
+    setInitialLoading(false);
+    setRefreshing(false);
   }, []);
 
   useEffect(() => {
-    fetchAll();
+    fetchAll(true);
 
     const channel = supabase
       .channel("sales-realtime")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "sales" },
-        fetchAll
+        () => fetchAll(false)
       )
       .subscribe();
 
@@ -168,7 +175,24 @@ function Sales_db() {
 
   const trendPoints = useMemo(() => bucketSales(rawSales, trendMode), [rawSales, trendMode]);
 
-  const fmtCurrency = (n) => `₱${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  const loading = initialLoading;
+
+  if (errorMsg && rawSales.length === 0) {
+    return (
+      <div className="p-6">
+        <div className="bg-white rounded-lg shadow p-6 border border-red-200">
+          <h1 className="text-2xl font-bold text-gray-800 mb-2">Sales Dashboard</h1>
+          <p className="text-sm text-red-600 mb-4">{errorMsg}</p>
+          <button
+            onClick={() => fetchAll(true)}
+            className="px-4 py-2 bg-red-700 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors"
+          >
+            ↻ Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-4">
@@ -176,15 +200,22 @@ function Sales_db() {
       <div className="bg-white rounded-lg shadow p-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Sales Dashboard</h1>
+          {refreshing && <p className="text-xs text-gray-400 mt-1">Syncing…</p>}
         </div>
         <button
-          onClick={fetchAll}
-          disabled={loading}
+          onClick={() => fetchAll(false)}
+          disabled={loading || refreshing}
           className="px-4 py-2 bg-red-700 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors disabled:opacity-50 self-start md:self-auto cursor-pointer"
         >
-          {loading ? "↻ Loading…" : "↻ Refresh"}
+          {loading || refreshing ? "↻ Loading…" : "↻ Refresh"}
         </button>
       </div>
+
+      {errorMsg && rawSales.length > 0 && (
+        <div className="bg-white border border-amber-300 text-amber-700 rounded-lg shadow p-3 text-xs">
+          Last refresh failed: {errorMsg}
+        </div>
+      )}
 
       {/* Total sales + per-platform cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -264,7 +295,7 @@ function Sales_db() {
                 tick={{ fontSize: 11, fill: "#9ca3af" }}
                 axisLine={false}
                 tickLine={false}
-                tickFormatter={(v) => `₱${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`}
+                tickFormatter={fmtAxis}
               />
               <Tooltip content={<CurrencyTooltip />} />
               <Area
@@ -300,7 +331,7 @@ function Sales_db() {
                   tick={{ fontSize: 11, fill: "#9ca3af" }}
                   axisLine={false}
                   tickLine={false}
-                  tickFormatter={(v) => `₱${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`}
+                  tickFormatter={fmtAxis}
                 />
                 <Tooltip content={<CurrencyTooltip />} />
                 <Bar dataKey="amount" name="Sales" radius={[6, 6, 0, 0]}>
@@ -373,9 +404,7 @@ function Sales_db() {
                 tickLine={false}
               />
               <Tooltip
-                formatter={(value, name) =>
-                  name === "qty" ? [`${value} sold`, "Quantity"] : [`₱${value.toLocaleString()}`, "Revenue"]
-                }
+                formatter={(value) => [`${value} sold`, "Quantity"]}
               />
               <Bar dataKey="qty" name="qty" fill="#b91c1c" radius={[0, 6, 6, 0]} barSize={18} />
             </BarChart>

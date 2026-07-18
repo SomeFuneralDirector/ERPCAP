@@ -1,5 +1,4 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { createClient } from "@supabase/supabase-js";
 import {
   ResponsiveContainer,
   PieChart,
@@ -13,11 +12,7 @@ import {
   CartesianGrid,
   Tooltip,
 } from "recharts";
-
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_KEY,
-);
+import { supabase } from "../api/supabase";
 
 // ─── Colours ──────────────────────────────────────────────────
 
@@ -33,14 +28,34 @@ const PLATFORM_COLORS = {
   TikTok: "#1f2937",
 };
 
-// ─── Skeleton ────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────
+
+function totalStock(row) {
+  return (row.shopee_stock || 0) + (row.lazada_stock || 0) + (row.tiktok_stock || 0);
+}
+
+function formatLogTime(iso) {
+  const d = new Date(iso);
+  const now = new Date();
+  const diffMs = now - d;
+  const diffMin = Math.floor(diffMs / 60_000);
+  const diffH = Math.floor(diffMs / 3_600_000);
+  const diffD = Math.floor(diffMs / 86_400_000);
+
+  if (diffMin < 1) return "Just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffH < 24) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (diffD === 1) return "Yesterday";
+  return d.toLocaleDateString();
+}
+
+// ─── Skeleton
 
 function Skeleton({ className = "h-8 w-16" }) {
   return <div className={`${className} bg-gray-100 rounded animate-pulse mt-1`} />;
 }
 
-// ─── Custom tooltips ───────────────────────────────────────────
-
+// ─── Custom tooltips
 function UnitsTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   return (
@@ -61,14 +76,22 @@ function Inventory_db() {
   const [totals, setTotals] = useState(null);
   const [cats, setCats] = useState([]);
   const [lowStock, setLowStock] = useState([]);
+  const [outOfStockCount, setOutOfStockCount] = useState(0);
   const [activity, setActivity] = useState([]);
   const [topMovers, setTopMovers] = useState([]);
   const [slowMovers, setSlowMovers] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
 
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
+  const fetchAll = useCallback(async (isInitial = false) => {
+    if (isInitial) {
+      setInitialLoading(true);
+    } else {
+      setRefreshing(true);
+    }
+    setErrorMsg("");
 
     // ── 1. Fetch inventory ──────────────────────────────────
     const { data: inv, error: invError } = await supabase
@@ -79,8 +102,9 @@ function Inventory_db() {
       );
 
     if (invError) {
-      console.error("Error fetching inventory:", invError);
-      setLoading(false);
+      setErrorMsg(invError.message || "Couldn't load inventory data.");
+      setInitialLoading(false);
+      setRefreshing(false);
       return;
     }
 
@@ -101,8 +125,7 @@ function Inventory_db() {
       const catMap = {};
       inv.forEach((r) => {
         const c = r.category || "Uncategorized";
-        const totalStock = (r.shopee_stock || 0) + (r.lazada_stock || 0) + (r.tiktok_stock || 0);
-        catMap[c] = (catMap[c] || 0) + totalStock;
+        catMap[c] = (catMap[c] || 0) + totalStock(r);
       });
       setCats(
         Object.entries(catMap).map(([name, qty]) => ({
@@ -112,27 +135,20 @@ function Inventory_db() {
         }))
       );
 
+      // Out of stock count
+      setOutOfStockCount(inv.filter((r) => totalStock(r) === 0).length);
+
       // Low stock alerts: stock <= reorder_point
       const low = inv
-        .filter((r) => {
-          const totalStock = (r.shopee_stock || 0) + (r.lazada_stock || 0) + (r.tiktok_stock || 0);
-          return totalStock <= (r.reorder_point ?? 10);
-        })
-        .sort((a, b) => {
-          const aTotal = (a.shopee_stock || 0) + (a.lazada_stock || 0) + (a.tiktok_stock || 0);
-          const bTotal = (b.shopee_stock || 0) + (b.lazada_stock || 0) + (b.tiktok_stock || 0);
-          return aTotal - bTotal;
-        })
+        .filter((r) => totalStock(r) <= (r.reorder_point ?? 10))
+        .sort((a, b) => totalStock(a) - totalStock(b))
         .slice(0, 8)
-        .map((r) => {
-          const totalStock = (r.shopee_stock || 0) + (r.lazada_stock || 0) + (r.tiktok_stock || 0);
-          return {
-            name: r.product_name || "Unknown",
-            code: r.product_code || "N/A",
-            qty: totalStock,
-            reorder: r.reorder_point ?? 10,
-          };
-        });
+        .map((r) => ({
+          name: r.product_name || "Unknown",
+          code: r.product_code || "N/A",
+          qty: totalStock(r),
+          reorder: r.reorder_point ?? 10,
+        }));
       setLowStock(low);
 
       // Top movers - products with highest total stock
@@ -146,32 +162,22 @@ function Inventory_db() {
       };
 
       const top = [...inv]
-        .filter((r) => {
-          const total = (r.shopee_stock || 0) + (r.lazada_stock || 0) + (r.tiktok_stock || 0);
-          return total > 0;
-        })
-        .sort((a, b) => {
-          const aTotal = (a.shopee_stock || 0) + (a.lazada_stock || 0) + (a.tiktok_stock || 0);
-          const bTotal = (b.shopee_stock || 0) + (b.lazada_stock || 0) + (b.tiktok_stock || 0);
-          return bTotal - aTotal;
-        })
+        .filter((r) => totalStock(r) > 0)
+        .sort((a, b) => totalStock(b) - totalStock(a))
         .slice(0, 6)
-        .map((r) => {
-          const total = (r.shopee_stock || 0) + (r.lazada_stock || 0) + (r.tiktok_stock || 0);
-          return {
-            name: r.product_name || "Unknown",
-            platform: topPlatform(r),
-            qty: total,
-          };
-        });
+        .map((r) => ({
+          name: r.product_name || "Unknown",
+          platform: topPlatform(r),
+          qty: totalStock(r),
+        }));
       setTopMovers(top);
 
       // Slow movers - low stock, not updated recently
       const now = Date.now();
       const slow = [...inv]
         .filter((r) => {
-          const total = (r.shopee_stock || 0) + (r.lazada_stock || 0) + (r.tiktok_stock || 0);
-          return total < 5 && total > 0;
+          const t = totalStock(r);
+          return t < 5 && t > 0;
         })
         .sort((a, b) => new Date(a.updated_at) - new Date(b.updated_at))
         .slice(0, 5)
@@ -183,6 +189,14 @@ function Inventory_db() {
       setSlowMovers(slow);
 
       setLastUpdated(new Date());
+    } else {
+      // No rows — reset to empty state instead of leaving stale data
+      setTotals({ shopee: 0, lazada: 0, tiktok: 0, total: 0 });
+      setCats([]);
+      setOutOfStockCount(0);
+      setLowStock([]);
+      setTopMovers([]);
+      setSlowMovers([]);
     }
 
     // ── 2. Recent activity (inventory_logs) ───────────────
@@ -203,23 +217,24 @@ function Inventory_db() {
       );
     }
 
-    setLoading(false);
+    setInitialLoading(false);
+    setRefreshing(false);
   }, []);
 
   useEffect(() => {
-    fetchAll();
+    fetchAll(true);
 
     const channel = supabase
       .channel("inventory-realtime")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "inventory" },
-        fetchAll
+        () => fetchAll(false)
       )
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "inventory_logs" },
-        fetchAll
+        () => fetchAll(false)
       )
       .subscribe();
 
@@ -238,6 +253,24 @@ function Inventory_db() {
   }, [totals]);
 
   const fmt = (n) => (n ?? 0).toLocaleString();
+  const loading = initialLoading;
+
+  if (errorMsg && !totals) {
+    return (
+      <div className="p-6">
+        <div className="bg-white rounded-lg shadow p-6 border border-red-200">
+          <h1 className="text-2xl font-bold text-gray-800 mb-2">Dashboard</h1>
+          <p className="text-sm text-red-600 mb-4">{errorMsg}</p>
+          <button
+            onClick={() => fetchAll(true)}
+            className="px-4 py-2 bg-red-700 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors"
+          >
+            ↻ Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-4">
@@ -250,21 +283,28 @@ function Inventory_db() {
             {lastUpdated && (
               <span className="ml-2 text-gray-400">
                 · {lastUpdated.toLocaleTimeString()}
+                {refreshing && " · syncing…"}
               </span>
             )}
           </p>
         </div>
         <button
-          onClick={fetchAll}
-          disabled={loading}
+          onClick={() => fetchAll(false)}
+          disabled={loading || refreshing}
           className="px-4 py-2 bg-red-700 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors disabled:opacity-50 self-start md:self-auto cursor-pointer"
         >
-          {loading ? "↻ Loading…" : "↻ Refresh"}
+          {loading || refreshing ? "↻ Loading…" : "↻ Refresh"}
         </button>
       </div>
 
+      {errorMsg && totals && (
+        <div className="bg-white border border-amber-300 text-amber-700 rounded-lg shadow p-3 text-xs">
+          Last refresh failed: {errorMsg}
+        </div>
+      )}
+
       {/* Platform summary cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
             Total stock
@@ -293,6 +333,16 @@ function Inventory_db() {
             </div>
           );
         })}
+
+        <div className="bg-white rounded-lg shadow p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+            Out of stock
+          </p>
+          {loading ? <Skeleton /> : (
+            <p className="text-3xl font-bold mt-1 text-red-700">{fmt(outOfStockCount)}</p>
+          )}
+          <p className="text-xs mt-1 text-gray-400">Products at zero</p>
+        </div>
       </div>
 
       {/* Stock by category (pie) + Stock by platform (bar) */}
@@ -488,21 +538,6 @@ function Inventory_db() {
       </div>
     </div>
   );
-}
-
-function formatLogTime(iso) {
-  const d = new Date(iso);
-  const now = new Date();
-  const diffMs = now - d;
-  const diffMin = Math.floor(diffMs / 60_000);
-  const diffH = Math.floor(diffMs / 3_600_000);
-  const diffD = Math.floor(diffMs / 86_400_000);
-
-  if (diffMin < 1) return "Just now";
-  if (diffMin < 60) return `${diffMin}m ago`;
-  if (diffH < 24) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  if (diffD === 1) return "Yesterday";
-  return d.toLocaleDateString();
 }
 
 export default Inventory_db;

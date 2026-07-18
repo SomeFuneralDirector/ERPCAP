@@ -39,7 +39,7 @@ const navItems = [
     children: [
       { id: "marketing-dashboard", label: "Dashboard", icon: LayoutDashboard, path: "/marketing" },
       { id: "marketing-campaigns", label: "Campaigns", icon: CampaignIcon, path: "/marketing/campaigns" },
-      { id: "marketing-inventory", label: "Inventory Overview", icon: Layers, path: "/marketing/inventory" },
+      { id: "marketing-inventory", label: "Inventory Overview", icon: Layers, path: "/marketing_io" },
     ],
   },
   {
@@ -59,9 +59,9 @@ const navItems = [
     role: "production",
     children: [
       { id: "production-dashboard", label: "Dashboard", icon: LayoutDashboard, path: "/production" },
-      { id: "production-workorders", label: "Work Orders", icon: ClipboardList, path: "/production/work-orders" },
-      { id: "production-rawmaterials", label: "Raw Materials", icon: Box, path: "/production/raw-materials" },
-      { id: "production-finished", label: "Finished Goods", icon: Boxes, path: "/production/finished-goods" },
+      { id: "production-workorders", label: "Work Orders", icon: ClipboardList, path: "/production_wo" },
+      { id: "production-rawmaterials", label: "Raw Materials", icon: Box, path: "/production_rm" },
+      { id: "production-finished", label: "Finished Goods", icon: Boxes, path: "/production_fg" },
     ],
   },
 ];
