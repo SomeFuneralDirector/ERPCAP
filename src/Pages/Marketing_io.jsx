@@ -7,9 +7,6 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
 } from 'recharts'
 import { supabase } from '../api/supabase'
 
@@ -76,21 +73,6 @@ function Marketing_io() {
       .sort((a, b) => a.total - b.total)
       .slice(0, 5)
   }, [products])
-
-  const platformBreakdown = useMemo(() => {
-    const totals = { Shopee: 0, Lazada: 0, TikTok: 0 }
-    products.forEach((p) => {
-      totals.Shopee += p.shopee
-      totals.Lazada += p.lazada
-      totals.TikTok += p.tiktok
-    })
-    return Object.entries(totals).map(([platform, sold]) => ({
-      platform,
-      sold,
-    }))
-  }, [products])
-
-  const totalSold = platformBreakdown.reduce((sum, p) => sum + p.sold, 0)
 
   const sortedProductTable = useMemo(() => {
     return [...products].sort((a, b) => b.total - a.total)
@@ -208,70 +190,6 @@ function Marketing_io() {
                   <Bar dataKey="tiktok" stackId="a" name="TikTok" fill={PLATFORM_COLORS.TikTok} />
                 </BarChart>
               </ResponsiveContainer>
-            )}
-          </div>
-
-          {/* Platform Totals (chart + breakdown combined) */}
-          <div className="bg-white rounded-lg shadow p-6 mb-4">
-            <h2 className="text-lg font-bold text-gray-800 mb-4">
-              Platform Totals
-            </h2>
-            {totalSold === 0 ? (
-              <p className="text-gray-400 text-sm italic">No sales recorded yet.</p>
-            ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-center">
-                <ResponsiveContainer width="100%" height={280}>
-                  <PieChart>
-                    <Pie
-                      data={platformBreakdown}
-                      dataKey="sold"
-                      nameKey="platform"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={90}
-                      label={({ platform, percent }) =>
-                        `${platform} ${(percent * 100).toFixed(0)}%`
-                      }
-                    >
-                      {platformBreakdown.map((entry) => (
-                        <Cell
-                          key={entry.platform}
-                          fill={PLATFORM_COLORS[entry.platform]}
-                        />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                  </PieChart>
-                </ResponsiveContainer>
-
-                <div>
-                  <ul className="space-y-3">
-                    {platformBreakdown.map((p) => (
-                      <li key={p.platform} className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="w-3 h-3 rounded-full"
-                            style={{ backgroundColor: PLATFORM_COLORS[p.platform] }}
-                          />
-                          <span className="text-sm font-semibold text-gray-700">
-                            {p.platform}
-                          </span>
-                        </div>
-                        <span className="text-sm font-bold text-gray-700">
-                          {p.sold} units{' '}
-                          <span className="text-gray-400 font-normal">
-                            ({totalSold > 0 ? ((p.sold / totalSold) * 100).toFixed(1) : 0}%)
-                          </span>
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between">
-                    <span className="text-sm font-semibold text-gray-500">Total Sold</span>
-                    <span className="text-sm font-bold text-red-600">{totalSold} units</span>
-                  </div>
-                </div>
-              </div>
             )}
           </div>
 

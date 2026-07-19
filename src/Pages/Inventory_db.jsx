@@ -4,13 +4,13 @@ import {
   PieChart,
   Pie,
   Cell,
-  Legend,
   BarChart,
   Bar,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
+  LabelList,
 } from "recharts";
 import { supabase } from "../api/supabase";
 
@@ -73,6 +73,8 @@ function UnitsTooltip({ active, payload, label }) {
 // ─── Main component ──────────────────────────────────────────
 
 function Inventory_db() {
+  const [rawInventory, setRawInventory] = useState([]);
+  const [soldByPlatform, setSoldByPlatform] = useState({ shopee: 0, lazada: 0, tiktok: 0 });
   const [totals, setTotals] = useState(null);
   const [cats, setCats] = useState([]);
   const [lowStock, setLowStock] = useState([]);
@@ -85,6 +87,9 @@ function Inventory_db() {
   const [errorMsg, setErrorMsg] = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
 
+  // Drill-down state: which slice/bar was clicked
+  const [breakdown, setBreakdown] = useState(null); // { type: 'category'|'platform', label, products }
+
   const fetchAll = useCallback(async (isInitial = false) => {
     if (isInitial) {
       setInitialLoading(true);
@@ -93,13 +98,18 @@ function Inventory_db() {
     }
     setErrorMsg("");
 
-    // ── 1. Fetch inventory ──────────────────────────────────
-    const { data: inv, error: invError } = await supabase
-      .from("inventory")
-      .select(
-        "id, stock, shopee_stock, lazada_stock, tiktok_stock, " +
-        "category, product_name, product_code, reorder_point, updated_at"
-      );
+    // ── 1. Fetch inventory + sales (sales feeds the "sold" side of the platform chart) ──
+    const [invRes, salesRes] = await Promise.all([
+      supabase
+        .from("inventory")
+        .select(
+          "id, stock, shopee_stock, lazada_stock, tiktok_stock, " +
+          "category, product_name, product_code, reorder_point, updated_at"
+        ),
+      supabase.from("sales").select("platform, quantity"),
+    ]);
+
+    const { data: inv, error: invError } = invRes;
 
     if (invError) {
       setErrorMsg(invError.message || "Couldn't load inventory data.");
@@ -108,7 +118,24 @@ function Inventory_db() {
       return;
     }
 
+    if (salesRes.error) {
+      // Sold-by-platform is supplementary; don't block the page on it.
+      console.error("Error fetching sales for platform chart:", salesRes.error);
+      setSoldByPlatform({ shopee: 0, lazada: 0, tiktok: 0 });
+    } else {
+      const soldTotals = { shopee: 0, lazada: 0, tiktok: 0 };
+      (salesRes.data || []).forEach((r) => {
+        const key = r.platform === "TikTok" ? "tiktok" : r.platform?.toLowerCase();
+        if (key && soldTotals[key] !== undefined) {
+          soldTotals[key] += Number(r.quantity) || 0;
+        }
+      });
+      setSoldByPlatform(soldTotals);
+    }
+
     if (inv && inv.length > 0) {
+      setRawInventory(inv);
+
       // Platform totals
       const totalsData = inv.reduce(
         (acc, r) => ({
@@ -191,6 +218,7 @@ function Inventory_db() {
       setLastUpdated(new Date());
     } else {
       // No rows — reset to empty state instead of leaving stale data
+      setRawInventory([]);
       setTotals({ shopee: 0, lazada: 0, tiktok: 0, total: 0 });
       setCats([]);
       setOutOfStockCount(0);
@@ -236,6 +264,11 @@ function Inventory_db() {
         { event: "INSERT", schema: "public", table: "inventory_logs" },
         () => fetchAll(false)
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "sales" },
+        () => fetchAll(false)
+      )
       .subscribe();
 
     return () => supabase.removeChannel(channel);
@@ -246,11 +279,83 @@ function Inventory_db() {
   const platformData = useMemo(() => {
     if (!totals) return [];
     return [
-      { platform: "Shopee", qty: totals.shopee, color: PLATFORM_COLORS.Shopee },
-      { platform: "Lazada", qty: totals.lazada, color: PLATFORM_COLORS.Lazada },
-      { platform: "TikTok", qty: totals.tiktok, color: PLATFORM_COLORS.TikTok },
+      { platform: "Shopee", qty: totals.shopee, sold: soldByPlatform.shopee, color: PLATFORM_COLORS.Shopee },
+      { platform: "Lazada", qty: totals.lazada, sold: soldByPlatform.lazada, color: PLATFORM_COLORS.Lazada },
+      { platform: "TikTok", qty: totals.tiktok, sold: soldByPlatform.tiktok, color: PLATFORM_COLORS.TikTok },
     ];
-  }, [totals]);
+  }, [totals, soldByPlatform]);
+
+  // ── Drill-down handlers ────────────────────────────────────
+
+  function handleCategoryClick(entry) {
+    const category = entry?.name;
+    if (!category) return;
+    const products = rawInventory
+      .filter((r) => (r.category || "Uncategorized") === category)
+      .map((r) => ({
+        name: r.product_name || "Unknown",
+        code: r.product_code || "N/A",
+        qty: totalStock(r),
+        shopee: r.shopee_stock || 0,
+        lazada: r.lazada_stock || 0,
+        tiktok: r.tiktok_stock || 0,
+      }))
+      .sort((a, b) => b.qty - a.qty);
+
+    setBreakdown({
+      type: "category",
+      label: category,
+      color: CAT_COLORS[category] ?? "#6b7280",
+      products,
+    });
+  }
+
+  function handlePlatformClick(entry) {
+    const platform = entry?.platform;
+    if (!platform) return;
+    const key = `${platform.toLowerCase()}_stock`;
+    const products = rawInventory
+      .filter((r) => (r[key] || 0) > 0)
+      .map((r) => ({
+        name: r.product_name || "Unknown",
+        code: r.product_code || "N/A",
+        qty: r[key] || 0,
+      }))
+      .sort((a, b) => b.qty - a.qty);
+
+    const sold = soldByPlatform[platform.toLowerCase()] ?? 0;
+
+    setBreakdown({
+      type: "platform",
+      label: platform,
+      products,
+      color: PLATFORM_COLORS[platform],
+      sold,
+    });
+  }
+
+  function handleTopMoverClick(entry) {
+    const name = entry?.name;
+    if (!name) return;
+    const row = rawInventory.find((r) => (r.product_name || "Unknown") === name);
+    if (!row) return;
+
+    setBreakdown({
+      type: "product",
+      label: name,
+      color: CAT_COLORS[row.category] ?? "#6b7280",
+      products: [
+        {
+          name,
+          code: row.product_code || "N/A",
+          qty: totalStock(row),
+          shopee: row.shopee_stock || 0,
+          lazada: row.lazada_stock || 0,
+          tiktok: row.tiktok_stock || 0,
+        },
+      ],
+    });
+  }
 
   const fmt = (n) => (n ?? 0).toLocaleString();
   const loading = initialLoading;
@@ -345,68 +450,191 @@ function Inventory_db() {
         </div>
       </div>
 
-      {/* Stock by category (pie) + Stock by platform (bar) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-sm font-bold text-gray-700 mb-4">Stock by category</h2>
-          {loading ? (
-            <Skeleton className="h-56 w-full" />
-          ) : cats.length === 0 ? (
-            <p className="text-xs text-gray-400">No data</p>
-          ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <PieChart>
-                <Pie
-                  data={cats}
-                  dataKey="qty"
-                  nameKey="name"
-                  innerRadius={55}
-                  outerRadius={80}
-                  paddingAngle={3}
-                >
-                  {cats.map((c) => (
-                    <Cell key={c.name} fill={c.color} />
-                  ))}
-                </Pie>
-                <Tooltip content={<UnitsTooltip />} />
-                <Legend verticalAlign="bottom" height={24} iconType="circle" wrapperStyle={{ fontSize: 12 }} />
-              </PieChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-sm font-bold text-gray-700 mb-4">Stock by platform</h2>
+      {/* Stock by platform (primary) + Stock by category (compact) */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2 bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-sm font-bold text-gray-700">Stock by platform</h2>
+          </div>
           {loading ? (
             <Skeleton className="h-56 w-full" />
           ) : platformData.length === 0 ? (
             <p className="text-xs text-gray-400">No data</p>
           ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={platformData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                <XAxis dataKey="platform" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-                <Tooltip content={<UnitsTooltip />} />
-                <Bar dataKey="qty" name="Stock" radius={[6, 6, 0, 0]}>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-center">
+              <ResponsiveContainer width="100%" height={260}>
+                <PieChart>
+                  <Pie
+                    data={platformData}
+                    dataKey="qty"
+                    nameKey="platform"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={100}
+                    label={({ percent }) =>
+                      `${(percent * 100).toFixed(0)}%`
+                    }
+                    onClick={handlePlatformClick}
+                    cursor="pointer"
+                  >
+                    {platformData.map((p) => (
+                      <Cell key={p.platform} fill={p.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip content={<UnitsTooltip />} />
+                </PieChart>
+              </ResponsiveContainer>
+
+              <div>
+                <ul className="space-y-3">
                   {platformData.map((p) => (
-                    <Cell key={p.platform} fill={p.color} />
+                    <li key={p.platform} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="w-3 h-3 rounded-full"
+                          style={{ backgroundColor: p.color }}
+                        />
+                        <span className="text-sm font-semibold text-gray-700">
+                          {p.platform}
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-bold text-gray-700">
+                          {p.qty} in stock{' '}
+                          <span className="text-gray-400 font-normal">
+                            ({totals?.total > 0 ? ((p.qty / totals.total) * 100).toFixed(1) : 0}%)
+                          </span>
+                        </p>
+                        <p className="text-xs text-gray-400">{p.sold} sold</p>
+                      </div>
+                    </li>
                   ))}
+                </ul>
+                <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between">
+                  <span className="text-sm font-semibold text-gray-500">Total Stock</span>
+                  <span className="text-sm font-bold text-red-600">{fmt(totals?.total)} units</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="lg:col-span-1 bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-sm font-bold text-gray-700">Stock by category</h2>
+          </div>
+          {loading ? (
+            <Skeleton className="h-40 w-full" />
+          ) : cats.length === 0 ? (
+            <p className="text-xs text-gray-400">No data</p>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={160}>
+                <PieChart>
+                  <Pie
+                    data={cats}
+                    dataKey="qty"
+                    nameKey="name"
+                    innerRadius={40}
+                    outerRadius={60}
+                    paddingAngle={3}
+                    onClick={handleCategoryClick}
+                    cursor="pointer"
+                  >
+                    {cats.map((c) => (
+                      <Cell key={c.name} fill={c.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip content={<UnitsTooltip />} />
+                </PieChart>
+              </ResponsiveContainer>
+              <ul className="space-y-1.5 mt-2">
+                {cats.map((c) => (
+                  <li key={c.name} className="flex items-center justify-between text-xs">
+                    <span className="flex items-center gap-1.5 text-gray-600">
+                      <span className="w-2 h-2 rounded-full inline-block" style={{ background: c.color }} />
+                      {c.name}
+                    </span>
+                    <span className="font-semibold text-gray-700">{c.qty.toLocaleString()}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Top stocked items (primary) + Low stock alerts (compact) */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2 bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-bold text-gray-700">Top stocked items</h2>
+          </div>
+          {loading ? (
+            <Skeleton className="h-56 w-full" />
+          ) : topMovers.length === 0 ? (
+            <p className="text-xs text-gray-400">No stock data available.</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={Math.max(220, topMovers.length * 44)}>
+              <BarChart
+                data={topMovers}
+                layout="vertical"
+                margin={{ top: 0, right: 40, left: 8, bottom: 0 }}
+                barCategoryGap={12}
+              >
+                <defs>
+                  {topMovers.map((m) => {
+                    const c = PLATFORM_COLORS[m.platform] ?? "#b91c1c";
+                    return (
+                      <linearGradient key={m.name} id={`bar-${m.name.replace(/[^a-zA-Z0-9]/g, "")}`} x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0%" stopColor={c} stopOpacity={0.55} />
+                        <stop offset="100%" stopColor={c} stopOpacity={1} />
+                      </linearGradient>
+                    );
+                  })}
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+                <YAxis
+                  type="category"
+                  dataKey="name"
+                  width={140}
+                  tick={{ fontSize: 11, fill: "#374151" }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip content={<UnitsTooltip />} />
+                <Bar
+                  dataKey="qty"
+                  name="Stock"
+                  radius={[0, 6, 6, 0]}
+                  barSize={22}
+                  onClick={handleTopMoverClick}
+                  cursor="pointer"
+                >
+                  {topMovers.map((m) => (
+                    <Cell
+                      key={m.name}
+                      fill={`url(#bar-${m.name.replace(/[^a-zA-Z0-9]/g, "")})`}
+                    />
+                  ))}
+                  <LabelList
+                    dataKey="qty"
+                    position="right"
+                    style={{ fontSize: 11, fill: "#374151", fontWeight: 600 }}
+                  />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
           )}
         </div>
-      </div>
 
-      {/* Low stock + Activity */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="lg:col-span-1 bg-white rounded-lg shadow p-6">
           <h2 className="text-sm font-bold text-gray-700 mb-4">
             Low stock alerts
             {!loading && (
               <span className="ml-2 px-2 py-0.5 bg-red-100 text-red-700 text-xs rounded font-medium">
-                {lowStock.length} items
+                {lowStock.length}
               </span>
             )}
           </h2>
@@ -448,7 +676,10 @@ function Inventory_db() {
             </div>
           )}
         </div>
+      </div>
 
+      {/* Recent activity + Items needing attention */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-sm font-bold text-gray-700 mb-4">Recent activity</h2>
           {loading ? (
@@ -469,43 +700,6 @@ function Inventory_db() {
                 </div>
               ))}
             </div>
-          )}
-        </div>
-      </div>
-
-      {/* Top movers (chart) + Slow movers (list) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-sm font-bold text-gray-700 mb-4">Top stocked items</h2>
-          {loading ? (
-            <Skeleton className="h-56 w-full" />
-          ) : topMovers.length === 0 ? (
-            <p className="text-xs text-gray-400">No stock data available.</p>
-          ) : (
-            <ResponsiveContainer width="100%" height={Math.max(180, topMovers.length * 36)}>
-              <BarChart
-                data={topMovers}
-                layout="vertical"
-                margin={{ top: 0, right: 24, left: 8, bottom: 0 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  width={140}
-                  tick={{ fontSize: 11, fill: "#374151" }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip content={<UnitsTooltip />} />
-                <Bar dataKey="qty" name="Stock" radius={[0, 6, 6, 0]} barSize={16}>
-                  {topMovers.map((m) => (
-                    <Cell key={m.name} fill={PLATFORM_COLORS[m.platform] ?? "#b91c1c"} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
           )}
         </div>
 
@@ -536,6 +730,76 @@ function Inventory_db() {
           )}
         </div>
       </div>
+
+      {/* Drill-down modal */}
+      {breakdown && (
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          onClick={() => setBreakdown(null)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[80vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6 pb-4 border-b border-gray-100 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span
+                  className="w-3 h-3 rounded-full"
+                  style={{ background: breakdown.color }}
+                />
+                <h2 className="text-lg font-bold text-gray-800">
+                  {breakdown.label}
+                </h2>
+                <span className="text-xs text-gray-400">
+                  ({breakdown.products.length} product{breakdown.products.length !== 1 ? "s" : ""})
+                  {breakdown.type === "platform" && `, ${breakdown.sold} sold total`}
+                </span>
+              </div>
+              <button
+                onClick={() => setBreakdown(null)}
+                className="text-gray-400 hover:text-gray-600 text-sm font-semibold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="overflow-y-auto p-6 pt-4">
+              {breakdown.products.length === 0 ? (
+                <p className="text-xs text-gray-400">No products found.</p>
+              ) : (
+                <div className="space-y-3">
+                  {breakdown.products.map((p) => (
+                    <div key={p.code ?? p.name} className="border-b border-gray-50 pb-2 last:border-0">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-xs font-medium text-gray-700">{p.name}</p>
+                          {p.code && <p className="text-xs font-mono text-gray-400">{p.code}</p>}
+                        </div>
+                        <span className="text-xs font-bold text-red-600 shrink-0">
+                          {p.qty} units
+                        </span>
+                      </div>
+                      {(breakdown.type === "category" || breakdown.type === "product") && (
+                        <div className="flex gap-3 mt-1">
+                          <span className="text-xs" style={{ color: PLATFORM_COLORS.Shopee }}>
+                            Shopee: {p.shopee}
+                          </span>
+                          <span className="text-xs" style={{ color: PLATFORM_COLORS.Lazada }}>
+                            Lazada: {p.lazada}
+                          </span>
+                          <span className="text-xs" style={{ color: PLATFORM_COLORS.TikTok }}>
+                            TikTok: {p.tiktok}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
