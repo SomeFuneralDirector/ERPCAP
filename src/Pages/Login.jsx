@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import LOGINBG1 from '../assets/LOGINBG1.JPG';
+import LOGINBG1 from '../assets/LOGINBG1.jpg';
 import IFLOGO from '../assets/IFLOGO.jpeg';
 import logotry from '../assets/logo.jpg'
 import { useNavigate } from 'react-router-dom';
