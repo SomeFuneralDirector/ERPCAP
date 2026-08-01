@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
 import Admin from "./Pages/Admin.jsx";
 import Marketing from "./Pages/Marketing.jsx";
 import Marketing_io from "./Pages/Marketing_io.jsx";
+import Marketing_camp from "./Pages/Marketing_camp.jsx";
 import Sales from './Pages/Sales.jsx';
 import Sales_db from './Pages/Sales_db.jsx';
 import Inventory from './Pages/Inventory.jsx';
@@ -14,6 +15,7 @@ import Production_wo from './Pages/Production_wo.jsx';
 import Production_rm from './Pages/Production_rm.jsx';
 import Production_fg from './Pages/Production_fg.jsx';
 import ProtectedRoute from "./Routes/ProtectedRoutes.jsx";
+import Settings from './Pages/Settings.jsx';
 import Nav from "./Components/Navigation.jsx";
 
 // Layout component that includes the navigation and main content area
@@ -40,6 +42,7 @@ const DashboardLayout = () => {
           <Route path="/admin" element={<Admin />} />
           <Route path="/marketing" element={<Marketing />} />
           <Route path="/marketing_io" element={<Marketing_io />} />
+          <Route path="/marketing_camp" element={<Marketing_camp />} />
           <Route path="/sales" element={<Sales />} />
           <Route path="/sales_db" element={<Sales_db />} />
           <Route path="/inventory" element={<Inventory />} />
@@ -48,6 +51,7 @@ const DashboardLayout = () => {
           <Route path="/production_wo" element={<Production_wo />} />
           <Route path="/production_rm" element={<Production_rm />} />
           <Route path="/production_fg" element={<Production_fg />} />
+          <Route path="/setttings" element={<Settings />} />
           <Route path="/" element={<Navigate to="/admin" replace />} />
         </Routes>
       </main>

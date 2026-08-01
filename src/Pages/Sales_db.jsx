@@ -181,7 +181,7 @@ function Sales_db() {
     return (
       <div className="p-6">
         <div className="bg-white rounded-lg shadow p-6 border border-red-200">
-          <h1 className="text-2xl font-bold text-gray-800 mb-2">Sales Dashboard</h1>
+          <h1 className="text-2xl font-bold text-gray-800 mb-2">Sales - Dashboard</h1>
           <p className="text-sm text-red-600 mb-4">{errorMsg}</p>
           <button
             onClick={() => fetchAll(true)}
