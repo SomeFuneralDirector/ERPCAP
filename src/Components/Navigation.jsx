@@ -18,7 +18,7 @@ const navItems = [
     children: [
       { id: "admin-dashboard", label: "Dashboard", icon: LayoutDashboard, path: "/admin" },
       { id: "admin-users", label: "User Management", icon: Users, path: "/admin/users" },
-      { id: "admin-logs", label: "Activity Logs", icon: Activity, path: "/admin/logs" },
+      { id: "admin-logs", label: "Activity Logs", icon: Activity, path: "/activity_logs" },
     ],
   },
   {
@@ -121,9 +121,9 @@ function Nav() {
     let name = 'User';
     let roleDisplay = userRole?.replace('_', ' ') || 'User';
     if (userRole === 'admin') name = 'Admin User';
-    else if (userRole === 'sales') name = 'Niggas in Sales';
-    else if (userRole === 'marketing') name = 'Baddies in Marketing';
-    else if (userRole === 'inventory') name = 'Ayasibs in Inventory';
+    else if (userRole === 'sales') name = 'Sales User';
+    else if (userRole === 'marketing') name = 'Marketing User';
+    else if (userRole === 'inventory') name = 'Inventory User';
     else if (userRole === 'production') name = 'Production User';
     return { initials, name, roleDisplay };
   };

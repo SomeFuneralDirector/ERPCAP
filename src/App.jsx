@@ -3,6 +3,7 @@ import "./App.css";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
 import Admin from "./Pages/Admin.jsx";
+import Activity_logs from "./Pages/Activity_logs.jsx";
 import Marketing from "./Pages/Marketing.jsx";
 import Marketing_io from "./Pages/Marketing_io.jsx";
 import Marketing_camp from "./Pages/Marketing_camp.jsx";
@@ -18,7 +19,7 @@ import ProtectedRoute from "./Routes/ProtectedRoutes.jsx";
 import Settings from './Pages/Settings.jsx';
 import Nav from "./Components/Navigation.jsx";
 
-// Layout component that includes the navigation and main content area
+
 const DashboardLayout = () => {
   const { user, loading } = useAuth();
   
@@ -40,6 +41,7 @@ const DashboardLayout = () => {
       <main className="flex-1 overflow-y-auto bg-gray-100">
         <Routes>
           <Route path="/admin" element={<Admin />} />
+          <Route path="/activity_logs" element={<Activity_logs />} />
           <Route path="/marketing" element={<Marketing />} />
           <Route path="/marketing_io" element={<Marketing_io />} />
           <Route path="/marketing_camp" element={<Marketing_camp />} />

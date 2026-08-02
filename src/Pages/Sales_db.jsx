@@ -31,6 +31,18 @@ const fmtCurrency = (n) =>
 
 const fmtAxis = (v) => `₱${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`;
 
+// Orders store amounts in cents and platform names lowercase (shopee/lazada/tiktok)
+const centsToPesos = (c) => (c || 0) / 100;
+const normalizePlatform = (p) => {
+  if (!p) return "Unknown";
+  const key = p.toLowerCase();
+  if (key === "shopee") return "Shopee";
+  if (key === "lazada") return "Lazada";
+  if (key === "tiktok") return "TikTok";
+  return p;
+};
+const orderDate = (o) => o.completed_at || o.created_at || o.paid_time;
+
 function getStartOfWeek(d) {
   const date = new Date(d);
   date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
@@ -38,11 +50,13 @@ function getStartOfWeek(d) {
   return date;
 }
 
-function bucketSales(rows, mode) {
+function bucketSales(orders, mode) {
   const buckets = {};
 
-  rows.forEach((r) => {
-    const d = new Date(r.created_at);
+  orders.forEach((o) => {
+    const raw = orderDate(o);
+    if (!raw) return;
+    const d = new Date(raw);
     let key, label, sortKey;
 
     if (mode === "weekly") {
@@ -61,7 +75,7 @@ function bucketSales(rows, mode) {
     }
 
     if (!buckets[key]) buckets[key] = { label, sortKey, value: 0 };
-    buckets[key].value += r.amount || 0;
+    buckets[key].value += centsToPesos(o.total_amount);
   });
 
   return Object.values(buckets).sort((a, b) => a.sortKey - b.sortKey);
@@ -92,7 +106,8 @@ function CurrencyTooltip({ active, payload, label }) {
 // ─── Main component ──────────────────────────────────────────
 
 function Sales_db() {
-  const [rawSales, setRawSales] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [orderItems, setOrderItems] = useState([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -106,19 +121,40 @@ function Sales_db() {
     }
     setErrorMsg("");
 
-    const { data, error } = await supabase
-      .from("sales")
-      .select("id, product_name, platform, quantity, amount, created_at")
-      .order("created_at", { ascending: true });
+    // ── 1. Completed orders (the source of truth for revenue/trend) ──
+    const { data: completedOrders, error: ordersError } = await supabase
+      .from("orders")
+      .select("id, order_id, platform, total_amount, completed_at, created_at, paid_time, status")
+      .eq("status", "COMPLETED");
 
-    if (error) {
-      setErrorMsg(error.message || "Couldn't load sales data.");
+    if (ordersError) {
+      setErrorMsg(ordersError.message || "Couldn't load orders.");
       setInitialLoading(false);
       setRefreshing(false);
       return;
     }
 
-    setRawSales(data || []);
+    setOrders(completedOrders || []);
+
+    // ── 2. Line items for those completed orders (top products) ──
+    const orderIds = (completedOrders || []).map((o) => o.order_id).filter(Boolean);
+
+    if (orderIds.length === 0) {
+      setOrderItems([]);
+    } else {
+      const { data: items, error: itemsError } = await supabase
+        .from("order_items")
+        .select("order_id, platform, product_name, sku, quantity, unit_price")
+        .in("order_id", orderIds);
+
+      if (itemsError) {
+        console.error("Error fetching order items:", itemsError);
+        setOrderItems([]);
+      } else {
+        setOrderItems(items || []);
+      }
+    }
+
     setInitialLoading(false);
     setRefreshing(false);
   }, []);
@@ -130,7 +166,12 @@ function Sales_db() {
       .channel("sales-realtime")
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "sales" },
+        { event: "*", schema: "public", table: "orders" },
+        () => fetchAll(false)
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "order_items" },
         () => fetchAll(false)
       )
       .subscribe();
@@ -141,15 +182,15 @@ function Sales_db() {
   // ── Derived data ───────────────────────────────────────────
 
   const totalSales = useMemo(
-    () => rawSales.reduce((sum, r) => sum + (r.amount || 0), 0),
-    [rawSales]
+    () => orders.reduce((sum, o) => sum + centsToPesos(o.total_amount), 0),
+    [orders]
   );
 
   const platformTotals = useMemo(() => {
     const map = {};
-    rawSales.forEach((r) => {
-      const p = r.platform || "Unknown";
-      map[p] = (map[p] || 0) + (r.amount || 0);
+    orders.forEach((o) => {
+      const p = normalizePlatform(o.platform);
+      map[p] = (map[p] || 0) + centsToPesos(o.total_amount);
     });
     return Object.entries(map)
       .map(([platform, amount]) => ({
@@ -158,30 +199,30 @@ function Sales_db() {
         color: PLATFORM_COLORS[platform] ?? "#6b7280",
       }))
       .sort((a, b) => b.amount - a.amount);
-  }, [rawSales]);
+  }, [orders]);
 
   const topProducts = useMemo(() => {
     const map = {};
-    rawSales.forEach((r) => {
-      const name = r.product_name || "Unknown";
+    orderItems.forEach((item) => {
+      const name = item.product_name || "Unknown";
       if (!map[name]) map[name] = { name, qty: 0, amount: 0 };
-      map[name].qty += r.quantity || 0;
-      map[name].amount += r.amount || 0;
+      map[name].qty += item.quantity || 0;
+      map[name].amount += (item.quantity || 0) * centsToPesos(item.unit_price);
     });
     return Object.values(map)
       .sort((a, b) => b.qty - a.qty)
       .slice(0, 6);
-  }, [rawSales]);
+  }, [orderItems]);
 
-  const trendPoints = useMemo(() => bucketSales(rawSales, trendMode), [rawSales, trendMode]);
+  const trendPoints = useMemo(() => bucketSales(orders, trendMode), [orders, trendMode]);
 
   const loading = initialLoading;
 
-  if (errorMsg && rawSales.length === 0) {
+  if (errorMsg && orders.length === 0) {
     return (
       <div className="p-6">
         <div className="bg-white rounded-lg shadow p-6 border border-red-200">
-          <h1 className="text-2xl font-bold text-gray-800 mb-2">Sales - Dashboard</h1>
+          <h1 className="text-2xl font-bold text-gray-800 mb-2">Sales Dashboard</h1>
           <p className="text-sm text-red-600 mb-4">{errorMsg}</p>
           <button
             onClick={() => fetchAll(true)}
@@ -200,7 +241,7 @@ function Sales_db() {
       <div className="bg-white rounded-lg shadow p-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Sales Dashboard</h1>
-          {refreshing && <p className="text-xs text-gray-400 mt-1">Syncing…</p>}
+          
         </div>
         <button
           onClick={() => fetchAll(false)}
@@ -211,7 +252,7 @@ function Sales_db() {
         </button>
       </div>
 
-      {errorMsg && rawSales.length > 0 && (
+      {errorMsg && orders.length > 0 && (
         <div className="bg-white border border-amber-300 text-amber-700 rounded-lg shadow p-3 text-xs">
           Last refresh failed: {errorMsg}
         </div>
@@ -230,6 +271,7 @@ function Sales_db() {
               {fmtCurrency(totalSales)}
             </p>
           )}
+          <p className="text-xs mt-1 text-gray-400">{orders.length} completed orders</p>
         </div>
 
         {["Shopee", "Lazada", "TikTok"].map((platform) => {

@@ -98,15 +98,15 @@ function Inventory_db() {
     }
     setErrorMsg("");
 
-    // ── 1. Fetch inventory + sales (sales feeds the "sold" side of the platform chart) ──
-    const [invRes, salesRes] = await Promise.all([
+    // ── 1. Fetch inventory + completed-order line items (feeds the "sold" side of the platform chart) ──
+    const [invRes, ordersRes] = await Promise.all([
       supabase
         .from("inventory")
         .select(
           "id, stock, shopee_stock, lazada_stock, tiktok_stock, " +
           "category, product_name, product_code, reorder_point, updated_at"
         ),
-      supabase.from("sales").select("platform, quantity"),
+      supabase.from("orders").select("order_id").eq("status", "COMPLETED"),
     ]);
 
     const { data: inv, error: invError } = invRes;
@@ -118,18 +118,32 @@ function Inventory_db() {
       return;
     }
 
-    if (salesRes.error) {
+    if (ordersRes.error) {
       // Sold-by-platform is supplementary; don't block the page on it.
-      console.error("Error fetching sales for platform chart:", salesRes.error);
+      console.error("Error fetching orders for platform chart:", ordersRes.error);
       setSoldByPlatform({ shopee: 0, lazada: 0, tiktok: 0 });
     } else {
+      const orderIds = (ordersRes.data || []).map((o) => o.order_id).filter(Boolean);
       const soldTotals = { shopee: 0, lazada: 0, tiktok: 0 };
-      (salesRes.data || []).forEach((r) => {
-        const key = r.platform === "TikTok" ? "tiktok" : r.platform?.toLowerCase();
-        if (key && soldTotals[key] !== undefined) {
-          soldTotals[key] += Number(r.quantity) || 0;
+
+      if (orderIds.length > 0) {
+        const { data: items, error: itemsError } = await supabase
+          .from("order_items")
+          .select("platform, quantity")
+          .in("order_id", orderIds);
+
+        if (itemsError) {
+          console.error("Error fetching order items for platform chart:", itemsError);
+        } else {
+          (items || []).forEach((r) => {
+            const key = r.platform?.toLowerCase();
+            if (key && soldTotals[key] !== undefined) {
+              soldTotals[key] += Number(r.quantity) || 0;
+            }
+          });
         }
-      });
+      }
+
       setSoldByPlatform(soldTotals);
     }
 
@@ -266,7 +280,12 @@ function Inventory_db() {
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "sales" },
+        { event: "*", schema: "public", table: "orders" },
+        () => fetchAll(false)
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "order_items" },
         () => fetchAll(false)
       )
       .subscribe();
@@ -455,6 +474,9 @@ function Inventory_db() {
         <div className="lg:col-span-2 bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between mb-1">
             <h2 className="text-sm font-bold text-gray-700">Stock by platform</h2>
+            {!loading && platformData.length > 0 && (
+              <span className="text-xs text-gray-400">Click a slice for details</span>
+            )}
           </div>
           {loading ? (
             <Skeleton className="h-56 w-full" />
@@ -471,8 +493,8 @@ function Inventory_db() {
                     cx="50%"
                     cy="50%"
                     outerRadius={100}
-                    label={({ percent }) =>
-                      `${(percent * 100).toFixed(0)}%`
+                    label={({ platform, percent }) =>
+                      `${platform} ${(percent * 100).toFixed(0)}%`
                     }
                     onClick={handlePlatformClick}
                     cursor="pointer"
@@ -559,6 +581,7 @@ function Inventory_db() {
                   </li>
                 ))}
               </ul>
+              <p className="text-xs text-gray-400 mt-2">Click a slice for details</p>
             </>
           )}
         </div>
@@ -569,6 +592,9 @@ function Inventory_db() {
         <div className="lg:col-span-2 bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-bold text-gray-700">Top stocked items</h2>
+            {!loading && topMovers.length > 0 && (
+              <span className="text-xs text-gray-400">Click a bar for details</span>
+            )}
           </div>
           {loading ? (
             <Skeleton className="h-56 w-full" />
