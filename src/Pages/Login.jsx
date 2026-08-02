@@ -11,6 +11,21 @@ function Login() {
   const [password, setPassword] = useState('');
   const navigate = useNavigate();
 
+  const logLogin = async (status) => {
+    const { error: logError } = await supabase.from('login_logs').insert([
+      {
+        user_email: email,
+        status, // 'success' | 'failed'
+        user_agent: navigator.userAgent,
+      },
+    ]);
+
+    if (logError) {
+      // Logging should never break the login flow itself, but we do want to see why it failed
+      console.error('Failed to record login log:', logError.message);
+    }
+  };
+
   const handleLogin = async (e) =>{
      e.preventDefault();
 
@@ -20,9 +35,12 @@ function Login() {
     })
 
     if(error){
+      await logLogin('failed');
       alert(error.message);
       return
     }
+
+    await logLogin('success');
 
     const user = data.user;
 

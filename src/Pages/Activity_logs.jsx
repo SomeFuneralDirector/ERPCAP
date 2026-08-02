@@ -32,23 +32,31 @@ const PLATFORM_STYLES = {
   tiktok: 'bg-gray-800 text-white',
 }
 
-function timeAgo(iso) {
+function formatExact(iso) {
   if (!iso) return '—'
   const d = new Date(iso)
-  const diffMs = Date.now() - d.getTime()
-  const diffMin = Math.floor(diffMs / 60_000)
-  const diffH = Math.floor(diffMs / 3_600_000)
-  const diffD = Math.floor(diffMs / 86_400_000)
-
-  if (diffMin < 1) return 'Just now'
-  if (diffMin < 60) return `${diffMin}m ago`
-  if (diffH < 24) return `${diffH}h ago`
-  if (diffD < 7) return `${diffD}d ago`
-  return d.toLocaleDateString()
+  return d.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
 }
 
 function Skeleton({ className = 'h-10 w-full' }) {
   return <div className={`${className} bg-gray-100 rounded animate-pulse`} />
+}
+
+function parseDevice(userAgent) {
+  if (!userAgent) return '—'
+  const ua = userAgent.toLowerCase()
+  const isTablet = /ipad|tablet/.test(ua) || (/android/.test(ua) && !/mobile/.test(ua))
+  const isMobile = /mobi|iphone|android/.test(ua)
+
+  if (isTablet) return 'Tablet'
+  if (isMobile) return 'Mobile'
+  return 'Desktop'
 }
 
 function Activity_logs() {
@@ -67,7 +75,7 @@ function Activity_logs() {
     setLoading((p) => ({ ...p, logins: true }))
     const { data, error } = await supabase
       .from('login_logs')
-      .select('id, user_email, ip_address, user_agent, status, created_at')
+      .select('id, user_email, user_agent, status, created_at')
       .order('created_at', { ascending: false })
       .limit(PAGE_SIZE)
 
@@ -138,7 +146,8 @@ function Activity_logs() {
     ? logins.filter(
         (l) =>
           l.user_email?.toLowerCase().includes(q) ||
-          l.ip_address?.toLowerCase().includes(q)
+          l.user_agent?.toLowerCase().includes(q) ||
+          parseDevice(l.user_agent).toLowerCase().includes(q)
       )
     : logins
 
@@ -227,7 +236,6 @@ function Activity_logs() {
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
                       <th className="px-4 py-2 text-left font-semibold text-gray-600">User</th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-600">IP Address</th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-600">Device</th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-600">Status</th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-600">When</th>
@@ -237,11 +245,11 @@ function Activity_logs() {
                     {filteredLogins.map((l) => (
                       <tr key={l.id} className="border-b border-gray-100 hover:bg-red-50/30">
                         <td className="px-4 py-2.5 text-gray-700">{l.user_email || '—'}</td>
-                        <td className="px-4 py-2.5 font-mono text-xs text-gray-500">
-                          {l.ip_address || '—'}
-                        </td>
-                        <td className="px-4 py-2.5 text-gray-500 text-xs truncate max-w-xs">
-                          {l.user_agent || '—'}
+                        <td
+                          className="px-4 py-2.5 text-gray-600 text-xs"
+                          title={l.user_agent || ''}
+                        >
+                          {parseDevice(l.user_agent)}
                         </td>
                         <td className="px-4 py-2.5">
                           <span
@@ -252,7 +260,7 @@ function Activity_logs() {
                             {l.status || 'unknown'}
                           </span>
                         </td>
-                        <td className="px-4 py-2.5 text-gray-500 text-xs">{timeAgo(l.created_at)}</td>
+                        <td className="px-4 py-2.5 text-gray-500 text-xs">{formatExact(l.created_at)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -304,7 +312,7 @@ function Activity_logs() {
                         <p className="text-xs text-gray-400 mt-0.5">{c.detail}</p>
                       )}
                     </div>
-                    <span className="text-xs text-gray-400 shrink-0">{timeAgo(c.created_at)}</span>
+                    <span className="text-xs text-gray-400 shrink-0">{formatExact(c.created_at)}</span>
                   </div>
                 ))}
               </div>
@@ -393,7 +401,7 @@ function Activity_logs() {
                                 {i.status || 'unknown'}
                               </span>
                             </td>
-                            <td className="px-4 py-2.5 text-gray-500 text-xs">{timeAgo(i.imported_at)}</td>
+                            <td className="px-4 py-2.5 text-gray-500 text-xs">{formatExact(i.imported_at)}</td>
                           </tr>
 
                           {isExpanded && (
