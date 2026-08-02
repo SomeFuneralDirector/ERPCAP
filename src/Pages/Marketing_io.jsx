@@ -164,19 +164,6 @@ function Marketing_io() {
     }))
   }, [orderItems, inventoryByName])
 
-  const topProducts = useMemo(() => {
-    return [...products]
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 5)
-  }, [products])
-
-  const lowProducts = useMemo(() => {
-    return [...products]
-      .filter((p) => p.total <= LOW_PERFORMER_THRESHOLD)
-      .sort((a, b) => a.total - b.total)
-      .slice(0, 5)
-  }, [products])
-
   const sortedProductTable = useMemo(() => {
     return [...products].sort((a, b) => b.total - a.total)
   }, [products])
@@ -213,114 +200,11 @@ function Marketing_io() {
         <div className="bg-white rounded-lg shadow p-6">
           <p className="text-gray-400 text-sm italic">
             No completed orders yet. Once orders come in through the Sales page,
-            top sellers, low performers, and platform breakdowns will show up here.
+            product sales data will show up here.
           </p>
         </div>
       ) : (
         <>
-          {/* Top Sellers & Low Performers */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-            {/* Top Selling Products */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-lg font-bold text-gray-800 mb-4">
-                Top Selling Products
-              </h2>
-              {topProducts.length === 0 ? (
-                <p className="text-gray-400 text-sm italic">No sales data yet.</p>
-              ) : (
-                <ul className="space-y-3">
-                  {topProducts.map((p, idx) => (
-                    <li
-                      key={p.id}
-                      className="flex items-center justify-between border-b border-gray-100 pb-2 last:border-0"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="w-6 h-6 flex items-center justify-center rounded-full bg-red-600 text-white text-xs font-bold">
-                          {idx + 1}
-                        </span>
-                        <div>
-                          <p className="text-sm font-semibold text-gray-700">
-                            {p.name}
-                          </p>
-                          <p className="text-xs text-gray-400">{p.category}</p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-bold text-red-600">
-                          {p.total} sold
-                        </p>
-                        {p.stock !== null && (
-                          <p className="text-xs text-gray-400">{p.stock} in stock</p>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            {/* Low Performing Products */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-lg font-bold text-gray-800 mb-4">
-                Low Performing Products
-              </h2>
-              {lowProducts.length === 0 ? (
-                <p className="text-gray-400 text-sm italic">
-                  No low-performing products found.
-                </p>
-              ) : (
-                <ul className="space-y-3">
-                  {lowProducts.map((p) => (
-                    <li
-                      key={p.id}
-                      className="flex items-center justify-between border-b border-gray-100 pb-2 last:border-0"
-                    >
-                      <div>
-                        <p className="text-sm font-semibold text-gray-700">
-                          {p.name}
-                        </p>
-                        <p className="text-xs text-gray-400">{p.category}</p>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-sm font-bold text-gray-500 bg-gray-100 border border-gray-300 px-2 py-1 rounded-full">
-                          {p.total} sold
-                        </span>
-                        {p.stock !== null && (
-                          <p className="text-xs text-gray-400 mt-1">{p.stock} in stock</p>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
-
-          {/* Sales per Product Chart */}
-          <div className="bg-white rounded-lg shadow p-6 mb-4">
-            <h2 className="text-lg font-bold text-gray-800 mb-4">
-              Sales per Product
-            </h2>
-            <ResponsiveContainer width="100%" height={320}>
-              <BarChart data={sortedProductTable}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                <XAxis
-                  dataKey="name"
-                  tick={{ fontSize: 11 }}
-                  interval={0}
-                  angle={-30}
-                  textAnchor="end"
-                  height={70}
-                />
-                <YAxis tick={{ fontSize: 12 }} />
-                <Tooltip />
-                <Bar dataKey="shopee" stackId="a" name="Shopee" fill={PLATFORM_COLORS.Shopee} />
-                <Bar dataKey="lazada" stackId="a" name="Lazada" fill={PLATFORM_COLORS.Lazada} />
-                <Bar dataKey="tiktok" stackId="a" name="TikTok" fill={PLATFORM_COLORS.TikTok} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-
           {/* Full Product Sales Table */}
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-lg font-bold text-gray-800 mb-4">
@@ -370,4 +254,4 @@ function Marketing_io() {
   )
 }
 
-export default Marketing_io;
+export default Marketing_io
