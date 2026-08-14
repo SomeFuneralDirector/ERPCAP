@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Package, ShoppingCart, Megaphone, Factory,
   Settings, ChevronRight, ChevronLeft, Menu, X, LogOut,
   Users, Activity, Megaphone as CampaignIcon,
-  Layers, ClipboardList, Box, Boxes, PhilippinePesoIcon
+  Layers, ClipboardList, Box, Boxes, PhilippinePesoIcon, BookCheck
 } from "lucide-react";
 import logotry from '../assets/logo.jpg';
 import { useAuth } from "../context/AuthContext";
@@ -19,6 +19,8 @@ const navItems = [
       { id: "admin-dashboard", label: "Dashboard", icon: LayoutDashboard, path: "/admin" },
       { id: "admin-users", label: "User Management", icon: Users, path: "/admin/users" },
       { id: "admin-logs", label: "Activity Logs", icon: Activity, path: "/activity_logs" },
+      { id: "admin-finance", label: "Finance", icon: BookCheck, path: "/finance" },
+      { id: "admin-expense", label: "Expense Form", icon: BookCheck, path: "/expense_form" },
     ],
   },
   {

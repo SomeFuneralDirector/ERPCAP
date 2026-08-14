@@ -1,3 +1,4 @@
+//this is SALES TRANSACTION. tanga kasi kami kaya ganto.
 import React, { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import CSVImport from '../Components/Csvimport'
