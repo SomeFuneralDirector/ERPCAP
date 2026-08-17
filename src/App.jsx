@@ -6,6 +6,7 @@ import Admin from "./Pages/Admin.jsx";
 import Activity_logs from "./Pages/Activity_logs.jsx";
 import Finance from "./Pages/Finance.jsx";
 import ExpenseForm from "./Pages/ExpenseForm.jsx";
+import Ledger from "./Pages/Ledger.jsx";
 import Marketing from "./Pages/Marketing.jsx";
 import Marketing_io from "./Pages/Marketing_io.jsx";
 import Marketing_camp from "./Pages/Marketing_camp.jsx";
@@ -46,6 +47,7 @@ const DashboardLayout = () => {
           <Route path="/activity_logs" element={<Activity_logs />} />
           <Route path="/finance" element={<Finance />} />
           <Route path="/expense_form" element={<ExpenseForm />} />
+          <Route path="/ledger" element={<Ledger />} />
           <Route path="/marketing" element={<Marketing />} />
           <Route path="/marketing_io" element={<Marketing_io />} />
           <Route path="/marketing_camp" element={<Marketing_camp />} />

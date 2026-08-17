@@ -20,7 +20,8 @@ const navItems = [
       { id: "admin-users", label: "User Management", icon: Users, path: "/admin/users" },
       { id: "admin-logs", label: "Activity Logs", icon: Activity, path: "/activity_logs" },
       { id: "admin-finance", label: "Finance", icon: BookCheck, path: "/finance" },
-      { id: "admin-expense", label: "Expense Form", icon: BookCheck, path: "/expense_form" },
+      /* { id: "admin-expense", label: "Expense Form", icon: BookCheck, path: "/expense_form" }, */
+      { id: "admin-ledger", label: "Ledger", icon: BookCheck, path: "/ledger" },
     ],
   },
   {
