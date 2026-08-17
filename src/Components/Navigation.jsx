@@ -22,6 +22,7 @@ const navItems = [
       { id: "admin-finance", label: "Finance", icon: BookCheck, path: "/finance" },
       /* { id: "admin-expense", label: "Expense Form", icon: BookCheck, path: "/expense_form" }, */
       { id: "admin-ledger", label: "Ledger", icon: BookCheck, path: "/ledger" },
+      { id: "admin-balance_sheet", label: "Balance Sheet", icon: BookCheck, path: "/balance_sheet" },
     ],
   },
   {
