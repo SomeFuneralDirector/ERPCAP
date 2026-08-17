@@ -19,6 +19,7 @@ import Production from './Pages/Production.jsx';
 import Production_wo from './Pages/Production_wo.jsx';
 import Production_rm from './Pages/Production_rm.jsx';
 import Production_fg from './Pages/Production_fg.jsx';
+import Production_transaction from "./Pages/Production_transaction.jsx";
 import ProtectedRoute from "./Routes/ProtectedRoutes.jsx";
 import Settings from './Pages/Settings.jsx';
 import Nav from "./Components/Navigation.jsx";
@@ -58,6 +59,7 @@ const DashboardLayout = () => {
           <Route path="/inventory" element={<Inventory />} />
           <Route path="/inventory_db" element={<Inventory_db />} />
           <Route path="/production" element={<Production />} />
+          <Route path="/production_transaction" element={<Production_transaction />} />
           <Route path="/production_wo" element={<Production_wo />} />
           <Route path="/production_rm" element={<Production_rm />} />
           <Route path="/production_fg" element={<Production_fg />} />

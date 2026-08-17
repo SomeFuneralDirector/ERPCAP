@@ -1,3 +1,4 @@
+
 const COLUMN_MAPS = {
   shopee: {
     order_id:        "Order ID",
@@ -94,9 +95,9 @@ const COLUMN_MAPS = {
   },
 };
 
-// for sales dept
+// Same normalization table as sales — kept identical on purpose so a status
+// like "ready to ship" always maps the same way everywhere in the app.
 const STATUS_MAP = {
-  // Shopee statuses (exact from export)
   "completed":              "COMPLETED",
   "to receive":             "DELIVERED",
   "shipped":                "SHIPPED",
@@ -108,7 +109,6 @@ const STATUS_MAP = {
   "unpaid":                 "UNPAID",
   "pending":                "PENDING",
   "processing":             "PROCESSING",
-  // Lazada statuses (exact from export)
   "delivered":              "DELIVERED",
   "lost by third party":    "CANCELLED",
   "returned":               "CANCELLED",
@@ -123,10 +123,10 @@ function normalizeStatus(raw = "") {
   return STATUS_MAP[raw.toLowerCase().trim()] || raw.toUpperCase().replace(/\s+/g, "_");
 }
 
-// ─── Only import completed orders ────────────────────────────────────────────
-const COMPLETED_STATUS = "COMPLETED";
+// ─── Production only imports READY_TO_SHIP orders ──────────────────────────
+const TARGET_STATUS = "READY_TO_SHIP";
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 function parsePrice(val) {
   if (val === undefined || val === null || val === "") return 0;
   const cleaned = String(val).replace(/[₱,\s]/g, "");
@@ -143,23 +143,18 @@ function get(row, key) {
   return row[key] !== undefined ? String(row[key]).trim() : "";
 }
 
-// ─── Auto-detect Platform ─────────────────────────────────────────────────────
+// ─── Auto-detect Platform ────────────────────────────────────────────────────
 function detectPlatform(headers) {
   const h = headers.map(x => (x || "").toLowerCase().trim());
-
-  // Lazada: has orderItemId
   if (h.includes("orderitemid")) return "lazada";
-  // TikTok: has Order ID + SKU ID + Buyer Username
   if (h.includes("order id") && h.includes("sku id") && h.includes("buyer username")) return "tiktok";
   if (h.includes("order id") && h.includes("shipping provider name")) return "tiktok";
-  // Shopee: has Order ID + Username (Buyer)
   if (h.includes("order id") && h.includes("username (buyer)")) return "shopee";
   if (h.includes("order id") && h.includes("receiver name")) return "shopee";
-
   return null;
 }
 
-// ─── CSV Row Parser ───────────────────────────────────────────────────────────
+// ─── CSV Row Parser ──────────────────────────────────────────────────────────
 function parseCSVText(csvText) {
   const lines = csvText.trim().split(/\r?\n/);
   if (lines.length < 2) return { headers: [], rows: [] };
@@ -205,7 +200,7 @@ function parseCSVLine(line) {
   return result;
 }
 
-// ─── Shopee Parser ────────────────────────────────────────────────────────────
+// ─── Shopee Parser ───────────────────────────────────────────────────────────
 function parseShopeeOrders(rows) {
   const map = COLUMN_MAPS.shopee;
   const ordersMap = {};
@@ -215,9 +210,7 @@ function parseShopeeOrders(rows) {
     if (!orderId) continue;
 
     const status = normalizeStatus(get(row, map.status));
-
-    // Only process COMPLETED orders
-    if (status !== COMPLETED_STATUS) continue;
+    if (status !== TARGET_STATUS) continue;
 
     if (!ordersMap[orderId]) {
       ordersMap[orderId] = {
@@ -241,9 +234,10 @@ function parseShopeeOrders(rows) {
         ].filter(Boolean).join(", "),
         created_at:   get(row, map.created_at) || null,
         paid_time:    get(row, map.paid_time) || null,
-        completed_at: get(row, map.completed_at) || null,
+        completed_at: null,
         buyer_note:   get(row, map.buyer_note) || null,
         cancel_reason: null,
+        shipped_at:   null,
         items: [],
       };
     }
@@ -271,10 +265,7 @@ function parseLazadaOrders(rows) {
   const map = COLUMN_MAPS.lazada;
 
   return rows
-    .filter(row => {
-      const status = normalizeStatus(get(row, map.status));
-      return status === COMPLETED_STATUS;
-    })
+    .filter(row => normalizeStatus(get(row, map.status)) === TARGET_STATUS)
     .map(row => {
       const addressParts = [
         get(row, map.address),
@@ -304,9 +295,10 @@ function parseLazadaOrders(rows) {
         address:         addressParts.join(", "),
         created_at:      get(row, map.created_at) || null,
         paid_time:       null,
-        completed_at:    get(row, map.delivered_at) || null,
+        completed_at:    null,
         cancel_reason:   null,
         buyer_note:      get(row, map.seller_note) || null,
+        shipped_at:      null,
         items: [{
           product_name:   get(row, map.product_name),
           sku:            get(row, map.sku) || null,
@@ -327,10 +319,7 @@ function parseTikTokOrders(rows) {
   const map = COLUMN_MAPS.tiktok;
 
   return rows
-    .filter(row => {
-      const status = normalizeStatus(get(row, map.status));
-      return status === COMPLETED_STATUS;
-    })
+    .filter(row => normalizeStatus(get(row, map.status)) === TARGET_STATUS)
     .map(row => ({
       platform:        "tiktok",
       order_id:        get(row, map.order_id),
@@ -354,6 +343,7 @@ function parseTikTokOrders(rows) {
       completed_at:  null,
       cancel_reason: get(row, map.cancel_reason) || null,
       buyer_note:    get(row, map.buyer_note) || null,
+      shipped_at:    null,
       items: [{
         product_name:  get(row, map.product_name),
         sku:           get(row, map.sku) || null,
@@ -384,7 +374,7 @@ function computeSummary(orders) {
 }
 
 // ─── Main Entry ───────────────────────────────────────────────────────────────
-function parseCSV(csvText, platformHint = null) {
+function parseProductionCSV(csvText, platformHint = null) {
   if (!csvText || csvText.trim().length === 0) {
     return { error: "File is empty" };
   }
@@ -403,7 +393,6 @@ function parseCSV(csvText, platformHint = null) {
   let orders = [];
 
   if (platform === "shopee") {
-    // For Shopee, we need to count all rows before filtering
     allOrders = rows.filter(r => get(r, COLUMN_MAPS.shopee.order_id));
     orders = parseShopeeOrders(rows);
   }
@@ -427,4 +416,4 @@ function parseCSV(csvText, platformHint = null) {
   };
 }
 
-export { parseCSV, detectPlatform, parsePrice, formatPrice, normalizeStatus };
+export { parseProductionCSV, detectPlatform, parsePrice, formatPrice, normalizeStatus };

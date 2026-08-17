@@ -1,6 +1,5 @@
 import { useState, useCallback } from 'react'
-import { createClient } from '@supabase/supabase-js'
-import { parseCSV } from '../lib/csv-parser'
+import { parseProductionCSV } from '../lib/csv-parser-production'
 import { supabase } from "../api/supabase";
 
 const PLATFORM_STYLES = {
@@ -17,7 +16,7 @@ async function hashFile(text) {
 
 function extractDateRange(orders) {
   const dates = orders
-    .map(o => o.created_at || o.paid_time || o.completed_at)
+    .map(o => o.created_at || o.paid_time)
     .filter(Boolean)
     .map(d => {
       const cleaned = d.replace(/(\d+)\/(\d+)\/(\d+)/, '$3-$1-$2')
@@ -45,7 +44,7 @@ function validateHeaders(headers, platform) {
   return (REQUIRED_HEADERS[platform] || []).filter(h => !headers.includes(h))
 }
 
-export default function CSVImport({ onImportComplete }) {
+export default function Csvimport_production({ onImportComplete }) {
   const [step,         setStep]         = useState('upload')
   const [dragOver,     setDragOver]     = useState(false)
   const [parsed,       setParsed]       = useState(null)
@@ -83,11 +82,10 @@ export default function CSVImport({ onImportComplete }) {
         text         = XLSX.utils.sheet_to_csv(ws)
       }
 
-      // parseCSV already filters to COMPLETED only (inside csv-parser.js)
-      const result = parseCSV(text)
+      // parseProductionCSV already filters to READY_TO_SHIP only
+      const result = parseProductionCSV(text)
       if (result.error) { setError(result.error); return }
 
-      // Validate headers
       const firstLine    = text.split('\n')[0]
       const rawHeaders   = firstLine.split(',').map(h => h.replace(/"/g, '').trim())
       const missingHdrs  = validateHeaders(rawHeaders, result.platform)
@@ -99,13 +97,12 @@ export default function CSVImport({ onImportComplete }) {
         return
       }
 
-      // All rows were non-completed
       if (result.orders.length === 0) {
         const skipped = result.allOrderCount || result.rowCount
         setError(
-          `No COMPLETED orders found in this file. ` +
+          `No READY TO SHIP orders found in this file. ` +
           `Found ${skipped} order(s) with other statuses — ` +
-          `only COMPLETED orders are imported.`
+          `only orders ready to hand off to a courier are imported here.`
         )
         return
       }
@@ -115,8 +112,9 @@ export default function CSVImport({ onImportComplete }) {
       const range = extractDateRange(result.orders)
       setDateRange(range)
 
-      // Duplicate check
-      const { data: dupCheck, error: dupErr } = await supabase.rpc('check_duplicate_import', {
+      // Duplicate check — separate RPC/table from Sales so the two imports
+      // never collide with each other.
+      const { data: dupCheck, error: dupErr } = await supabase.rpc('check_duplicate_production_import', {
         p_platform:  result.platform,
         p_file_hash: hash,
         p_date_from: range.dateFrom,
@@ -128,7 +126,7 @@ export default function CSVImport({ onImportComplete }) {
             ? `🚫 Duplicate file detected. ${dupCheck.message}`
             : `🚫 Date conflict. ${dupCheck.message}`
         )
-        await supabase.from('import_logs').insert({
+        await supabase.from('production_import_logs').insert({
           platform: result.platform, filename: file.name, file_hash: hash,
           date_from: range.dateFrom, date_to: range.dateTo,
           row_count: result.rowCount, parsed_count: result.parsedCount,
@@ -141,11 +139,10 @@ export default function CSVImport({ onImportComplete }) {
         setWarning('Could not detect order dates. Duplicate date checking is disabled for this import.')
       }
 
-      // Warn about excluded non-completed orders
       if (result.skippedCount > 0) {
         setWarning(
-          `${result.skippedCount} non-completed order(s) were excluded (To Ship, Shipped, Cancelled, etc.). ` +
-          `Only the ${result.parsedCount} COMPLETED order(s) below will be imported.`
+          `${result.skippedCount} order(s) with other statuses were excluded (Pending, Processing, Shipped, Completed, etc.). ` +
+          `Only the ${result.parsedCount} order(s) marked Ready to Ship below will be imported.`
         )
       }
 
@@ -174,12 +171,12 @@ export default function CSVImport({ onImportComplete }) {
       const order = parsed.orders[i]
       setProgress({ current: i + 1, total: parsed.orders.length })
 
-      // Safety guard — only COMPLETED
-      if (order.status !== 'COMPLETED') { skipped++; continue }
+      // Safety guard — only READY_TO_SHIP
+      if (order.status !== 'READY_TO_SHIP') { skipped++; continue }
 
       try {
         const { data: orderRow, error: orderErr } = await supabase
-          .from('orders')
+          .from('production_orders')
           .upsert({
             platform:        order.platform,
             order_id:        order.order_id,
@@ -195,9 +192,9 @@ export default function CSVImport({ onImportComplete }) {
             address:         order.address,
             created_at:      order.created_at,
             paid_time:       order.paid_time,
-            completed_at:    order.completed_at,
             cancel_reason:   order.cancel_reason,
             buyer_note:      order.buyer_note,
+            shipped_at:      null,
           }, { onConflict: 'platform,order_id' })
           .select()
           .single()
@@ -205,12 +202,12 @@ export default function CSVImport({ onImportComplete }) {
         if (orderErr) { skipped++; errors.push(`${order.order_id}: ${orderErr.message}`); continue }
 
         if (order.items?.length > 0) {
-          await supabase.from('order_items')
+          await supabase.from('production_order_items')
             .delete()
             .eq('order_id', order.order_id)
             .eq('platform', order.platform)
 
-          await supabase.from('order_items').insert(
+          await supabase.from('production_order_items').insert(
             order.items.map(item => ({
               order_uuid:     orderRow.id,
               platform:       order.platform,
@@ -233,7 +230,7 @@ export default function CSVImport({ onImportComplete }) {
       }
     }
 
-    await supabase.from('import_logs').insert({
+    await supabase.from('production_import_logs').insert({
       platform:      parsed.platform,
       filename:      parsed.filename,
       file_hash:     fileHash,
@@ -260,7 +257,8 @@ export default function CSVImport({ onImportComplete }) {
     <div className="max-w-4xl mx-auto">
 
       <div className="mb-6">
-        <h2 className="text-xl font-semibold text-gray-800">Import Orders</h2>
+        <h2 className="text-xl font-semibold text-gray-800">Import Orders </h2>
+        
       </div>
 
       {/* ── UPLOAD ── */}
@@ -270,7 +268,7 @@ export default function CSVImport({ onImportComplete }) {
             onDrop={onDrop}
             onDragOver={e => { e.preventDefault(); setDragOver(true) }}
             onDragLeave={() => setDragOver(false)}
-            onClick={() => document.getElementById('csv-input').click()}
+            onClick={() => document.getElementById('production-csv-input').click()}
             className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all
               ${dragOver ? 'border-indigo-400 bg-indigo-50' : 'border-gray-300 bg-gray-50 hover:bg-gray-100'}`}
           >
@@ -279,7 +277,7 @@ export default function CSVImport({ onImportComplete }) {
             <p className="text-gray-400 text-sm mt-2">
               Shopee (.csv / .xlsx) · Lazada (.csv / .xlsx) · TikTok Shop (.csv / .xlsx)
             </p>
-            <input id="csv-input" type="file" accept=".csv,.xlsx,.xls"
+            <input id="production-csv-input" type="file" accept=".csv,.xlsx,.xls"
               className="hidden" onChange={e => handleFile(e.target.files[0])} />
           </div>
 
@@ -299,7 +297,7 @@ export default function CSVImport({ onImportComplete }) {
           <div className="mb-4 p-3 bg-green-50 border border-green-300 rounded-lg flex items-center gap-2">
             <span className="text-green-500 text-lg"></span>
             <p className="text-green-800 text-sm font-medium">
-              Showing COMPLETED orders only, all other statuses have been excluded.
+              Showing Ready to Ship orders only, all other statuses have been excluded.
             </p>
           </div>
 
@@ -309,7 +307,6 @@ export default function CSVImport({ onImportComplete }) {
             </div>
           )}
 
-          {/* Summary cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
             <StatCard label="Platform">
               <div className="flex items-center gap-2">
@@ -317,7 +314,7 @@ export default function CSVImport({ onImportComplete }) {
                 <span className="font-bold text-gray-800">{PLATFORM_STYLES[parsed.platform]?.label}</span>
               </div>
             </StatCard>
-            <StatCard label="Completed Orders">
+            <StatCard label="Ready to Ship">
               <span className="text-2xl font-bold text-green-600">{parsed.summary.total_orders}</span>
             </StatCard>
             <StatCard label="Total Amount">
@@ -330,7 +327,6 @@ export default function CSVImport({ onImportComplete }) {
             </StatCard>
           </div>
 
-          {/* Orders table */}
           <div className="overflow-x-auto rounded-lg border border-gray-200 mb-5">
             <table className="w-full text-sm">
               <thead className="bg-gray-50">
@@ -348,7 +344,7 @@ export default function CSVImport({ onImportComplete }) {
                     <td className="px-4 py-3 text-gray-700">{o.items.length}</td>
                     <td className="px-4 py-3 font-semibold text-gray-800">{(o.total_amount / 100).toFixed(2)}</td>
                     <td className="px-4 py-3 text-gray-400 text-xs">
-                      {(o.completed_at || o.created_at || o.paid_time || '—').split(' ')[0]}
+                      {(o.created_at || o.paid_time || '—').split(' ')[0]}
                     </td>
                   </tr>
                 ))}
@@ -363,7 +359,7 @@ export default function CSVImport({ onImportComplete }) {
             </button>
             <button onClick={importToSupabase}
               className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors">
-              Import {parsed.summary.total_orders} completed orders →
+              Import {parsed.summary.total_orders} orders to prepare →
             </button>
           </div>
         </div>
@@ -373,7 +369,7 @@ export default function CSVImport({ onImportComplete }) {
       {step === 'importing' && (
         <div className="text-center py-16">
           <div className="text-5xl mb-4"></div>
-          <p className="text-lg font-semibold text-gray-800 mb-2">Importing completed orders…</p>
+          <p className="text-lg font-semibold text-gray-800 mb-2">Importing orders to prepare…</p>
           <p className="text-gray-500 text-sm mb-6">{progress.current} of {progress.total} saved</p>
           <div className="bg-gray-200 rounded-full h-2 max-w-sm mx-auto">
             <div

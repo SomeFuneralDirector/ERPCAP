@@ -63,6 +63,7 @@ const navItems = [
     role: "production",
     children: [
       { id: "production-dashboard", label: "Dashboard", icon: LayoutDashboard, path: "/production" },
+      { id: "production-transaction", label: "Transactions", icon: Boxes, path: "/production_transaction" },
       { id: "production-workorders", label: "Work Orders", icon: ClipboardList, path: "/production_wo" },
       { id: "production-rawmaterials", label: "Raw Materials", icon: Box, path: "/production_rm" },
       { id: "production-finished", label: "Finished Goods", icon: Boxes, path: "/production_fg" },
