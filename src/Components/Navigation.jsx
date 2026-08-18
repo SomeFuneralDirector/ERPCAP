@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Package, ShoppingCart, Megaphone, Factory,
   Settings, ChevronRight, ChevronLeft, Menu, X, LogOut,
   Users, Activity, Megaphone as CampaignIcon,
-  Layers, ClipboardList, Box, Boxes, PhilippinePesoIcon, BookCheck
+  Layers, ClipboardList, Box, Boxes, PhilippinePesoIcon, BookCheck, SheetIcon, PhilippinePeso
 } from "lucide-react";
 import logotry from '../assets/logo.jpg';
 import { useAuth } from "../context/AuthContext";
@@ -17,12 +17,13 @@ const navItems = [
     role: "admin",
     children: [
       { id: "admin-dashboard", label: "Dashboard", icon: LayoutDashboard, path: "/admin" },
-      { id: "admin-users", label: "User Management", icon: Users, path: "/admin/users" },
-      { id: "admin-logs", label: "Activity Logs", icon: Activity, path: "/activity_logs" },
-      { id: "admin-finance", label: "Finance", icon: BookCheck, path: "/finance" },
+      { id: "admin-finance", label: "Finance", icon: PhilippinePeso, path: "/finance" },
       /* { id: "admin-expense", label: "Expense Form", icon: BookCheck, path: "/expense_form" }, */
       { id: "admin-ledger", label: "Ledger", icon: BookCheck, path: "/ledger" },
-      { id: "admin-balance_sheet", label: "Balance Sheet", icon: BookCheck, path: "/balance_sheet" },
+      { id: "admin-balance_sheet", label: "Balance Sheet", icon: SheetIcon, path: "/balance_sheet" },
+       { id: "admin-income_statement", label: "Income Statement", icon: BookCheck, path: "/income_statement" },
+       { id: "admin-users", label: "User Management", icon: Users, path: "/admin/users" },
+      { id: "admin-logs", label: "Activity Logs", icon: Activity, path: "/activity_logs" },
     ],
   },
   {
@@ -63,7 +64,7 @@ const navItems = [
     role: "production",
     children: [
       { id: "production-dashboard", label: "Dashboard", icon: LayoutDashboard, path: "/production" },
-      { id: "production-transaction", label: "Transactions", icon: Boxes, path: "/production_transaction" },
+       { id: "production-transaction", label: "Transactions", icon: Boxes, path: "/production_transaction" },
       { id: "production-workorders", label: "Work Orders", icon: ClipboardList, path: "/production_wo" },
       { id: "production-rawmaterials", label: "Raw Materials", icon: Box, path: "/production_rm" },
       { id: "production-finished", label: "Finished Goods", icon: Boxes, path: "/production_fg" },
@@ -234,7 +235,7 @@ function Nav() {
 
       {/* Bottom Section */}
       <div className="px-2 py-3 border-t border-gray-100 space-y-0.5">
-        {userRole === 'admin' && (
+        {/* {userRole === 'admin' && (
           <button
             onClick={() => handleNavigation("settings", "/Settings")}
             title={collapsed ? "Settings" : undefined}
@@ -243,7 +244,7 @@ function Nav() {
             <Settings size={18} className="flex-shrink-0" strokeWidth={1.8} />
             {!collapsed && <span className="flex-1 text-left">Settings</span>}
           </button>
-        )}
+        )} */}
         <button
           onClick={handleLogout}
           title={collapsed ? "Logout" : undefined}

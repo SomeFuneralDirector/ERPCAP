@@ -33,6 +33,14 @@ function getWeekInfo(dateStr) {
 
 const PAGE_SIZE = 10;
 
+// Assets and expenses normally increase with a Debit.
+// Liabilities, equity, and revenue normally increase with a Credit.
+function normalType(classification) {
+  return classification === "asset" || classification === "expense"
+    ? "debit"
+    : "credit";
+}
+
 function newRow() {
   return {
     _rowId:
@@ -183,7 +191,19 @@ function Ledger() {
 
   function handleRowChange(rowId, field, value) {
     setRows((prev) =>
-      prev.map((r) => (r._rowId === rowId ? { ...r, [field]: value } : r))
+      prev.map((r) => {
+        if (r._rowId !== rowId) return r;
+        const updated = { ...r, [field]: value };
+        // When the category changes, auto-suggest the correct Debit/Credit
+        // direction for it — this is what prevents e.g. an expense category
+        // from being accidentally saved as a Credit, which silently flips
+        // its sign in every report.
+        if (field === "category_id") {
+          const cat = categories.find((c) => c.id === value);
+          if (cat) updated.type = normalType(cat.classification);
+        }
+        return updated;
+      })
     );
     setRowErrors((prev) => {
       if (!prev[rowId]?.[field]) return prev;
@@ -285,6 +305,9 @@ function Ledger() {
       </div>
 
       <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-sm font-bold text-gray-500 uppercase mb-4">
+          Transactions
+        </h2>
         {loading ? (
           <div className="flex items-center gap-2 text-gray-400 text-sm py-6 justify-center">
             <Loader2 size={16} className="animate-spin" />
@@ -330,7 +353,7 @@ function Ledger() {
                     </td>
                     <td className="py-3 px-4 text-right font-medium">
                       {e.type === "debit" ? (
-                        <span className="text-green-600">
+                        <span className="text-red-600">
                           {formatPeso(e.amount)}
                         </span>
                       ) : (
@@ -339,7 +362,7 @@ function Ledger() {
                     </td>
                     <td className="py-3 px-4 text-right font-medium">
                       {e.type === "credit" ? (
-                        <span className="text-red-600">
+                        <span className="text-green-600">
                           {formatPeso(e.amount)}
                         </span>
                       ) : (
@@ -543,7 +566,7 @@ function Ledger() {
                                   }
                                   className={`px-2 py-1.5 rounded text-xs font-semibold border ${
                                     r.type === "debit"
-                                      ? "bg-green-600 text-white border-green-600"
+                                      ? "bg-red-600 text-white border-red-600"
                                       : "border-gray-300 text-gray-500"
                                   }`}
                                 >
@@ -556,13 +579,28 @@ function Ledger() {
                                   }
                                   className={`px-2 py-1.5 rounded text-xs font-semibold border ${
                                     r.type === "credit"
-                                      ? "bg-red-600 text-white border-red-600"
+                                      ? "bg-green-600 text-white border-green-600"
                                       : "border-gray-300 text-gray-500"
                                   }`}
                                 >
                                   Credit
                                 </button>
                               </div>
+                              {(() => {
+                                const cat = categories.find(
+                                  (c) => c.id === r.category_id
+                                );
+                                if (!cat) return null;
+                                const expected = normalType(
+                                  cat.classification
+                                );
+                                if (r.type === expected) return null;
+                                return (
+                                  <p className="text-[10px] text-amber-600 mt-1 leading-tight">
+                                    {cat.name} is usually {expected}
+                                  </p>
+                                );
+                              })()}
                             </td>
                             <td className="py-2 pr-2 align-top">
                               <input
@@ -643,7 +681,7 @@ function Ledger() {
                   <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
                   <span>
                     <strong>This cannot be undone.</strong> Double-check the
-                    entries below before saving — once saved, they'll appear
+                    entries below before saving. Once saved, they'll appear
                     permanently in your Ledger.
                   </span>
                 </div>
@@ -682,7 +720,7 @@ function Ledger() {
                           </td>
                           <td className="py-2 px-3 text-right font-medium">
                             {r.type === "debit" ? (
-                              <span className="text-green-600">
+                              <span className="text-red-600">
                                 {formatPeso(
                                   Math.round(parseFloat(r.amount) * 100)
                                 )}
@@ -693,7 +731,7 @@ function Ledger() {
                           </td>
                           <td className="py-2 px-3 text-right font-medium">
                             {r.type === "credit" ? (
-                              <span className="text-red-600">
+                              <span className="text-green-600">
                                 {formatPeso(
                                   Math.round(parseFloat(r.amount) * 100)
                                 )}
