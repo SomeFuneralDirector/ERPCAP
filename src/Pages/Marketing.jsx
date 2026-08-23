@@ -3,6 +3,9 @@ import {
   ResponsiveContainer,
   BarChart,
   Bar,
+  LineChart,
+  Line,
+  Legend,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -19,6 +22,7 @@ const PLATFORM_COLORS = {
 
 const LOW_PERFORMER_THRESHOLD = 5
 const CAMPAIGN_ENDING_SOON_DAYS = 7
+const TREND_LINE_COLORS = ['#b91c1c', '#f97316', '#7c3aed', '#0891b2', '#16a34a']
 
 const normalizePlatform = (p) => {
   if (!p) return 'Unknown'
@@ -33,6 +37,20 @@ const centsToPesos = (c) => (c || 0) / 100
 
 const fmtCurrency = (n) =>
   `₱${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+
+const orderDate = (o) => o.completed_at || o.created_at || o.paid_time
+
+const monthKey = (date) => {
+  const d = new Date(date)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+const monthLabel = (key) => {
+  if (!key) return ''
+  const [year, month] = key.split('-')
+  const d = new Date(Number(year), Number(month) - 1, 1)
+  return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+}
 
 // Same rule as Marketing_campaigns.jsx — Cancelled is the only manual override,
 // everything else is derived from dates.
@@ -58,6 +76,7 @@ function Marketing() {
   const [initialLoading, setInitialLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
+  const [selectedMonth, setSelectedMonth] = useState(null)
 
   const fetchAll = useCallback(async (isInitial = false) => {
     if (isInitial) {
@@ -162,6 +181,69 @@ function Marketing() {
     [products]
   )
 
+  // ── Sales trend by product, across months ───────────────────
+
+  const orderDateById = useMemo(() => {
+    const map = {}
+    orders.forEach((o) => {
+      const d = orderDate(o)
+      if (d) map[o.order_id] = d
+    })
+    return map
+  }, [orders])
+
+  // Full qty-per-product-per-month totals (not sliced) so trend lines can
+  // look up any product's quantity in any month, even months it wasn't a top seller in.
+  const monthlyProductTotals = useMemo(() => {
+    const months = {}
+    orderItems.forEach((row) => {
+      const date = orderDateById[row.order_id]
+      if (!date) return
+      const key = monthKey(date)
+      if (!months[key]) months[key] = {}
+      const name = row.product_name || 'Unnamed Product'
+      const qty = Number(row.quantity) || 0
+      months[key][name] = (months[key][name] || 0) + qty
+    })
+    return months
+  }, [orderItems, orderDateById])
+
+  const availableMonths = useMemo(
+    () => Object.keys(monthlyProductTotals).sort((a, b) => (a < b ? 1 : -1)),
+    [monthlyProductTotals]
+  )
+
+  useEffect(() => {
+    if (availableMonths.length === 0) return
+    if (!selectedMonth || !availableMonths.includes(selectedMonth)) {
+      setSelectedMonth(availableMonths[0])
+    }
+  }, [availableMonths, selectedMonth])
+
+  // Top products for whichever month is currently selected (defaults to most recent)
+  const selectedMonthProducts = useMemo(() => {
+    const key = selectedMonth && availableMonths.includes(selectedMonth) ? selectedMonth : availableMonths[0]
+    if (!key || !monthlyProductTotals[key]) return []
+    return Object.entries(monthlyProductTotals[key])
+      .map(([name, qty]) => ({ name, qty }))
+      .sort((a, b) => b.qty - a.qty)
+      .slice(0, 5)
+  }, [selectedMonth, availableMonths, monthlyProductTotals])
+
+  // The top 5 products overall, tracked across every month for the trend chart
+  const topOverallProductNames = useMemo(() => products.slice(0, 5).map((p) => p.name), [products])
+
+  const trendData = useMemo(() => {
+    const monthsAscending = [...availableMonths].reverse()
+    return monthsAscending.map((key) => {
+      const entry = { month: monthLabel(key) }
+      topOverallProductNames.forEach((name) => {
+        entry[name] = monthlyProductTotals[key]?.[name] || 0
+      })
+      return entry
+    })
+  }, [availableMonths, topOverallProductNames, monthlyProductTotals])
+
   const campaignsWithStatus = useMemo(
     () => campaigns.map((c) => ({ ...c, derivedStatus: deriveCampaignStatus(c) })),
     [campaigns]
@@ -209,10 +291,6 @@ function Marketing() {
       <div className="bg-white rounded-lg shadow p-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Marketing</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Sales performance, product trends, and campaign status
-            {refreshing && <span className="ml-2 text-gray-400">· syncing…</span>}
-          </p>
         </div>
         <button
           onClick={() => fetchAll(false)}
@@ -325,6 +403,86 @@ function Marketing() {
             </ul>
           )}
         </div>
+      </div>
+
+      {/* Sales trend by product */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-lg font-bold text-gray-700 mb-4">Trend</h2>
+        {loading ? (
+          <Skeleton className="h-56 w-full" />
+        ) : trendData.length === 0 ? (
+          <p className="text-xs text-gray-400">No sales data yet.</p>
+        ) : (
+          <ResponsiveContainer width="100%" height={260}>
+            <LineChart data={trendData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+              <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+              <Tooltip formatter={(v) => [`${v} sold`, '']} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              {topOverallProductNames.map((name, idx) => (
+                <Line
+                  key={name}
+                  type="monotone"
+                  dataKey={name}
+                  stroke={TREND_LINE_COLORS[idx % TREND_LINE_COLORS.length]}
+                  strokeWidth={2}
+                  dot={{ r: 3 }}
+                  activeDot={{ r: 5 }}
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      {/* Top products for a specific month */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+          <h2 className="text-sm font-bold text-gray-700">Top products by month</h2>
+          {!loading && availableMonths.length > 0 && (
+            <div className="flex gap-2 flex-wrap">
+              {availableMonths.map((key) => (
+                <button
+                  key={key}
+                  onClick={() => setSelectedMonth(key)}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                    (selectedMonth || availableMonths[0]) === key
+                      ? 'bg-red-600 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  {monthLabel(key)}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        {loading ? (
+          <div className="space-y-2">
+            {[1, 2, 3].map((i) => <Skeleton key={i} className="h-8 w-full" />)}
+          </div>
+        ) : availableMonths.length === 0 ? (
+          <p className="text-xs text-gray-400">No sales data yet.</p>
+        ) : selectedMonthProducts.length === 0 ? (
+          <p className="text-xs text-gray-400">
+            No sales recorded for {monthLabel(selectedMonth || availableMonths[0])}.
+          </p>
+        ) : (
+          <ul className="divide-y divide-gray-100">
+            {selectedMonthProducts.map((p, idx) => (
+              <li key={p.name} className="flex items-center justify-between py-2 first:pt-0">
+                <span className="flex items-center gap-2 text-sm text-gray-700 truncate">
+                  <span className="w-5 h-5 shrink-0 flex items-center justify-center rounded-full bg-red-600 text-white text-xs font-bold">
+                    {idx + 1}
+                  </span>
+                  <span className="truncate">{p.name}</span>
+                </span>
+                <span className="text-gray-500 text-xs shrink-0 ml-2">{p.qty} sold</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {/* Active campaigns snapshot */}

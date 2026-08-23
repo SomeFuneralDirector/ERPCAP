@@ -475,11 +475,6 @@ function Inventory() {
       <div className="bg-white rounded-lg shadow p-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Products</h1>
-          {lastUpdated && (
-            <p className="text-xs text-gray-400 mt-1">
-              Last updated: {lastUpdated.toLocaleString()}
-            </p>
-          )}
         </div>
         <div className="flex gap-2 self-start md:self-auto">
           <button

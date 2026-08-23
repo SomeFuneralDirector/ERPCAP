@@ -305,9 +305,6 @@ function Ledger() {
       </div>
 
       <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-sm font-bold text-gray-500 uppercase mb-4">
-          Transactions
-        </h2>
         {loading ? (
           <div className="flex items-center gap-2 text-gray-400 text-sm py-6 justify-center">
             <Loader2 size={16} className="animate-spin" />

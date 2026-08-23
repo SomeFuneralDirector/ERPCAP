@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '../api/supabase'
 
 const TABS = [
   { key: 'logins', label: 'Login History' },
   { key: 'changes', label: 'Data Changes' },
   { key: 'imports', label: 'File Imports' },
+  { key: 'archive', label: 'Archive' },
 ]
 
 const PAGE_SIZE = 20
@@ -48,6 +49,23 @@ function Skeleton({ className = 'h-10 w-full' }) {
   return <div className={`${className} bg-gray-100 rounded animate-pulse`} />
 }
 
+function parseDetail(detail) {
+  if (!detail) return null
+  try {
+    const parsed = JSON.parse(detail)
+    if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) return parsed
+    return null
+  } catch {
+    return null
+  }
+}
+
+function formatValue(v) {
+  if (v === null || v === undefined) return '—'
+  if (typeof v === 'boolean') return v ? 'true' : 'false'
+  return String(v)
+}
+
 function parseDevice(userAgent) {
   if (!userAgent) return '—'
   const ua = userAgent.toLowerCase()
@@ -70,6 +88,7 @@ function Activity_logs() {
   const [errorMsg, setErrorMsg] = useState({ logins: '', changes: '', imports: '' })
   const [search, setSearch] = useState('')
   const [expandedImport, setExpandedImport] = useState(null)
+  const [expandedChange, setExpandedChange] = useState(null)
 
   const fetchLogins = useCallback(async () => {
     setLoading((p) => ({ ...p, logins: true }))
@@ -170,13 +189,27 @@ function Activity_logs() {
       )
     : imports
 
+  // Archive = everything that's been deleted across the system, pulled from
+  // the same data_change_logs feed that powers the Data Changes tab.
+  const archivedRecords = useMemo(
+    () => changes.filter((c) => c.action === 'deleted'),
+    [changes]
+  )
+
+  const filteredArchive = q
+    ? archivedRecords.filter(
+        (c) =>
+          c.user_email?.toLowerCase().includes(q) ||
+          c.table_name?.toLowerCase().includes(q) ||
+          c.record_label?.toLowerCase().includes(q) ||
+          c.detail?.toLowerCase().includes(q)
+      )
+    : archivedRecords
+
   return (
     <div className="p-6 space-y-4">
       <div className="bg-white rounded-lg shadow p-6">
         <h1 className="text-2xl font-bold text-gray-800">Activity Logs</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Login history, data changes, and file import activity across the system
-        </p>
       </div>
 
       <div className="bg-white rounded-lg shadow p-6">
@@ -286,35 +319,95 @@ function Activity_logs() {
               </p>
             ) : (
               <div className="divide-y divide-gray-100">
-                {filteredChanges.map((c) => (
-                  <div key={c.id} className="flex items-start gap-3 py-3">
-                    <span
-                      className={`px-2 py-1 rounded-full text-xs font-medium capitalize shrink-0 ${
-                        ACTION_STYLES[c.action] || 'bg-gray-100 text-gray-600'
-                      }`}
-                    >
-                      {c.action || 'changed'}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-gray-700">
-                        <span className="font-semibold">{c.user_email || 'Someone'}</span>{' '}
-                        {c.action === 'created' ? 'created' : c.action === 'deleted' ? 'deleted' : 'updated'}{' '}
-                        <span className="font-mono text-xs bg-gray-100 px-1.5 py-0.5 rounded">
-                          {c.table_name}
+                {filteredChanges.map((c) => {
+                  const detail = parseDetail(c.detail)
+                  const isExpanded = expandedChange === c.id
+                  return (
+                    <div key={c.id}>
+                      <div
+                        className={`flex items-start gap-3 py-3 ${
+                          detail ? 'cursor-pointer' : ''
+                        } ${isExpanded ? 'bg-red-50/30' : ''}`}
+                        onClick={() => detail && setExpandedChange(isExpanded ? null : c.id)}
+                      >
+                        <span
+                          className={`px-2 py-1 rounded-full text-xs font-medium capitalize shrink-0 ${
+                            ACTION_STYLES[c.action] || 'bg-gray-100 text-gray-600'
+                          }`}
+                        >
+                          {c.action || 'changed'}
                         </span>
-                        {c.record_label && (
-                          <>
-                            {' '}— <span className="font-medium">{c.record_label}</span>
-                          </>
-                        )}
-                      </p>
-                      {c.detail && (
-                        <p className="text-xs text-gray-400 mt-0.5">{c.detail}</p>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-gray-700">
+                            <span className="font-semibold">{c.user_email || 'Someone'}</span>{' '}
+                            {c.action === 'created' ? 'created' : c.action === 'deleted' ? 'deleted' : 'updated'}{' '}
+                            <span className="font-mono text-xs bg-gray-100 px-1.5 py-0.5 rounded">
+                              {c.table_name}
+                            </span>
+                            {c.record_label && (
+                              <>
+                                {' '}— <span className="font-medium">{c.record_label}</span>
+                              </>
+                            )}
+                          </p>
+                          {c.detail && !detail && (
+                            <p className="text-xs text-gray-400 mt-0.5">{c.detail}</p>
+                          )}
+                          {detail && (
+                            <p className="text-xs text-red-500 mt-0.5">
+                              {isExpanded ? '▾ Hide details' : '▸ Show details'}
+                            </p>
+                          )}
+                        </div>
+                        <span className="text-xs text-gray-400 shrink-0">{formatExact(c.created_at)}</span>
+                      </div>
+
+                      {isExpanded && detail && (
+                        <div className="bg-gray-50 rounded-lg px-4 py-3 mb-3 -mt-1 ml-0 md:ml-14">
+                          {c.action === 'updated' ? (
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="text-gray-400 uppercase">
+                                  <th className="text-left font-semibold pb-1 pr-3">Field</th>
+                                  <th className="text-left font-semibold pb-1 pr-3">Before</th>
+                                  <th className="text-left font-semibold pb-1">After</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {Object.entries(detail).map(([field, change]) => (
+                                  <tr key={field} className="border-t border-gray-200">
+                                    <td className="py-1 pr-3 font-mono text-gray-600">{field}</td>
+                                    <td className="py-1 pr-3 text-red-600">
+                                      {formatValue(change?.old)}
+                                    </td>
+                                    <td className="py-1 text-green-700">
+                                      {formatValue(change?.new)}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          ) : (
+                            <table className="w-full text-xs">
+                              <tbody>
+                                {Object.entries(detail).map(([field, value]) => (
+                                  <tr key={field} className="border-t border-gray-200 first:border-0">
+                                    <td className="py-1 pr-3 font-mono text-gray-500 align-top whitespace-nowrap">
+                                      {field}
+                                    </td>
+                                    <td className="py-1 text-gray-700 break-all">
+                                      {formatValue(value)}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                        </div>
                       )}
                     </div>
-                    <span className="text-xs text-gray-400 shrink-0">{formatExact(c.created_at)}</span>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </>
@@ -432,6 +525,81 @@ function Activity_logs() {
                     })}
                   </tbody>
                 </table>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── Archive (deleted records) ── */}
+        {activeTab === 'archive' && (
+          <>
+            {errorMsg.changes && (
+              <p className="text-xs text-red-600 mb-3">{errorMsg.changes}</p>
+            )}
+            {loading.changes ? (
+              <div className="space-y-2">
+                {[1, 2, 3, 4].map((i) => <Skeleton key={i} />)}
+              </div>
+            ) : filteredArchive.length === 0 ? (
+              <p className="text-sm text-gray-400 italic py-6 text-center">
+                Nothing has been deleted yet.
+              </p>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {filteredArchive.map((c) => {
+                  const detail = parseDetail(c.detail)
+                  const isExpanded = expandedChange === c.id
+                  return (
+                    <div key={c.id}>
+                      <div
+                        className={`flex items-start gap-3 py-3 ${
+                          detail ? 'cursor-pointer' : ''
+                        } ${isExpanded ? 'bg-red-50/30' : ''}`}
+                        onClick={() => detail && setExpandedChange(isExpanded ? null : c.id)}
+                      >
+                        <span className="px-2 py-1 rounded-full text-xs font-medium capitalize shrink-0 bg-red-100 text-red-700">
+                          deleted
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-gray-700">
+                            <span className="font-semibold">{c.user_email || 'Someone'}</span> deleted{' '}
+                            <span className="font-mono text-xs bg-gray-100 px-1.5 py-0.5 rounded">
+                              {c.table_name}
+                            </span>
+                            {c.record_label && (
+                              <>
+                                {' '}— <span className="font-medium">{c.record_label}</span>
+                              </>
+                            )}
+                          </p>
+                          {detail && (
+                            <p className="text-xs text-red-500 mt-0.5">
+                              {isExpanded ? '▾ Hide deleted record' : '▸ Show deleted record'}
+                            </p>
+                          )}
+                        </div>
+                        <span className="text-xs text-gray-400 shrink-0">{formatExact(c.created_at)}</span>
+                      </div>
+
+                      {isExpanded && detail && (
+                        <div className="bg-gray-50 rounded-lg px-4 py-3 mb-3 -mt-1 ml-0 md:ml-14">
+                          <table className="w-full text-xs">
+                            <tbody>
+                              {Object.entries(detail).map(([field, value]) => (
+                                <tr key={field} className="border-t border-gray-200 first:border-0">
+                                  <td className="py-1 pr-3 font-mono text-gray-500 align-top whitespace-nowrap">
+                                    {field}
+                                  </td>
+                                  <td className="py-1 text-gray-700 break-all">{formatValue(value)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
           </>

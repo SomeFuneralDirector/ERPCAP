@@ -7,12 +7,11 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  PieChart,
-  Pie,
-  Cell,
   Legend,
+  Cell,
   BarChart,
   Bar,
+  LabelList,
 } from "recharts";
 import { supabase } from "../api/supabase";
 
@@ -74,8 +73,9 @@ function bucketSales(orders, mode) {
       sortKey = new Date(d.getFullYear(), 0, 1).getTime();
     }
 
-    if (!buckets[key]) buckets[key] = { label, sortKey, value: 0 };
+    if (!buckets[key]) buckets[key] = { label, sortKey, value: 0, orders: 0 };
     buckets[key].value += centsToPesos(o.total_amount);
+    buckets[key].orders += 1;
   });
 
   return Object.values(buckets).sort((a, b) => a.sortKey - b.sortKey);
@@ -103,6 +103,23 @@ function CurrencyTooltip({ active, payload, label }) {
   );
 }
 
+// ─── Period-over-period change badge ──────────────────────────
+
+function ChangeBadge({ current, previous }) {
+  if (previous === null || previous === undefined || previous === 0) return null;
+  const pct = ((current - previous) / previous) * 100;
+  const isUp = pct >= 0;
+  return (
+    <span
+      className={`inline-flex items-center gap-0.5 text-xs font-semibold px-1.5 py-0.5 rounded ${
+        isUp ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+      }`}
+    >
+      {isUp ? "▲" : "▼"} {Math.abs(pct).toFixed(0)}%
+    </span>
+  );
+}
+
 // ─── Main component ──────────────────────────────────────────
 
 function Sales_db() {
@@ -112,6 +129,8 @@ function Sales_db() {
   const [refreshing, setRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [trendMode, setTrendMode] = useState("weekly"); // 'weekly' | 'monthly' | 'yearly'
+  const [productSort, setProductSort] = useState("qty"); // 'qty' | 'amount'
+  const [lastSynced, setLastSynced] = useState(null);
 
   const fetchAll = useCallback(async (isInitial = false) => {
     if (isInitial) {
@@ -155,6 +174,7 @@ function Sales_db() {
       }
     }
 
+    setLastSynced(new Date());
     setInitialLoading(false);
     setRefreshing(false);
   }, []);
@@ -186,6 +206,13 @@ function Sales_db() {
     [orders]
   );
 
+  const totalItemsSold = useMemo(
+    () => orderItems.reduce((sum, i) => sum + (i.quantity || 0), 0),
+    [orderItems]
+  );
+
+  const avgOrderValue = orders.length > 0 ? totalSales / orders.length : 0;
+
   const platformTotals = useMemo(() => {
     const map = {};
     orders.forEach((o) => {
@@ -210,11 +237,20 @@ function Sales_db() {
       map[name].amount += (item.quantity || 0) * centsToPesos(item.unit_price);
     });
     return Object.values(map)
-      .sort((a, b) => b.qty - a.qty)
+      .sort((a, b) => b[productSort] - a[productSort])
       .slice(0, 6);
-  }, [orderItems]);
+  }, [orderItems, productSort]);
 
   const trendPoints = useMemo(() => bucketSales(orders, trendMode), [orders, trendMode]);
+
+  // Compare the two most recent buckets so "Sales trend" shows real momentum,
+  // regardless of which mode (weekly/monthly/yearly) is selected.
+  const trendChange = useMemo(() => {
+    if (trendPoints.length < 2) return null;
+    const current = trendPoints[trendPoints.length - 1].value;
+    const previous = trendPoints[trendPoints.length - 2].value;
+    return { current, previous };
+  }, [trendPoints]);
 
   const loading = initialLoading;
 
@@ -241,15 +277,31 @@ function Sales_db() {
       <div className="bg-white rounded-lg shadow p-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Sales Dashboard</h1>
-          
         </div>
-        <button
-          onClick={() => fetchAll(false)}
-          disabled={loading || refreshing}
-          className="px-4 py-2 bg-red-700 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors disabled:opacity-50 self-start md:self-auto cursor-pointer"
-        >
-          {loading || refreshing ? "↻ Loading…" : "↻ Refresh"}
-        </button>
+        <div className="flex items-center gap-2 self-start md:self-auto">
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+            {["weekly", "monthly", "yearly"].map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setTrendMode(mode)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                  trendMode === mode
+                    ? "bg-red-700 text-white"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                {mode.charAt(0).toUpperCase() + mode.slice(1)}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => fetchAll(false)}
+            disabled={loading || refreshing}
+            className="px-4 py-2 bg-red-700 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            {loading || refreshing ? "↻ Loading…" : "↻ Refresh"}
+          </button>
+        </div>
       </div>
 
       {errorMsg && orders.length > 0 && (
@@ -258,7 +310,7 @@ function Sales_db() {
         </div>
       )}
 
-      {/* Total sales + per-platform cards */}
+      {/* Total sales + AOV + items sold + order count */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
@@ -274,9 +326,60 @@ function Sales_db() {
           <p className="text-xs mt-1 text-gray-400">{orders.length} completed orders</p>
         </div>
 
+        <div className="bg-white rounded-lg shadow p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+            Avg Order Value
+          </p>
+          {loading ? (
+            <Skeleton />
+          ) : (
+            <p className="text-3xl font-bold mt-1 text-gray-800">
+              {fmtCurrency(avgOrderValue)}
+            </p>
+          )}
+          <p className="text-xs mt-1 text-gray-400">per completed order</p>
+        </div>
+
+        <div className="bg-white rounded-lg shadow p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+            Items Sold
+          </p>
+          {loading ? (
+            <Skeleton />
+          ) : (
+            <p className="text-3xl font-bold mt-1 text-gray-800">
+              {totalItemsSold.toLocaleString()}
+            </p>
+          )}
+          <p className="text-xs mt-1 text-gray-400">units across all orders</p>
+        </div>
+
+        <div className="bg-white rounded-lg shadow p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+            Latest Period
+          </p>
+          {loading ? (
+            <Skeleton />
+          ) : (
+            <div className="flex items-center gap-2 mt-1">
+              <p className="text-3xl font-bold text-gray-800">
+                {trendChange ? fmtCurrency(trendChange.current) : "—"}
+              </p>
+              {trendChange && (
+                <ChangeBadge current={trendChange.current} previous={trendChange.previous} />
+              )}
+            </div>
+          )}
+          <p className="text-xs mt-1 text-gray-400">vs previous {trendMode.slice(0, -2) || trendMode}</p>
+        </div>
+      </div>
+
+      {/* Platform cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {["Shopee", "Lazada", "TikTok"].map((platform) => {
           const entry = platformTotals.find((p) => p.platform === platform);
           const color = PLATFORM_COLORS[platform];
+          const share = totalSales > 0 ? ((entry?.amount || 0) / totalSales) * 100 : 0;
           return (
             <div key={platform} className="bg-white rounded-lg shadow p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 flex items-center gap-1.5">
@@ -293,6 +396,7 @@ function Sales_db() {
                   {fmtCurrency(entry?.amount)}
                 </p>
               )}
+              <p className="text-xs mt-1 text-gray-400">{share.toFixed(0)}% of total sales</p>
             </div>
           );
         })}
@@ -302,21 +406,6 @@ function Sales_db() {
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-bold text-gray-700">Sales trend</h2>
-          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-            {["weekly", "monthly", "yearly"].map((mode) => (
-              <button
-                key={mode}
-                onClick={() => setTrendMode(mode)}
-                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
-                  trendMode === mode
-                    ? "bg-red-700 text-white"
-                    : "text-gray-500 hover:text-gray-700"
-                }`}
-              >
-                {mode.charAt(0).toUpperCase() + mode.slice(1)}
-              </button>
-            ))}
-          </div>
         </div>
         {loading ? (
           <Skeleton className="h-64 w-full" />
@@ -339,91 +428,100 @@ function Sales_db() {
                 tickLine={false}
                 tickFormatter={fmtAxis}
               />
-              <Tooltip content={<CurrencyTooltip />} />
+              <Tooltip
+                content={({ active, payload, label }) => {
+                  if (!active || !payload?.length) return null;
+                  const point = payload[0].payload;
+                  return (
+                    <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs">
+                      <p className="font-semibold text-gray-700 mb-1">{label}</p>
+                      <p style={{ color: "#b91c1c" }}>
+                        {trendMode.charAt(0).toUpperCase() + trendMode.slice(1)} sales: {fmtCurrency(point.value)}
+                      </p>
+                      <p className="text-gray-500">{point.orders} order{point.orders !== 1 ? "s" : ""}</p>
+                    </div>
+                  );
+                }}
+              />
               <Area
                 type="monotone"
                 dataKey="value"
-                name="Sales"
+                name={`${trendMode.charAt(0).toUpperCase() + trendMode.slice(1)} Sales`}
                 stroke="#b91c1c"
                 strokeWidth={2}
                 fill="url(#salesFill)"
                 dot={{ r: 3, fill: "#b91c1c", strokeWidth: 0 }}
                 activeDot={{ r: 5 }}
               />
+              <Legend
+                verticalAlign="top"
+                height={28}
+                iconType="line"
+                wrapperStyle={{ fontSize: 12 }}
+              />
             </AreaChart>
           </ResponsiveContainer>
         )}
       </div>
 
-      {/* Sales per platform + Platform share */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Sales per platform (bar chart) */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-sm font-bold text-gray-700 mb-4">Sales per platform</h2>
-          {loading ? (
-            <Skeleton className="h-56 w-full" />
-          ) : platformTotals.length === 0 ? (
-            <p className="text-xs text-gray-400">No sales data available.</p>
-          ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={platformTotals} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                <XAxis dataKey="platform" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-                <YAxis
-                  tick={{ fontSize: 11, fill: "#9ca3af" }}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={fmtAxis}
-                />
-                <Tooltip content={<CurrencyTooltip />} />
-                <Bar dataKey="amount" name="Sales" radius={[6, 6, 0, 0]}>
-                  {platformTotals.map((p) => (
-                    <Cell key={p.platform} fill={p.color} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-
-        {/* Platform share (pie chart) */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-sm font-bold text-gray-700 mb-4">Platform share</h2>
-          {loading ? (
-            <Skeleton className="h-56 w-full" />
-          ) : platformTotals.length === 0 ? (
-            <p className="text-xs text-gray-400">No sales data available.</p>
-          ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <PieChart>
-                <Pie
-                  data={platformTotals}
+      {/* Sales per platform */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-sm font-bold text-gray-700 mb-4">Sales per platform</h2>
+        {loading ? (
+          <Skeleton className="h-56 w-full" />
+        ) : platformTotals.length === 0 ? (
+          <p className="text-xs text-gray-400">No sales data available.</p>
+        ) : (
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={platformTotals} margin={{ top: 20, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+              <XAxis dataKey="platform" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+              <YAxis
+                tick={{ fontSize: 11, fill: "#9ca3af" }}
+                axisLine={false}
+                tickLine={false}
+                tickFormatter={fmtAxis}
+              />
+              <Tooltip content={<CurrencyTooltip />} />
+              <Bar dataKey="amount" name="Sales" radius={[6, 6, 0, 0]}>
+                {platformTotals.map((p) => (
+                  <Cell key={p.platform} fill={p.color} />
+                ))}
+                <LabelList
                   dataKey="amount"
-                  nameKey="platform"
-                  innerRadius={55}
-                  outerRadius={80}
-                  paddingAngle={3}
-                >
-                  {platformTotals.map((p) => (
-                    <Cell key={p.platform} fill={p.color} />
-                  ))}
-                </Pie>
-                <Tooltip content={<CurrencyTooltip />} />
-                <Legend
-                  verticalAlign="bottom"
-                  height={24}
-                  iconType="circle"
-                  wrapperStyle={{ fontSize: 12 }}
+                  position="top"
+                  formatter={fmtAxis}
+                  style={{ fontSize: 11, fill: "#374151", fontWeight: 600 }}
                 />
-              </PieChart>
-            </ResponsiveContainer>
-          )}
-        </div>
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        )}
       </div>
 
       {/* Top products sold (horizontal bar chart) */}
       <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-sm font-bold text-gray-700 mb-4">Top products sold</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-bold text-gray-700">Top products sold</h2>
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+            {[
+              { key: "qty", label: "Units" },
+              { key: "amount", label: "Revenue" },
+            ].map((opt) => (
+              <button
+                key={opt.key}
+                onClick={() => setProductSort(opt.key)}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                  productSort === opt.key
+                    ? "bg-red-700 text-white"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
         {loading ? (
           <Skeleton className="h-56 w-full" />
         ) : topProducts.length === 0 ? (
@@ -433,7 +531,7 @@ function Sales_db() {
             <BarChart
               data={topProducts}
               layout="vertical"
-              margin={{ top: 0, right: 24, left: 8, bottom: 0 }}
+              margin={{ top: 0, right: 48, left: 8, bottom: 0 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
               <XAxis type="number" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
@@ -446,9 +544,18 @@ function Sales_db() {
                 tickLine={false}
               />
               <Tooltip
-                formatter={(value) => [`${value} sold`, "Quantity"]}
+                formatter={(value, name) =>
+                  name === "amount" ? [fmtCurrency(value), "Revenue"] : [`${value} sold`, "Quantity"]
+                }
               />
-              <Bar dataKey="qty" name="qty" fill="#b91c1c" radius={[0, 6, 6, 0]} barSize={18} />
+              <Bar dataKey={productSort} name={productSort} fill="#b91c1c" radius={[0, 6, 6, 0]} barSize={18}>
+                <LabelList
+                  dataKey={productSort}
+                  position="right"
+                  formatter={(v) => (productSort === "amount" ? fmtAxis(v) : v)}
+                  style={{ fontSize: 11, fill: "#374151", fontWeight: 600 }}
+                />
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         )}

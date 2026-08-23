@@ -5,7 +5,7 @@ function Production_fg() {
     <div className="p-6">
       <h1 className="text-2xl font-bold text-gray-800 mb-4 bg-white rounded-lg shadow p-6">Production - Finished Goods</h1>
       <div className="bg-white rounded-lg shadow p-6">
-      WIP
+      Finished Goods? check mo inventory, dumbass
       </div>
     </div>
   )
