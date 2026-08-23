@@ -299,15 +299,10 @@ export default function CSVImport({ onImportComplete }) {
           <div className="mb-4 p-3 bg-green-50 border border-green-300 rounded-lg flex items-center gap-2">
             <span className="text-green-500 text-lg"></span>
             <p className="text-green-800 text-sm font-medium">
-              Showing COMPLETED orders only, all other statuses have been excluded.
+              Completed Orders:
             </p>
           </div>
 
-          {warning && (
-            <div className="mb-4 p-3 bg-yellow-50 border border-yellow-300 rounded-lg text-yellow-800 text-sm">
-               {warning}
-            </div>
-          )}
 
           {/* Summary cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
@@ -358,12 +353,12 @@ export default function CSVImport({ onImportComplete }) {
 
           <div className="flex gap-3">
             <button onClick={reset}
-              className="px-6 py-2.5 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 transition-colors">
-              ← Cancel
+              className="px-6 py-2.5 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 transition-colors cursor-pointer">
+              Cancel
             </button>
             <button onClick={importToSupabase}
-              className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors">
-              Import {parsed.summary.total_orders} completed orders →
+              className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors cursor-pointer">
+              Import {parsed.summary.total_orders} completed orders
             </button>
           </div>
         </div>
@@ -416,7 +411,7 @@ export default function CSVImport({ onImportComplete }) {
           )}
 
           <button onClick={reset}
-            className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors">
+            className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors cursor-pointer">
             Import another file
           </button>
         </div>

@@ -382,7 +382,7 @@ function ExpenseForm({ onSaved }) {
                     className="text-gray-400 hover:text-red-500 flex-shrink-0"
                   >
                     <X size={16} />
-                  </button>
+                  </button>~
                 </div>
               )}
             </div>

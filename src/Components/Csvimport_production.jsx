@@ -120,7 +120,21 @@ export default function Csvimport_production({ onImportComplete }) {
         p_date_from: range.dateFrom,
         p_date_to:   range.dateTo,
       })
-      if (!dupErr && dupCheck?.isDuplicate) {
+
+      // IMPORTANT: previously `dupErr` was checked but never acted on.
+      // Any RPC failure (missing function, bad arg names, RLS denial,
+      // network error) silently fell through to "not a duplicate" and the
+      // import proceeded — which is exactly why dedup looked broken.
+      if (dupErr) {
+        console.error('check_duplicate_production_import failed:', dupErr)
+        setError(
+          `Could not verify duplicates (${dupErr.message}). ` +
+          `Import blocked until this is resolved — please contact support if this persists.`
+        )
+        return
+      }
+
+      if (dupCheck?.isDuplicate) {
         setError(
           dupCheck.reason === 'same_file'
             ? `🚫 Duplicate file detected. ${dupCheck.message}`
@@ -137,13 +151,6 @@ export default function Csvimport_production({ onImportComplete }) {
 
       if (!range.dateFrom) {
         setWarning('Could not detect order dates. Duplicate date checking is disabled for this import.')
-      }
-
-      if (result.skippedCount > 0) {
-        setWarning(
-          `${result.skippedCount} order(s) with other statuses were excluded (Pending, Processing, Shipped, Completed, etc.). ` +
-          `Only the ${result.parsedCount} order(s) marked Ready to Ship below will be imported.`
-        )
       }
 
       setParsed({ ...result, filename: file.name })
@@ -258,7 +265,6 @@ export default function Csvimport_production({ onImportComplete }) {
 
       <div className="mb-6">
         <h2 className="text-xl font-semibold text-gray-800">Import Orders </h2>
-        
       </div>
 
       {/* ── UPLOAD ── */}
@@ -286,8 +292,6 @@ export default function Csvimport_production({ onImportComplete }) {
               {error}
             </div>
           )}
-
-          
         </div>
       )}
 
@@ -297,7 +301,7 @@ export default function Csvimport_production({ onImportComplete }) {
           <div className="mb-4 p-3 bg-green-50 border border-green-300 rounded-lg flex items-center gap-2">
             <span className="text-green-500 text-lg"></span>
             <p className="text-green-800 text-sm font-medium">
-              Showing Ready to Ship orders only, all other statuses have been excluded.
+              Ready to Ship orders:
             </p>
           </div>
 
@@ -354,12 +358,12 @@ export default function Csvimport_production({ onImportComplete }) {
 
           <div className="flex gap-3">
             <button onClick={reset}
-              className="px-6 py-2.5 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 transition-colors">
-              ← Cancel
+              className="px-6 py-2.5 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 transition-colors cursor-pointer">
+               Cancel
             </button>
             <button onClick={importToSupabase}
-              className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors">
-              Import {parsed.summary.total_orders} orders to prepare →
+              className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors cursor-pointer">
+              Import {parsed.summary.total_orders} orders to prepare
             </button>
           </div>
         </div>
@@ -412,7 +416,7 @@ export default function Csvimport_production({ onImportComplete }) {
           )}
 
           <button onClick={reset}
-            className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors">
+            className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors cursor-pointer">
             Import another file
           </button>
         </div>

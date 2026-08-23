@@ -209,7 +209,7 @@ function Nav() {
                           ${isActive
                             ? "bg-red-600 text-white font-medium"
                             : "text-gray-500 hover:bg-red-50 hover:text-red-600"
-                          }
+                          } cursor-pointer
                         `}
                         style={isActive ? { boxShadow: "0 2px 10px rgba(220,38,38,0.25)" } : {}}
                       >

@@ -118,8 +118,8 @@ function Production_transaction() {
 
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-5">
           <div>
-            <h2 className="text-lg font-semibold text-gray-800">Ready to Ship</h2>
-            <p className="text-sm text-gray-400">{totalCount} order(s) waiting for courier handoff</p>
+            <h2 className="text-lg font-semibold text-gray-800">Ready to Ship Orders</h2>
+  
           </div>
           <div className="flex gap-3 flex-wrap">
             <div className="px-4 py-2 bg-indigo-50 rounded-lg text-center">
@@ -178,7 +178,6 @@ function Production_transaction() {
                 <th className="px-4 py-3 text-left font-semibold text-gray-600">Total (PHP)</th>
                 <th className="px-4 py-3 text-left font-semibold text-gray-600">Order Date</th>
                 <th className="px-4 py-3 text-left font-semibold text-gray-600">Tracking No.</th>
-                <th className="px-4 py-3 text-left font-semibold text-gray-600">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -230,16 +229,7 @@ function Production_transaction() {
                       <td className="px-4 py-3 font-mono text-xs text-gray-400">
                         {order.tracking_no || '—'}
                       </td>
-                      <td className="px-4 py-3">
-                        <button
-                          onClick={(e) => markAsShipped(order, e)}
-                          disabled={shippingId === order.order_id}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        >
-                          <Truck size={14} />
-                          {shippingId === order.order_id ? 'Marking…' : 'Mark Shipped'}
-                        </button>
-                      </td>
+                      
                     </tr>
 
                     {expandedOrder === order.order_id && (
