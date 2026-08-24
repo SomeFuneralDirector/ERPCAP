@@ -109,7 +109,7 @@ const STATUS_MAP = {
   "pending":                "PENDING",
   "processing":             "PROCESSING",
   // Lazada statuses (exact from export)
-  "delivered":              "DELIVERED",
+  "delivered":              "COMPLETED",
   "lost by third party":    "CANCELLED",
   "returned":               "CANCELLED",
   "failed delivery":        "CANCELLED",

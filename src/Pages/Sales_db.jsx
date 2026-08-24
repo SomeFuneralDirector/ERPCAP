@@ -21,8 +21,8 @@ const PLATFORM_COLORS = {
   TikTok: "#1f2937",
 };
 
-const fmtCurrency = (n) =>
-  `₱${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+const fmtPHP = (n) =>
+  `₱${(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const fmtAxis = (v) => `₱${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`;
 
@@ -48,6 +48,17 @@ function toDateInputValue(d) {
   const date = new Date(d);
   const offset = date.getTimezoneOffset();
   return new Date(date.getTime() - offset * 60000).toISOString().slice(0, 10);
+}
+
+function timeAgo(date) {
+  if (!date) return "—";
+  const diffMs = Date.now() - date.getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 function bucketSales(orders, mode) {
@@ -82,9 +93,30 @@ function bucketSales(orders, mode) {
   return Object.values(buckets).sort((a, b) => a.sortKey - b.sortKey);
 }
 
+function useCountUp(target, duration = 600) {
+  const [value, setValue] = useState(0);
+  useEffect(() => {
+    let start = null;
+    let raf;
+    const from = value;
+    const step = (ts) => {
+      if (!start) start = ts;
+      const progress = Math.min((ts - start) / duration, 1);
+      setValue(from + (target - from) * (1 - Math.pow(1 - progress, 3)));
+      if (progress < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target]);
+  return value;
+}
+
 function Skeleton({ className = "h-8 w-16" }) {
   return <div className={`${className} bg-gray-100 rounded animate-pulse mt-1`} />;
 }
+
+
 
 function CurrencyTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
@@ -93,7 +125,7 @@ function CurrencyTooltip({ active, payload, label }) {
       <p className="font-semibold text-gray-700 mb-1">{label}</p>
       {payload.map((p) => (
         <p key={p.dataKey} style={{ color: p.color || p.fill }}>
-          {p.name}: {fmtCurrency(p.value)}
+          {p.name}: {fmtPHP(p.value)}
         </p>
       ))}
     </div>
@@ -115,17 +147,38 @@ function ChangeBadge({ current, previous }) {
   );
 }
 
-function Sales_db() {
+function EmptyState({ onImport }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-12 text-center">
+      <div className="text-4xl mb-3">📭</div>
+      <p className="font-medium text-gray-600">No sales yet</p>
+      <p className="text-sm text-gray-400 mt-1 mb-4">Import your first CSV to see data here</p>
+      {onImport && (
+        <button
+          onClick={onImport}
+          className="px-4 py-2 bg-red-700 text-white rounded-lg text-sm font-medium hover:bg-red-600 cursor-pointer"
+        >
+          Go to Import
+        </button>
+      )}
+    </div>
+  );
+}
+
+function Sales_db({ onGoToImport }) {
   const [orders, setOrders] = useState([]);
   const [orderItems, setOrderItems] = useState([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [itemsWarning, setItemsWarning] = useState("");
   const [trendMode, setTrendMode] = useState("weekly");
   const [productSort, setProductSort] = useState("qty");
   const [lastSynced, setLastSynced] = useState(null);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [platformFilter, setPlatformFilter] = useState("all");
+  const [lastImportLog, setLastImportLog] = useState(null);
 
   const fetchAll = useCallback(async (isInitial = false) => {
     if (isInitial) {
@@ -134,6 +187,7 @@ function Sales_db() {
       setRefreshing(true);
     }
     setErrorMsg("");
+    setItemsWarning("");
 
     const { data: completedOrders, error: ordersError } = await supabase
       .from("orders")
@@ -149,19 +203,24 @@ function Sales_db() {
 
     setOrders(completedOrders || []);
 
-    const orderIds = (completedOrders || []).map((o) => o.order_id).filter(Boolean);
+    // Match items via the internal UUID FK (order_uuid), not order_id —
+    // order_id alone is only unique per platform, not globally.
+    const orderUuids = (completedOrders || []).map((o) => o.id).filter(Boolean);
 
-    if (orderIds.length === 0) {
+    if (orderUuids.length === 0) {
       setOrderItems([]);
     } else {
       const { data: items, error: itemsError } = await supabase
         .from("order_items")
-        .select("order_id, platform, product_name, sku, quantity, unit_price")
-        .in("order_id", orderIds);
+        .select("order_uuid, order_id, platform, product_name, sku, quantity, unit_price")
+        .in("order_uuid", orderUuids);
 
       if (itemsError) {
         console.error("Error fetching order items:", itemsError);
         setOrderItems([]);
+        setItemsWarning(
+          `Order items failed to load: ${itemsError.message}. Item/product totals shown may be incomplete.`
+        );
       } else {
         setOrderItems(items || []);
       }
@@ -172,15 +231,29 @@ function Sales_db() {
     setRefreshing(false);
   }, []);
 
+  const fetchLastImportLog = useCallback(async () => {
+    const { data } = await supabase
+      .from("import_logs")
+      .select("platform, filename, inserted, skipped, status, created_at")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+    if (data) setLastImportLog(data);
+  }, []);
+
   useEffect(() => {
     fetchAll(true);
+    fetchLastImportLog();
 
     const channel = supabase
       .channel("sales-realtime")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "orders" },
-        () => fetchAll(false)
+        () => {
+          fetchAll(false);
+          fetchLastImportLog();
+        }
       )
       .on(
         "postgres_changes",
@@ -190,13 +263,34 @@ function Sales_db() {
       .subscribe();
 
     return () => supabase.removeChannel(channel);
-  }, [fetchAll]);
+  }, [fetchAll, fetchLastImportLog]);
+
+  const applyPreset = (preset) => {
+    const now = new Date();
+    let from;
+    if (preset === "today") from = new Date(now);
+    if (preset === "week") from = new Date(now.getTime() - 6 * 86400000);
+    if (preset === "month") from = new Date(now.getTime() - 29 * 86400000);
+    setDateFrom(toDateInputValue(from));
+    setDateTo(toDateInputValue(now));
+  };
+
+  const clearDateRange = () => {
+    setDateFrom("");
+    setDateTo("");
+  };
 
   const filteredOrders = useMemo(() => {
-    if (!dateFrom && !dateTo) return orders;
+    let result = orders;
+
+    if (platformFilter !== "all") {
+      result = result.filter((o) => normalizePlatform(o.platform) === platformFilter);
+    }
+
+    if (!dateFrom && !dateTo) return result;
     const fromTime = dateFrom ? new Date(dateFrom).setHours(0, 0, 0, 0) : null;
     const toTime = dateTo ? new Date(dateTo).setHours(23, 59, 59, 999) : null;
-    return orders.filter((o) => {
+    return result.filter((o) => {
       const raw = orderDate(o);
       if (!raw) return false;
       const t = new Date(raw).getTime();
@@ -204,16 +298,16 @@ function Sales_db() {
       if (toTime !== null && t > toTime) return false;
       return true;
     });
-  }, [orders, dateFrom, dateTo]);
+  }, [orders, platformFilter, dateFrom, dateTo]);
 
-  const filteredOrderIds = useMemo(
-    () => new Set(filteredOrders.map((o) => o.order_id)),
+  const filteredOrderUuids = useMemo(
+    () => new Set(filteredOrders.map((o) => o.id)),
     [filteredOrders]
   );
 
   const filteredOrderItems = useMemo(
-    () => orderItems.filter((i) => filteredOrderIds.has(i.order_id)),
-    [orderItems, filteredOrderIds]
+    () => orderItems.filter((i) => filteredOrderUuids.has(i.order_uuid)),
+    [orderItems, filteredOrderUuids]
   );
 
   const totalSales = useMemo(
@@ -265,12 +359,33 @@ function Sales_db() {
     return { current, previous };
   }, [trendPoints]);
 
+  // Previous-period comparisons for Total Sales / Avg Order Value.
+  // Uses the first half vs second half of the currently loaded trend buckets
+  // as a lightweight "vs previous period" signal.
+  const periodComparison = useMemo(() => {
+    if (trendPoints.length < 2) return { totalPrev: null, avgPrev: null };
+    const mid = Math.ceil(trendPoints.length / 2);
+    const prevBuckets = trendPoints.slice(0, mid);
+    const currBuckets = trendPoints.slice(mid);
+    const prevTotal = prevBuckets.reduce((s, b) => s + b.value, 0);
+    const prevOrders = prevBuckets.reduce((s, b) => s + b.orders, 0);
+    const currTotal = currBuckets.reduce((s, b) => s + b.value, 0);
+    const currOrders = currBuckets.reduce((s, b) => s + b.orders, 0);
+    return {
+      totalPrev: prevTotal,
+      totalCurr: currTotal,
+      avgPrev: prevOrders > 0 ? prevTotal / prevOrders : null,
+      avgCurr: currOrders > 0 ? currTotal / currOrders : null,
+    };
+  }, [trendPoints]);
+
   const loading = initialLoading;
 
-  const clearDateRange = () => {
-    setDateFrom("");
-    setDateTo("");
-  };
+  const animatedTotalSales = useCountUp(totalSales);
+  const animatedAvgOrder = useCountUp(avgOrderValue);
+  const animatedItemsSold = useCountUp(totalItemsSold);
+
+  
 
   if (errorMsg && orders.length === 0) {
     return (
@@ -291,12 +406,40 @@ function Sales_db() {
 
   return (
     <div className="p-6 space-y-4">
+      {/* Header */}
       <div className="bg-white rounded-lg shadow p-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Sales Dashboard</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-gray-800">Sales Dashboard</h1>
+          </div>
+          
         </div>
+
         <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+            {["all", "Shopee", "Lazada", "TikTok"].map((p) => (
+              <button
+                key={p}
+                onClick={() => setPlatformFilter(p)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                  platformFilter === p ? "bg-red-700 text-white" : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                {p === "all" ? "All" : p}
+              </button>
+            ))}
+          </div>
+
           <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+            <button onClick={() => applyPreset("today")} className="text-xs px-2 py-1 rounded-md text-gray-600 hover:bg-white cursor-pointer">
+              Today
+            </button>
+            <button onClick={() => applyPreset("week")} className="text-xs px-2 py-1 rounded-md text-gray-600 hover:bg-white cursor-pointer">
+              7D
+            </button>
+            <button onClick={() => applyPreset("month")} className="text-xs px-2 py-1 rounded-md text-gray-600 hover:bg-white cursor-pointer">
+              30D
+            </button>
             <input
               type="date"
               value={dateFrom}
@@ -314,14 +457,12 @@ function Sales_db() {
               className="text-xs px-2 py-1 rounded-md bg-white border border-gray-200 text-gray-600"
             />
             {(dateFrom || dateTo) && (
-              <button
-                onClick={clearDateRange}
-                className="text-xs px-2 py-1 rounded-md text-gray-500 hover:text-gray-700 cursor-pointer"
-              >
+              <button onClick={clearDateRange} className="text-xs px-2 py-1 rounded-md text-gray-500 hover:text-gray-700 cursor-pointer">
                 ✕
               </button>
             )}
           </div>
+
           <button
             onClick={() => fetchAll(false)}
             disabled={loading || refreshing}
@@ -329,78 +470,97 @@ function Sales_db() {
           >
             {loading || refreshing ? "↻ Loading…" : "↻ Refresh"}
           </button>
+
+          
         </div>
       </div>
 
+      {/* Alerts */}
       {errorMsg && orders.length > 0 && (
         <div className="bg-white border border-amber-300 text-amber-700 rounded-lg shadow p-3 text-xs">
           Last refresh failed: {errorMsg}
         </div>
       )}
+      {itemsWarning && (
+        <div className="bg-white border border-amber-300 text-amber-700 rounded-lg shadow p-3 text-xs">
+          {itemsWarning}
+        </div>
+      )}
+      {lastImportLog && (
+        <div
+          className={`rounded-lg shadow p-3 text-xs flex items-center justify-between ${
+            lastImportLog.status === "success"
+              ? "bg-green-50 text-green-700 border border-green-200"
+              : "bg-amber-50 text-amber-700 border border-amber-200"
+          }`}
+        >
+          <span>
+            Last import ({normalizePlatform(lastImportLog.platform)}): {lastImportLog.inserted} inserted,{" "}
+            {lastImportLog.skipped} skipped — {lastImportLog.filename}
+          </span>
+          <span className="text-gray-400">{timeAgo(new Date(lastImportLog.created_at))}</span>
+        </div>
+      )}
 
+      {/* KPI cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-            Total Sales
-          </p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Total Sales</p>
           {loading ? (
             <Skeleton />
           ) : (
-            <p className="text-3xl font-bold mt-1 text-gray-800">
-              {fmtCurrency(totalSales)}
-            </p>
+            <div className="flex items-center gap-2 mt-1">
+              <p className="text-3xl font-bold text-gray-800">{fmtPHP(animatedTotalSales)}</p>
+              {periodComparison.totalPrev != null && (
+                <ChangeBadge current={periodComparison.totalCurr} previous={periodComparison.totalPrev} />
+              )}
+            </div>
           )}
           <p className="text-xs mt-1 text-gray-400">{filteredOrders.length} completed orders</p>
         </div>
 
         <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-            Avg Order Value
-          </p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Avg Order Value</p>
           {loading ? (
             <Skeleton />
           ) : (
-            <p className="text-3xl font-bold mt-1 text-gray-800">
-              {fmtCurrency(avgOrderValue)}
-            </p>
+            <div className="flex items-center gap-2 mt-1">
+              <p className="text-3xl font-bold text-gray-800">{fmtPHP(animatedAvgOrder)}</p>
+              {periodComparison.avgPrev != null && (
+                <ChangeBadge current={periodComparison.avgCurr} previous={periodComparison.avgPrev} />
+              )}
+            </div>
           )}
           <p className="text-xs mt-1 text-gray-400">per completed order</p>
         </div>
 
         <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-            Items Sold
-          </p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Items Sold</p>
           {loading ? (
             <Skeleton />
           ) : (
-            <p className="text-3xl font-bold mt-1 text-gray-800">
-              {totalItemsSold.toLocaleString()}
-            </p>
+            <p className="text-3xl font-bold mt-1 text-gray-800">{Math.round(animatedItemsSold).toLocaleString()}</p>
           )}
           <p className="text-xs mt-1 text-gray-400">units across all orders</p>
         </div>
 
         <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-            Latest Period
-          </p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Latest Period</p>
           {loading ? (
             <Skeleton />
           ) : (
             <div className="flex items-center gap-2 mt-1">
               <p className="text-3xl font-bold text-gray-800">
-                {trendChange ? fmtCurrency(trendChange.current) : "—"}
+                {trendChange ? fmtPHP(trendChange.current) : "—"}
               </p>
-              {trendChange && (
-                <ChangeBadge current={trendChange.current} previous={trendChange.previous} />
-              )}
+              {trendChange && <ChangeBadge current={trendChange.current} previous={trendChange.previous} />}
             </div>
           )}
           <p className="text-xs mt-1 text-gray-400">vs previous {trendMode.slice(0, -2) || trendMode}</p>
         </div>
       </div>
 
+      {/* Platform cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {["Shopee", "Lazada", "TikTok"].map((platform) => {
           const entry = platformTotals.find((p) => p.platform === platform);
@@ -409,17 +569,12 @@ function Sales_db() {
           return (
             <div key={platform} className="bg-white rounded-lg shadow p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 flex items-center gap-1.5">
-                <span
-                  className="w-2 h-2 rounded-full inline-block"
-                  style={{ background: color }}
-                />
+                <span className="w-2 h-2 rounded-full inline-block" style={{ background: color }} />
                 {platform}
               </p>
-              {loading ? (
-                <Skeleton />
-              ) : (
+              {loading ? <Skeleton /> : (
                 <p className="text-3xl font-bold mt-1" style={{ color }}>
-                  {fmtCurrency(entry?.amount)}
+                  {fmtPHP(entry?.amount)}
                 </p>
               )}
               <p className="text-xs mt-1 text-gray-400">{share.toFixed(0)}% of total sales</p>
@@ -428,6 +583,7 @@ function Sales_db() {
         })}
       </div>
 
+      {/* Sales trend */}
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-bold text-gray-700">Sales trend</h2>
@@ -437,9 +593,7 @@ function Sales_db() {
                 key={mode}
                 onClick={() => setTrendMode(mode)}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
-                  trendMode === mode
-                    ? "bg-red-700 text-white"
-                    : "text-gray-500 hover:text-gray-700"
+                  trendMode === mode ? "bg-red-700 text-white" : "text-gray-500 hover:text-gray-700"
                 }`}
               >
                 {mode.charAt(0).toUpperCase() + mode.slice(1)}
@@ -450,7 +604,7 @@ function Sales_db() {
         {loading ? (
           <Skeleton className="h-64 w-full" />
         ) : trendPoints.length === 0 ? (
-          <p className="text-xs text-gray-400">No sales data available.</p>
+          <EmptyState onImport={onGoToImport} />
         ) : (
           <ResponsiveContainer width="100%" height={260}>
             <AreaChart data={trendPoints} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
@@ -462,12 +616,7 @@ function Sales_db() {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-              <YAxis
-                tick={{ fontSize: 11, fill: "#9ca3af" }}
-                axisLine={false}
-                tickLine={false}
-                tickFormatter={fmtAxis}
-              />
+              <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
               <Tooltip
                 content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null;
@@ -476,7 +625,7 @@ function Sales_db() {
                     <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs">
                       <p className="font-semibold text-gray-700 mb-1">{label}</p>
                       <p style={{ color: "#b91c1c" }}>
-                        {trendMode.charAt(0).toUpperCase() + trendMode.slice(1)} sales: {fmtCurrency(point.value)}
+                        {trendMode.charAt(0).toUpperCase() + trendMode.slice(1)} sales: {fmtPHP(point.value)}
                       </p>
                       <p className="text-gray-500">{point.orders} order{point.orders !== 1 ? "s" : ""}</p>
                     </div>
@@ -493,51 +642,38 @@ function Sales_db() {
                 dot={{ r: 3, fill: "#b91c1c", strokeWidth: 0 }}
                 activeDot={{ r: 5 }}
               />
-              <Legend
-                verticalAlign="top"
-                height={28}
-                iconType="line"
-                wrapperStyle={{ fontSize: 12 }}
-              />
+              <Legend verticalAlign="top" height={28} iconType="line" wrapperStyle={{ fontSize: 12 }} />
             </AreaChart>
           </ResponsiveContainer>
         )}
       </div>
 
+      {/* Sales per platform */}
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-sm font-bold text-gray-700 mb-4">Sales per platform</h2>
         {loading ? (
           <Skeleton className="h-56 w-full" />
         ) : platformTotals.length === 0 ? (
-          <p className="text-xs text-gray-400">No sales data available.</p>
+          <EmptyState onImport={onGoToImport} />
         ) : (
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={platformTotals} margin={{ top: 20, right: 16, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
               <XAxis dataKey="platform" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-              <YAxis
-                tick={{ fontSize: 11, fill: "#9ca3af" }}
-                axisLine={false}
-                tickLine={false}
-                tickFormatter={fmtAxis}
-              />
+              <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
               <Tooltip content={<CurrencyTooltip />} />
               <Bar dataKey="amount" name="Sales" radius={[6, 6, 0, 0]}>
                 {platformTotals.map((p) => (
                   <Cell key={p.platform} fill={p.color} />
                 ))}
-                <LabelList
-                  dataKey="amount"
-                  position="top"
-                  formatter={fmtAxis}
-                  style={{ fontSize: 11, fill: "#374151", fontWeight: 600 }}
-                />
+                <LabelList dataKey="amount" position="top" formatter={fmtAxis} style={{ fontSize: 11, fill: "#374151", fontWeight: 600 }} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         )}
       </div>
 
+      {/* Top products */}
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-bold text-gray-700">Top products sold</h2>
@@ -550,9 +686,7 @@ function Sales_db() {
                 key={opt.key}
                 onClick={() => setProductSort(opt.key)}
                 className={`px-3 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
-                  productSort === opt.key
-                    ? "bg-red-700 text-white"
-                    : "text-gray-500 hover:text-gray-700"
+                  productSort === opt.key ? "bg-red-700 text-white" : "text-gray-500 hover:text-gray-700"
                 }`}
               >
                 {opt.label}
@@ -563,30 +697,22 @@ function Sales_db() {
         {loading ? (
           <Skeleton className="h-56 w-full" />
         ) : topProducts.length === 0 ? (
-          <p className="text-xs text-gray-400">No sales data available.</p>
+          <EmptyState onImport={onGoToImport} />
         ) : (
           <ResponsiveContainer width="100%" height={Math.max(180, topProducts.length * 40)}>
-            <BarChart
-              data={topProducts}
-              layout="vertical"
-              margin={{ top: 0, right: 48, left: 8, bottom: 0 }}
-            >
+            <BarChart data={topProducts} layout="vertical" margin={{ top: 0, right: 48, left: 8, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
               <XAxis type="number" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-              <YAxis
-                type="category"
-                dataKey="name"
-                width={140}
-                tick={{ fontSize: 11, fill: "#374151" }}
-                axisLine={false}
-                tickLine={false}
-              />
+              <YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 11, fill: "#374151" }} axisLine={false} tickLine={false} />
               <Tooltip
                 formatter={(value, name) =>
-                  name === "amount" ? [fmtCurrency(value), "Revenue"] : [`${value} sold`, "Quantity"]
+                  name === "amount" ? [fmtPHP(value), "Revenue"] : [`${value} sold`, "Quantity"]
                 }
               />
-              <Bar dataKey={productSort} name={productSort} fill="#b91c1c" radius={[0, 6, 6, 0]} barSize={18}>
+              <Bar dataKey={productSort} name={productSort} radius={[0, 6, 6, 0]} barSize={18}>
+                {topProducts.map((_, i) => (
+                  <Cell key={i} fill={i === 0 ? "#b91c1c" : "#f3a6a0"} />
+                ))}
                 <LabelList
                   dataKey={productSort}
                   position="right"

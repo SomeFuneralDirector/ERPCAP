@@ -104,8 +104,8 @@ function TrendDot(props) {
 }
 
 // Hovering a point shows that month's total plus its top 3 sellers, each
-// with units sold and % share of that month's volume. Styled to match the
-// rest of the dashboard's tooltips/cards (white, gray-200 border, gray-700 text).
+// with units sold and % share of that month's volume, and any campaigns that
+// were active during that month.
 function TrendTooltip({ active, payload, label }) {
   if (!active || !payload || payload.length === 0) return null
   const row = payload[0].payload
@@ -135,6 +135,16 @@ function TrendTooltip({ active, payload, label }) {
           })}
         </div>
       )}
+      {row.activeCampaigns && row.activeCampaigns.length > 0 && (
+        <div className="mt-2 pt-2 border-t border-gray-100">
+          <p className="text-gray-400 uppercase tracking-wide" style={{ fontSize: '10px' }}>
+            Campaigns this month
+          </p>
+          {row.activeCampaigns.map((c) => (
+            <p key={c} className="text-red-600 truncate">{c}</p>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -156,9 +166,11 @@ function Marketing() {
     }
     setErrorMsg('')
 
+    // Select `id` too — this is the FK order_items.order_uuid points to,
+    // and it's the only globally-unique key across platforms.
     const { data: completedOrders, error: ordersError } = await supabase
       .from('orders')
-      .select('order_id, platform, total_amount, completed_at, created_at, paid_time, status')
+      .select('id, order_id, platform, total_amount, completed_at, created_at, paid_time, status')
       .eq('status', 'COMPLETED')
 
     if (ordersError) {
@@ -169,14 +181,14 @@ function Marketing() {
     }
 
     setOrders(completedOrders || [])
-    const orderIds = (completedOrders || []).map((o) => o.order_id).filter(Boolean)
+    const orderUuids = (completedOrders || []).map((o) => o.id).filter(Boolean)
 
     const [itemsRes, campaignsRes] = await Promise.all([
-      orderIds.length > 0
+      orderUuids.length > 0
         ? supabase
             .from('order_items')
-            .select('order_id, platform, product_name, quantity, unit_price')
-            .in('order_id', orderIds)
+            .select('order_uuid, order_id, platform, product_name, quantity, unit_price')
+            .in('order_uuid', orderUuids)
         : Promise.resolve({ data: [], error: null }),
       supabase
         .from('campaigns')
@@ -253,11 +265,12 @@ function Marketing() {
 
   // ── Sales trend by product, across months ───────────────────
 
+  // Keyed by order_uuid now (matches order_items.order_uuid), not order_id.
   const orderDateById = useMemo(() => {
     const map = {}
     orders.forEach((o) => {
       const d = orderDate(o)
-      if (d) map[o.order_id] = d
+      if (d) map[o.id] = d
     })
     return map
   }, [orders])
@@ -267,7 +280,7 @@ function Marketing() {
   const monthlyProductTotals = useMemo(() => {
     const months = {}
     orderItems.forEach((row) => {
-      const date = orderDateById[row.order_id]
+      const date = orderDateById[row.order_uuid]
       if (!date) return
       const key = monthKey(date)
       if (!months[key]) months[key] = {}
@@ -300,10 +313,33 @@ function Marketing() {
       .slice(0, 5)
   }, [selectedMonth, availableMonths, monthlyProductTotals])
 
+  const campaignsWithStatus = useMemo(
+    () => campaigns.map((c) => ({ ...c, derivedStatus: deriveCampaignStatus(c) })),
+    [campaigns]
+  )
+
+  // Which campaign names were active at any point during a given month key ("YYYY-MM")
+  const campaignsActiveInMonth = useCallback(
+    (key) => {
+      if (!key) return []
+      const [year, month] = key.split('-').map(Number)
+      const monthStart = new Date(year, month - 1, 1)
+      const monthEnd = new Date(year, month, 0)
+      return campaigns
+        .filter((c) => c.status !== 'Cancelled')
+        .filter((c) => {
+          const start = c.start_date ? new Date(c.start_date) : monthStart
+          const end = c.end_date ? new Date(c.end_date) : monthEnd
+          return start <= monthEnd && end >= monthStart
+        })
+        .map((c) => c.name)
+    },
+    [campaigns]
+  )
+
   // Total units sold per month, with that month's top 3 products attached
-  // (for the hover tooltip) and whether the month is a local peak (higher
-  // than both neighbors) — this drives the single trend line, its rotated
-  // #1-seller labels, and the highlighted peak callouts.
+  // (for the hover tooltip), which campaigns overlapped that month, and
+  // whether the month is a local peak (higher than both neighbors).
   const monthlyTrend = useMemo(() => {
     const monthsAscending = [...availableMonths].reverse()
     const distinctYears = new Set(monthsAscending.map((k) => k.split('-')[0]))
@@ -328,6 +364,7 @@ function Marketing() {
         total,
         topSellers,
         topSellerName: topSellers[0]?.name || '',
+        activeCampaigns: campaignsActiveInMonth(key),
       }
     })
 
@@ -338,12 +375,7 @@ function Marketing() {
     })
 
     return rows
-  }, [availableMonths, monthlyProductTotals])
-
-  const campaignsWithStatus = useMemo(
-    () => campaigns.map((c) => ({ ...c, derivedStatus: deriveCampaignStatus(c) })),
-    [campaigns]
-  )
+  }, [availableMonths, monthlyProductTotals, campaignsActiveInMonth])
 
   const activeCampaigns = campaignsWithStatus.filter((c) =>
     ['Active', 'Upcoming'].includes(c.derivedStatus)
@@ -396,6 +428,12 @@ function Marketing() {
           {loading || refreshing ? '↻ Loading…' : '↻ Refresh'}
         </button>
       </div>
+
+      {errorMsg && orders.length > 0 && (
+        <div className="bg-white border border-amber-300 text-amber-700 rounded-lg shadow p-3 text-xs">
+          Last refresh failed: {errorMsg}
+        </div>
+      )}
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
