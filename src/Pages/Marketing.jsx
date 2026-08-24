@@ -5,7 +5,6 @@ import {
   Bar,
   LineChart,
   Line,
-  Legend,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -22,7 +21,16 @@ const PLATFORM_COLORS = {
 
 const LOW_PERFORMER_THRESHOLD = 5
 const CAMPAIGN_ENDING_SOON_DAYS = 7
-const TREND_LINE_COLORS = ['#b91c1c', '#f97316', '#7c3aed', '#0891b2', '#16a34a']
+
+// How many top sellers to surface in the hover tooltip
+const TOP_N_IN_TOOLTIP = 3
+
+// Trend chart colors — matches the red/gray palette used across the rest
+// of this dashboard (bar charts, rank badges, active-campaign pills, etc.)
+const TREND_LINE_COLOR = '#b91c1c' // red-700, same family as the rank badges
+const TREND_PEAK_COLOR = '#dc2626' // red-600
+const TREND_GRID_COLOR = '#f3f4f6' // gray-100, same as other charts' CartesianGrid
+const TREND_AXIS_COLOR = '#9ca3af' // gray-400, same as other charts' axis ticks
 
 const normalizePlatform = (p) => {
   if (!p) return 'Unknown'
@@ -67,6 +75,68 @@ function deriveCampaignStatus(c) {
 
 function Skeleton({ className = 'h-8 w-16' }) {
   return <div className={`${className} bg-gray-100 rounded animate-pulse mt-1`} />
+}
+
+// Custom dot for the trend line: small red dot normally, a larger dot with a
+// value callout on months that are a local peak.
+function TrendDot(props) {
+  const { cx, cy, payload } = props
+  if (cx == null || cy == null) return null
+  const isPeak = payload.isPeak
+
+  return (
+    <g>
+      <circle cx={cx} cy={cy} r={isPeak ? 6 : 4} fill={isPeak ? TREND_PEAK_COLOR : TREND_LINE_COLOR} />
+      {isPeak && (
+        <text
+          x={cx}
+          y={cy - 16}
+          textAnchor="middle"
+          fill={TREND_PEAK_COLOR}
+          fontSize={13}
+          fontWeight={600}
+        >
+          {payload.total.toLocaleString()}
+        </text>
+      )}
+    </g>
+  )
+}
+
+// Hovering a point shows that month's total plus its top 3 sellers, each
+// with units sold and % share of that month's volume. Styled to match the
+// rest of the dashboard's tooltips/cards (white, gray-200 border, gray-700 text).
+function TrendTooltip({ active, payload, label }) {
+  if (!active || !payload || payload.length === 0) return null
+  const row = payload[0].payload
+  const topSellers = row.topSellers || []
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-xs min-w-[190px]">
+      <p className="font-semibold text-gray-700 mb-1">{label}</p>
+      <p className="text-gray-500 mb-2">{row.total.toLocaleString()} units sold</p>
+      {topSellers.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-gray-400 uppercase tracking-wide" style={{ fontSize: '10px' }}>
+            Top {topSellers.length} sellers
+          </p>
+          {topSellers.map((p, idx) => {
+            const pct = row.total > 0 ? ((p.qty / row.total) * 100).toFixed(1) : '0.0'
+            return (
+              <div key={p.name} className="flex items-center justify-between gap-3">
+                <span className="flex items-center gap-1.5 text-gray-700 truncate">
+                  <span className="w-4 h-4 shrink-0 flex items-center justify-center rounded-full bg-red-600 text-white text-[10px] font-bold">
+                    {idx + 1}
+                  </span>
+                  <span className="truncate">{p.name}</span>
+                </span>
+                <span className="text-gray-500 shrink-0">{p.qty} · {pct}%</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function Marketing() {
@@ -192,8 +262,8 @@ function Marketing() {
     return map
   }, [orders])
 
-  // Full qty-per-product-per-month totals (not sliced) so trend lines can
-  // look up any product's quantity in any month, even months it wasn't a top seller in.
+  // Full qty-per-product-per-month totals so the trend chart and month
+  // picker can look up any product's quantity in any month.
   const monthlyProductTotals = useMemo(() => {
     const months = {}
     orderItems.forEach((row) => {
@@ -230,19 +300,45 @@ function Marketing() {
       .slice(0, 5)
   }, [selectedMonth, availableMonths, monthlyProductTotals])
 
-  // The top 5 products overall, tracked across every month for the trend chart
-  const topOverallProductNames = useMemo(() => products.slice(0, 5).map((p) => p.name), [products])
-
-  const trendData = useMemo(() => {
+  // Total units sold per month, with that month's top 3 products attached
+  // (for the hover tooltip) and whether the month is a local peak (higher
+  // than both neighbors) — this drives the single trend line, its rotated
+  // #1-seller labels, and the highlighted peak callouts.
+  const monthlyTrend = useMemo(() => {
     const monthsAscending = [...availableMonths].reverse()
-    return monthsAscending.map((key) => {
-      const entry = { month: monthLabel(key) }
-      topOverallProductNames.forEach((name) => {
-        entry[name] = monthlyProductTotals[key]?.[name] || 0
+    const distinctYears = new Set(monthsAscending.map((k) => k.split('-')[0]))
+
+    const rows = monthsAscending.map((key) => {
+      const totals = monthlyProductTotals[key] || {}
+      const sorted = Object.entries(totals)
+        .map(([name, qty]) => ({ name, qty }))
+        .sort((a, b) => b.qty - a.qty)
+      const total = sorted.reduce((sum, p) => sum + p.qty, 0)
+      const topSellers = sorted.slice(0, TOP_N_IN_TOOLTIP)
+      const [year, month] = key.split('-')
+      const d = new Date(Number(year), Number(month) - 1, 1)
+      const label = d.toLocaleDateString(undefined, {
+        month: 'short',
+        ...(distinctYears.size > 1 ? { year: '2-digit' } : {}),
       })
-      return entry
+
+      return {
+        monthKey: key,
+        month: label,
+        total,
+        topSellers,
+        topSellerName: topSellers[0]?.name || '',
+      }
     })
-  }, [availableMonths, topOverallProductNames, monthlyProductTotals])
+
+    rows.forEach((row, i) => {
+      const prev = rows[i - 1]
+      const next = rows[i + 1]
+      row.isPeak = (!prev || row.total > prev.total) && (!next || row.total > next.total)
+    })
+
+    return rows
+  }, [availableMonths, monthlyProductTotals])
 
   const campaignsWithStatus = useMemo(
     () => campaigns.map((c) => ({ ...c, derivedStatus: deriveCampaignStatus(c) })),
@@ -405,32 +501,37 @@ function Marketing() {
         </div>
       </div>
 
-      {/* Sales trend by product */}
+      {/* Seasonal trend: units sold per month; hover a point for that month's top 3 sellers */}
       <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-lg font-bold text-gray-700 mb-4">Trend</h2>
+        <h2 className="text-lg font-bold text-gray-700 mb-1">Trend</h2>
         {loading ? (
-          <Skeleton className="h-56 w-full" />
-        ) : trendData.length === 0 ? (
+          <Skeleton className="h-64 w-full" />
+        ) : monthlyTrend.length === 0 ? (
           <p className="text-xs text-gray-400">No sales data yet.</p>
         ) : (
-          <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={trendData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
-              <Tooltip formatter={(v) => [`${v} sold`, '']} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-              {topOverallProductNames.map((name, idx) => (
-                <Line
-                  key={name}
-                  type="monotone"
-                  dataKey={name}
-                  stroke={TREND_LINE_COLORS[idx % TREND_LINE_COLORS.length]}
-                  strokeWidth={2}
-                  dot={{ r: 3 }}
-                  activeDot={{ r: 5 }}
-                />
-              ))}
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={monthlyTrend} margin={{ top: 24, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={TREND_GRID_COLOR} vertical={false} />
+              <XAxis
+                dataKey="month"
+                tick={{ fontSize: 11, fill: TREND_AXIS_COLOR }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                tick={{ fontSize: 11, fill: TREND_AXIS_COLOR }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <Tooltip content={<TrendTooltip />} cursor={{ stroke: TREND_GRID_COLOR }} />
+              <Line
+                type="monotone"
+                dataKey="total"
+                stroke={TREND_LINE_COLOR}
+                strokeWidth={2}
+                dot={<TrendDot />}
+                activeDot={{ r: 6, fill: TREND_LINE_COLOR }}
+              />
             </LineChart>
           </ResponsiveContainer>
         )}
