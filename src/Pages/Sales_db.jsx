@@ -15,22 +15,17 @@ import {
 } from "recharts";
 import { supabase } from "../api/supabase";
 
-// ─── Platform colours ────────────────────────────────────────
-
 const PLATFORM_COLORS = {
   Shopee: "#EE4D2D",
   Lazada: "#7C3AED",
   TikTok: "#1f2937",
 };
 
-// ─── Helpers ──────────────────────────────────────────────────
-
 const fmtCurrency = (n) =>
   `₱${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
 const fmtAxis = (v) => `₱${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`;
 
-// Orders store amounts in cents and platform names lowercase (shopee/lazada/tiktok)
 const centsToPesos = (c) => (c || 0) / 100;
 const normalizePlatform = (p) => {
   if (!p) return "Unknown";
@@ -47,6 +42,12 @@ function getStartOfWeek(d) {
   date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
   date.setHours(0, 0, 0, 0);
   return date;
+}
+
+function toDateInputValue(d) {
+  const date = new Date(d);
+  const offset = date.getTimezoneOffset();
+  return new Date(date.getTime() - offset * 60000).toISOString().slice(0, 10);
 }
 
 function bucketSales(orders, mode) {
@@ -81,13 +82,9 @@ function bucketSales(orders, mode) {
   return Object.values(buckets).sort((a, b) => a.sortKey - b.sortKey);
 }
 
-// ─── Skeleton ────────────────────────────────────────────────
-
 function Skeleton({ className = "h-8 w-16" }) {
   return <div className={`${className} bg-gray-100 rounded animate-pulse mt-1`} />;
 }
-
-// ─── Custom tooltip ──────────────────────────────────────────
 
 function CurrencyTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
@@ -102,8 +99,6 @@ function CurrencyTooltip({ active, payload, label }) {
     </div>
   );
 }
-
-// ─── Period-over-period change badge ──────────────────────────
 
 function ChangeBadge({ current, previous }) {
   if (previous === null || previous === undefined || previous === 0) return null;
@@ -120,17 +115,17 @@ function ChangeBadge({ current, previous }) {
   );
 }
 
-// ─── Main component ──────────────────────────────────────────
-
 function Sales_db() {
   const [orders, setOrders] = useState([]);
   const [orderItems, setOrderItems] = useState([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
-  const [trendMode, setTrendMode] = useState("weekly"); // 'weekly' | 'monthly' | 'yearly'
-  const [productSort, setProductSort] = useState("qty"); // 'qty' | 'amount'
+  const [trendMode, setTrendMode] = useState("weekly");
+  const [productSort, setProductSort] = useState("qty");
   const [lastSynced, setLastSynced] = useState(null);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   const fetchAll = useCallback(async (isInitial = false) => {
     if (isInitial) {
@@ -140,7 +135,6 @@ function Sales_db() {
     }
     setErrorMsg("");
 
-    // ── 1. Completed orders (the source of truth for revenue/trend) ──
     const { data: completedOrders, error: ordersError } = await supabase
       .from("orders")
       .select("id, order_id, platform, total_amount, completed_at, created_at, paid_time, status")
@@ -155,7 +149,6 @@ function Sales_db() {
 
     setOrders(completedOrders || []);
 
-    // ── 2. Line items for those completed orders (top products) ──
     const orderIds = (completedOrders || []).map((o) => o.order_id).filter(Boolean);
 
     if (orderIds.length === 0) {
@@ -199,23 +192,45 @@ function Sales_db() {
     return () => supabase.removeChannel(channel);
   }, [fetchAll]);
 
-  // ── Derived data ───────────────────────────────────────────
+  const filteredOrders = useMemo(() => {
+    if (!dateFrom && !dateTo) return orders;
+    const fromTime = dateFrom ? new Date(dateFrom).setHours(0, 0, 0, 0) : null;
+    const toTime = dateTo ? new Date(dateTo).setHours(23, 59, 59, 999) : null;
+    return orders.filter((o) => {
+      const raw = orderDate(o);
+      if (!raw) return false;
+      const t = new Date(raw).getTime();
+      if (fromTime !== null && t < fromTime) return false;
+      if (toTime !== null && t > toTime) return false;
+      return true;
+    });
+  }, [orders, dateFrom, dateTo]);
+
+  const filteredOrderIds = useMemo(
+    () => new Set(filteredOrders.map((o) => o.order_id)),
+    [filteredOrders]
+  );
+
+  const filteredOrderItems = useMemo(
+    () => orderItems.filter((i) => filteredOrderIds.has(i.order_id)),
+    [orderItems, filteredOrderIds]
+  );
 
   const totalSales = useMemo(
-    () => orders.reduce((sum, o) => sum + centsToPesos(o.total_amount), 0),
-    [orders]
+    () => filteredOrders.reduce((sum, o) => sum + centsToPesos(o.total_amount), 0),
+    [filteredOrders]
   );
 
   const totalItemsSold = useMemo(
-    () => orderItems.reduce((sum, i) => sum + (i.quantity || 0), 0),
-    [orderItems]
+    () => filteredOrderItems.reduce((sum, i) => sum + (i.quantity || 0), 0),
+    [filteredOrderItems]
   );
 
-  const avgOrderValue = orders.length > 0 ? totalSales / orders.length : 0;
+  const avgOrderValue = filteredOrders.length > 0 ? totalSales / filteredOrders.length : 0;
 
   const platformTotals = useMemo(() => {
     const map = {};
-    orders.forEach((o) => {
+    filteredOrders.forEach((o) => {
       const p = normalizePlatform(o.platform);
       map[p] = (map[p] || 0) + centsToPesos(o.total_amount);
     });
@@ -226,11 +241,11 @@ function Sales_db() {
         color: PLATFORM_COLORS[platform] ?? "#6b7280",
       }))
       .sort((a, b) => b.amount - a.amount);
-  }, [orders]);
+  }, [filteredOrders]);
 
   const topProducts = useMemo(() => {
     const map = {};
-    orderItems.forEach((item) => {
+    filteredOrderItems.forEach((item) => {
       const name = item.product_name || "Unknown";
       if (!map[name]) map[name] = { name, qty: 0, amount: 0 };
       map[name].qty += item.quantity || 0;
@@ -239,12 +254,10 @@ function Sales_db() {
     return Object.values(map)
       .sort((a, b) => b[productSort] - a[productSort])
       .slice(0, 6);
-  }, [orderItems, productSort]);
+  }, [filteredOrderItems, productSort]);
 
-  const trendPoints = useMemo(() => bucketSales(orders, trendMode), [orders, trendMode]);
+  const trendPoints = useMemo(() => bucketSales(filteredOrders, trendMode), [filteredOrders, trendMode]);
 
-  // Compare the two most recent buckets so "Sales trend" shows real momentum,
-  // regardless of which mode (weekly/monthly/yearly) is selected.
   const trendChange = useMemo(() => {
     if (trendPoints.length < 2) return null;
     const current = trendPoints[trendPoints.length - 1].value;
@@ -253,6 +266,11 @@ function Sales_db() {
   }, [trendPoints]);
 
   const loading = initialLoading;
+
+  const clearDateRange = () => {
+    setDateFrom("");
+    setDateTo("");
+  };
 
   if (errorMsg && orders.length === 0) {
     return (
@@ -273,26 +291,36 @@ function Sales_db() {
 
   return (
     <div className="p-6 space-y-4">
-      {/* Header */}
       <div className="bg-white rounded-lg shadow p-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Sales Dashboard</h1>
         </div>
-        <div className="flex items-center gap-2 self-start md:self-auto">
-          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-            {["weekly", "monthly", "yearly"].map((mode) => (
+        <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
+          <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+            <input
+              type="date"
+              value={dateFrom}
+              max={dateTo || toDateInputValue(new Date())}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="text-xs px-2 py-1 rounded-md bg-white border border-gray-200 text-gray-600"
+            />
+            <span className="text-xs text-gray-400">to</span>
+            <input
+              type="date"
+              value={dateTo}
+              min={dateFrom}
+              max={toDateInputValue(new Date())}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="text-xs px-2 py-1 rounded-md bg-white border border-gray-200 text-gray-600"
+            />
+            {(dateFrom || dateTo) && (
               <button
-                key={mode}
-                onClick={() => setTrendMode(mode)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
-                  trendMode === mode
-                    ? "bg-red-700 text-white"
-                    : "text-gray-500 hover:text-gray-700"
-                }`}
+                onClick={clearDateRange}
+                className="text-xs px-2 py-1 rounded-md text-gray-500 hover:text-gray-700 cursor-pointer"
               >
-                {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                ✕
               </button>
-            ))}
+            )}
           </div>
           <button
             onClick={() => fetchAll(false)}
@@ -310,7 +338,6 @@ function Sales_db() {
         </div>
       )}
 
-      {/* Total sales + AOV + items sold + order count */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
@@ -323,7 +350,7 @@ function Sales_db() {
               {fmtCurrency(totalSales)}
             </p>
           )}
-          <p className="text-xs mt-1 text-gray-400">{orders.length} completed orders</p>
+          <p className="text-xs mt-1 text-gray-400">{filteredOrders.length} completed orders</p>
         </div>
 
         <div className="bg-white rounded-lg shadow p-4">
@@ -374,7 +401,6 @@ function Sales_db() {
         </div>
       </div>
 
-      {/* Platform cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {["Shopee", "Lazada", "TikTok"].map((platform) => {
           const entry = platformTotals.find((p) => p.platform === platform);
@@ -402,10 +428,24 @@ function Sales_db() {
         })}
       </div>
 
-      {/* Sales trend chart */}
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-bold text-gray-700">Sales trend</h2>
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+            {["weekly", "monthly", "yearly"].map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setTrendMode(mode)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                  trendMode === mode
+                    ? "bg-red-700 text-white"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                {mode.charAt(0).toUpperCase() + mode.slice(1)}
+              </button>
+            ))}
+          </div>
         </div>
         {loading ? (
           <Skeleton className="h-64 w-full" />
@@ -464,7 +504,6 @@ function Sales_db() {
         )}
       </div>
 
-      {/* Sales per platform */}
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-sm font-bold text-gray-700 mb-4">Sales per platform</h2>
         {loading ? (
@@ -499,7 +538,6 @@ function Sales_db() {
         )}
       </div>
 
-      {/* Top products sold (horizontal bar chart) */}
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-bold text-gray-700">Top products sold</h2>
