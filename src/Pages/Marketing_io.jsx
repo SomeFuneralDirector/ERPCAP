@@ -174,23 +174,7 @@ function Marketing_io() {
 
   const loading = initialLoading
 
-  const exportCSV = () => {
-    const rows = [
-      ['Product', 'Category', 'Shopee', 'Lazada', 'TikTok', 'Total Sold', 'In Stock', 'Revenue'],
-      ...sortedProductTable.map((p) => [
-        p.name, p.category, p.shopee, p.lazada, p.tiktok, p.total,
-        p.stock !== null ? p.stock : '', p.revenue.toFixed(2),
-      ]),
-    ]
-    const csv = rows.map((r) => r.map((v) => `"${v}"`).join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `marketing_product_sales_${new Date().toISOString().slice(0, 10)}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
+  
 
   return (
     <div className="p-6">
@@ -201,16 +185,9 @@ function Marketing_io() {
         </h1>
         <div className="flex gap-2">
           <button
-            onClick={exportCSV}
-            disabled={loading || sortedProductTable.length === 0}
-            className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
-          >
-            ⬇ Export
-          </button>
-          <button
             onClick={() => fetchData(false)}
             disabled={loading || refreshing}
-            className="px-4 py-2 bg-red-700 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors disabled:opacity-50"
+            className="px-4 py-2 bg-red-700 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors disabled:opacity-50 cursor-pointer"
           >
             {loading || refreshing ? '↻ Loading…' : '↻ Refresh'}
           </button>
@@ -247,7 +224,7 @@ function Marketing_io() {
             <select
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
-              className="border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 bg-white cursor-pointer focus:outline-none focus:ring-2 focus:ring-red-300"
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 bg-white cursor-pointer focus:outline-none focus:ring-2 focus:ring-red-300 cursor-pointer"
             >
               {categories.map((c) => (
                 <option key={c} value={c}>{c === 'all' ? 'All Categories' : c}</option>

@@ -285,18 +285,18 @@ function Ledger() {
             type="date"
             value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)}
-            className="border border-gray-300 rounded px-2 py-1 text-sm"
+            className="border border-gray-300 rounded px-2 py-1 text-sm cursor-pointer"
           />
           <span className="text-gray-400 text-sm">to</span>
           <input
             type="date"
             value={dateTo}
             onChange={(e) => setDateTo(e.target.value)}
-            className="border border-gray-300 rounded px-2 py-1 text-sm"
+            className="border border-gray-300 rounded px-2 py-1 text-sm cursor-pointer"
           />
           <button
             onClick={openModal}
-            className="flex items-center gap-1.5 bg-red-700 text-white text-sm font-bold px-3 py-1.5 rounded hover:bg-red-600"
+            className="flex items-center gap-1.5 bg-red-700 text-white text-sm font-bold px-3 py-1.5 rounded hover:bg-red-600 cursor-pointer"
           >
             <Plus size={14} />
             Add Entry

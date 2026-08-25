@@ -272,11 +272,11 @@ function Sales() {
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="flex items-center justify-between mt-4">
-            <p className="text-sm text-gray-500">Page {page} of {totalPages} · {totalCount} orders</p>
+          <div className="flex items-center justify-between mt-4 ">
+            <p className="text-sm text-gray-500 ">Page {page} of {totalPages} · {totalCount} orders</p>
             <div className="flex gap-2">
               <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-                className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                className="px-3 py-1.5 border cursor-pointer border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
                 ← Prev
               </button>
               {[...Array(Math.min(5, totalPages))].map((_, i) => {
@@ -284,14 +284,14 @@ function Sales() {
                 return (
                   <button key={pageNum} onClick={() => setPage(pageNum)}
                     className={`px-3 py-1.5 border rounded-lg text-sm transition-colors ${
-                      page === pageNum ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                      page === pageNum ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-200 text-gray-600 hover:bg-gray-50 cursor-pointer'
                     }`}>
                     {pageNum}
                   </button>
                 )
               })}
               <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-                className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer">
                 Next →
               </button>
             </div>

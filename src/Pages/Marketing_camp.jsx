@@ -229,9 +229,9 @@ function Marketing_campaigns() {
         </div>
         <button
           onClick={openCreateForm}
-          className="bg-red-700 hover:bg-red-600 text-white font-semibold px-4 py-2 rounded-lg shadow transition"
+          className="bg-red-700 hover:bg-red-600 text-white font-semibold px-4 py-2 rounded-lg shadow transition cursor-pointer"
         >
-          + New Campaign
+         New Campaign
         </button>
       </div>
 
@@ -241,12 +241,12 @@ function Marketing_campaigns() {
         </div>
       )}
 
-      <div className="bg-white rounded-lg shadow p-6">
+      <div className="bg-white rounded-lg shadow p-6 ">
         {/* Tabs */}
-        <div className="flex gap-2 mb-6 border-b border-gray-200">
+        <div className="flex gap-2 mb-6 border-b border-gray-200 ">
           <button
             onClick={() => setActiveTab('active')}
-            className={`px-4 py-2 font-semibold text-sm border-b-2 transition ${
+            className={`px-4 py-2 cursor-pointer font-semibold text-sm  border-b-2 transition ${
               activeTab === 'active'
                 ? 'border-red-600 text-red-600'
                 : 'border-transparent text-gray-500 hover:text-red-500'
@@ -256,7 +256,7 @@ function Marketing_campaigns() {
           </button>
           <button
             onClick={() => setActiveTab('history')}
-            className={`px-4 py-2 font-semibold text-sm border-b-2 transition ${
+            className={`px-4 py-2 font-semibold cursor-pointer text-sm border-b-2 transition ${
               activeTab === 'history'
                 ? 'border-red-600 text-red-600'
                 : 'border-transparent text-gray-500 hover:text-red-500'

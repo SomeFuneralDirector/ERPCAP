@@ -220,7 +220,7 @@ function Activity_logs() {
               <button
                 key={t.key}
                 onClick={() => setActiveTab(t.key)}
-                className={`px-4 py-2 font-semibold text-sm border-b-2 transition ${
+                className={`px-4 py-2 font-semibold cursor-pointer text-sm border-b-2 transition ${
                   activeTab === t.key
                     ? 'border-red-600 text-red-600'
                     : 'border-transparent text-gray-500 hover:text-red-500'

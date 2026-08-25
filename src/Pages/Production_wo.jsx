@@ -153,9 +153,9 @@ function Production_wo() {
         </h1>
         <button
           onClick={openCreateForm}
-          className="bg-red-700 hover:bg-red-600 text-white font-semibold px-4 py-2 rounded-lg shadow transition"
+          className="bg-red-700 hover:bg-red-600 text-white font-semibold px-4 py-2 rounded-lg shadow transition cursor-pointer"
         >
-          + New Work Order
+         + New Work Order
         </button>
       </div>
 
@@ -173,7 +173,7 @@ function Production_wo() {
             className={`px-4 py-2 font-semibold text-sm border-b-2 transition ${
               activeTab === 'active'
                 ? 'border-red-600 text-red-600'
-                : 'border-transparent text-gray-500 hover:text-red-500'
+                : 'border-transparent text-gray-500 hover:text-red-500 cursor-pointer'
             }`}
           >
             Active ({activeOrders.length})
@@ -183,7 +183,7 @@ function Production_wo() {
             className={`px-4 py-2 font-semibold text-sm border-b-2 transition ${
               activeTab === 'history'
                 ? 'border-red-600 text-red-600'
-                : 'border-transparent text-gray-500 hover:text-red-500'
+                : 'border-transparent text-gray-500 hover:text-red-500 cursor-pointer'
             }`}
           >
             History ({historyOrders.length})

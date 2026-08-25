@@ -28,6 +28,19 @@ const PLATFORM_COLORS = {
   TikTok: "#1f2937",
 };
 
+// Raw-material categories are free text, so colours are assigned
+// on the fly from this palette (cycled, stable per category name).
+const MATERIAL_PALETTE = [
+  "#0891b2", "#b45309", "#7c3aed", "#059669", "#be123c",
+  "#4338ca", "#a16207", "#0f766e", "#c026d3", "#334155",
+];
+
+const STATUS_COLORS = {
+  "In Stock": "#16a34a",
+  "Low Stock": "#f59e0b",
+  "Out of Stock": "#dc2626",
+};
+
 // ─── Helpers ──────────────────────────────────────────────────
 
 function totalStock(row) {
@@ -49,6 +62,10 @@ function formatLogTime(iso) {
   return d.toLocaleDateString();
 }
 
+function colorForCategory(name, index) {
+  return MATERIAL_PALETTE[index % MATERIAL_PALETTE.length];
+}
+
 // ─── Skeleton
 
 function Skeleton({ className = "h-8 w-16" }) {
@@ -63,9 +80,23 @@ function UnitsTooltip({ active, payload, label }) {
       {label && <p className="font-semibold text-gray-700 mb-1">{label}</p>}
       {payload.map((p) => (
         <p key={p.dataKey} style={{ color: p.color || p.fill }}>
-          {p.name}: {(p.value ?? 0).toLocaleString()} units
+          {p.name}: {(p.value ?? 0).toLocaleString()} {p.unit || "units"}
         </p>
       ))}
+    </div>
+  );
+}
+
+// ─── Section heading with a tiny divider, used to separate Products / Raw materials
+
+function SectionHeading({ title, subtitle }) {
+  return (
+    <div className="flex items-center gap-3 pt-2">
+      <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500 whitespace-nowrap">
+        {title}
+      </h2>
+      <div className="h-px bg-gray-200 flex-1" />
+      {subtitle && <span className="text-xs text-gray-400 whitespace-nowrap">{subtitle}</span>}
     </div>
   );
 }
@@ -74,6 +105,7 @@ function UnitsTooltip({ active, payload, label }) {
 
 function Inventory_db() {
   const [rawInventory, setRawInventory] = useState([]);
+  const [rawMaterials, setRawMaterials] = useState([]);
   const [soldByPlatform, setSoldByPlatform] = useState({ shopee: 0, lazada: 0, tiktok: 0 });
   const [totals, setTotals] = useState(null);
   const [cats, setCats] = useState([]);
@@ -85,10 +117,11 @@ function Inventory_db() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [materialsErrorMsg, setMaterialsErrorMsg] = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
 
   // Drill-down state: which slice/bar was clicked
-  const [breakdown, setBreakdown] = useState(null); // { type: 'category'|'platform', label, products }
+  const [breakdown, setBreakdown] = useState(null); // { type, label, products }
 
   const fetchAll = useCallback(async (isInitial = false) => {
     if (isInitial) {
@@ -97,9 +130,10 @@ function Inventory_db() {
       setRefreshing(true);
     }
     setErrorMsg("");
+    setMaterialsErrorMsg("");
 
-    // ── 1. Fetch inventory + completed-order line items (feeds the "sold" side of the platform chart) ──
-    const [invRes, ordersRes] = await Promise.all([
+    // ── 1. Fetch inventory + completed-order line items + raw materials ──
+    const [invRes, ordersRes, materialsRes] = await Promise.all([
       supabase
         .from("inventory")
         .select(
@@ -107,6 +141,11 @@ function Inventory_db() {
           "category, product_name, product_code, reorder_point, updated_at"
         ),
       supabase.from("orders").select("order_id").eq("status", "COMPLETED"),
+      supabase
+        .from("raw_materials")
+        .select(
+          "id, material_name, category, unit, current_stock, supplier, unit_cost, status, updated_at"
+        ),
     ]);
 
     const { data: inv, error: invError } = invRes;
@@ -145,6 +184,16 @@ function Inventory_db() {
       }
 
       setSoldByPlatform(soldTotals);
+    }
+
+    // Raw materials — supplementary too, so a failure here shouldn't block
+    // the products half of the dashboard from rendering.
+    if (materialsRes.error) {
+      console.error("Error fetching raw materials:", materialsRes.error);
+      setMaterialsErrorMsg(materialsRes.error.message || "Couldn't load raw materials data.");
+      setRawMaterials([]);
+    } else {
+      setRawMaterials(materialsRes.data || []);
     }
 
     if (inv && inv.length > 0) {
@@ -288,12 +337,17 @@ function Inventory_db() {
         { event: "*", schema: "public", table: "order_items" },
         () => fetchAll(false)
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "raw_materials" },
+        () => fetchAll(false)
+      )
       .subscribe();
 
     return () => supabase.removeChannel(channel);
   }, [fetchAll]);
 
-  // ── Derived chart data ─────────────────────────────────────
+  // ── Derived chart data — products ──────────────────────────
 
   const platformData = useMemo(() => {
     if (!totals) return [];
@@ -304,7 +358,54 @@ function Inventory_db() {
     ];
   }, [totals, soldByPlatform]);
 
-  // ── Drill-down handlers ────────────────────────────────────
+  // ── Derived chart data — raw materials ─────────────────────
+
+  const materialStats = useMemo(() => {
+    const total = rawMaterials.length;
+    const value = rawMaterials.reduce(
+      (sum, m) => sum + (Number(m.current_stock) || 0) * (Number(m.unit_cost) || 0),
+      0
+    );
+    const lowStockCount = rawMaterials.filter((m) => m.status === "Low Stock").length;
+    const outOfStockCount = rawMaterials.filter((m) => m.status === "Out of Stock").length;
+    return { total, value, lowStockCount, outOfStockCount };
+  }, [rawMaterials]);
+
+  const materialCategoryData = useMemo(() => {
+    const map = {};
+    rawMaterials.forEach((m) => {
+      const c = m.category || "Uncategorized";
+      if (!map[c]) map[c] = { name: c, count: 0, value: 0 };
+      map[c].count += 1;
+      map[c].value += (Number(m.current_stock) || 0) * (Number(m.unit_cost) || 0);
+    });
+    return Object.values(map)
+      .sort((a, b) => b.value - a.value)
+      .map((c, i) => ({ ...c, color: colorForCategory(c.name, i) }));
+  }, [rawMaterials]);
+
+  const materialStatusData = useMemo(() => {
+    const map = { "In Stock": 0, "Low Stock": 0, "Out of Stock": 0 };
+    rawMaterials.forEach((m) => {
+      const s = m.status || "In Stock";
+      map[s] = (map[s] || 0) + 1;
+    });
+    return Object.entries(map)
+      .filter(([, count]) => count > 0)
+      .map(([status, count]) => ({ status, count, color: STATUS_COLORS[status] }));
+  }, [rawMaterials]);
+
+  const materialLowStock = useMemo(() => {
+    return [...rawMaterials]
+      .filter((m) => m.status === "Low Stock" || m.status === "Out of Stock")
+      .sort((a, b) => {
+        if (a.status === b.status) return (a.current_stock || 0) - (b.current_stock || 0);
+        return a.status === "Out of Stock" ? -1 : 1;
+      })
+      .slice(0, 8);
+  }, [rawMaterials]);
+
+  // ── Drill-down handlers — products ─────────────────────────
 
   function handleCategoryClick(entry) {
     const category = entry?.name;
@@ -376,7 +477,55 @@ function Inventory_db() {
     });
   }
 
+  // ── Drill-down handlers — raw materials ────────────────────
+
+  function handleMaterialCategoryClick(entry) {
+    const category = entry?.name;
+    if (!category) return;
+    const materials = rawMaterials
+      .filter((m) => (m.category || "Uncategorized") === category)
+      .map((m) => ({
+        name: m.material_name || "Unknown",
+        code: m.supplier || "No supplier",
+        qty: m.current_stock ?? 0,
+        unit: m.unit || "",
+        status: m.status || "In Stock",
+      }))
+      .sort((a, b) => b.qty - a.qty);
+
+    setBreakdown({
+      type: "material-category",
+      label: category,
+      color: entry.color,
+      products: materials,
+    });
+  }
+
+  function handleMaterialStatusClick(entry) {
+    const status = entry?.status;
+    if (!status) return;
+    const materials = rawMaterials
+      .filter((m) => (m.status || "In Stock") === status)
+      .map((m) => ({
+        name: m.material_name || "Unknown",
+        code: m.category || "Uncategorized",
+        qty: m.current_stock ?? 0,
+        unit: m.unit || "",
+        status,
+      }))
+      .sort((a, b) => a.qty - b.qty);
+
+    setBreakdown({
+      type: "material-status",
+      label: status,
+      color: STATUS_COLORS[status],
+      products: materials,
+    });
+  }
+
   const fmt = (n) => (n ?? 0).toLocaleString();
+  const fmtPeso = (n) =>
+    `₱${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
   const loading = initialLoading;
 
   if (errorMsg && !totals) {
@@ -412,13 +561,24 @@ function Inventory_db() {
             )}
           </p>
         </div>
-        <button
-          onClick={() => fetchAll(false)}
-          disabled={loading || refreshing}
-          className="px-4 py-2 bg-red-700 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors disabled:opacity-50 self-start md:self-auto cursor-pointer"
-        >
-          {loading || refreshing ? "↻ Loading…" : "↻ Refresh"}
-        </button>
+        <div className="flex items-center gap-3 self-start md:self-auto">
+          <div className="hidden sm:flex items-center gap-3 text-xs text-gray-400">
+            <a href="#products-section" className="hover:text-red-600 transition-colors">
+              Products
+            </a>
+            <span className="text-gray-300">/</span>
+            <a href="#materials-section" className="hover:text-red-600 transition-colors">
+              Raw materials
+            </a>
+          </div>
+          <button
+            onClick={() => fetchAll(false)}
+            disabled={loading || refreshing}
+            className="px-4 py-2 bg-red-700 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            {loading || refreshing ? "↻ Loading…" : "↻ Refresh"}
+          </button>
+        </div>
       </div>
 
       {errorMsg && totals && (
@@ -426,6 +586,16 @@ function Inventory_db() {
           Last refresh failed: {errorMsg}
         </div>
       )}
+      {materialsErrorMsg && (
+        <div className="bg-white border border-amber-300 text-amber-700 rounded-lg shadow p-3 text-xs">
+          Raw materials couldn't be loaded: {materialsErrorMsg}
+        </div>
+      )}
+
+      {/* ══════════════════════ PRODUCTS ══════════════════════ */}
+      <div id="products-section" className="scroll-mt-4">
+        <SectionHeading title="Products" subtitle="Shopee · Lazada · TikTok" />
+      </div>
 
       {/* Platform summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -757,6 +927,225 @@ function Inventory_db() {
         </div>
       </div>
 
+      {/* ══════════════════════ RAW MATERIALS ══════════════════════ */}
+      <div id="materials-section" className="scroll-mt-4">
+        <SectionHeading title="Raw Materials" subtitle="Production inputs" />
+      </div>
+
+      {/* Materials summary cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-white rounded-lg shadow p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+            Total materials
+          </p>
+          {loading ? <Skeleton /> : (
+            <p className="text-3xl font-bold mt-1 text-gray-800">{fmt(materialStats.total)}</p>
+          )}
+          <p className="text-xs mt-1 text-gray-400">Tracked SKUs</p>
+        </div>
+
+        <div className="bg-white rounded-lg shadow p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+            Estimated value
+          </p>
+          {loading ? <Skeleton /> : (
+            <p className="text-3xl font-bold mt-1 text-emerald-700">{fmtPeso(materialStats.value)}</p>
+          )}
+          <p className="text-xs mt-1 text-gray-400">Stock × unit cost</p>
+        </div>
+
+        <div className="bg-white rounded-lg shadow p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+            Low stock
+          </p>
+          {loading ? <Skeleton /> : (
+            <p className="text-3xl font-bold mt-1 text-amber-600">{fmt(materialStats.lowStockCount)}</p>
+          )}
+          <p className="text-xs mt-1 text-gray-400">Need reordering soon</p>
+        </div>
+
+        <div className="bg-white rounded-lg shadow p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+            Out of stock
+          </p>
+          {loading ? <Skeleton /> : (
+            <p className="text-3xl font-bold mt-1 text-red-700">{fmt(materialStats.outOfStockCount)}</p>
+          )}
+          <p className="text-xs mt-1 text-gray-400">Blocking production</p>
+        </div>
+      </div>
+
+      {/* Value by category + Stock status */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2 bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-bold text-gray-700">Material value by category</h2>
+            {!loading && materialCategoryData.length > 0 && (
+              <span className="text-xs text-gray-400">Click a bar for details</span>
+            )}
+          </div>
+          {loading ? (
+            <Skeleton className="h-56 w-full" />
+          ) : materialCategoryData.length === 0 ? (
+            <p className="text-xs text-gray-400">No raw materials recorded yet.</p>
+          ) : (
+            <ResponsiveContainer
+              width="100%"
+              height={Math.max(200, materialCategoryData.length * 42)}
+            >
+              <BarChart
+                data={materialCategoryData}
+                layout="vertical"
+                margin={{ top: 0, right: 50, left: 8, bottom: 0 }}
+                barCategoryGap={12}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+                <YAxis
+                  type="category"
+                  dataKey="name"
+                  width={140}
+                  tick={{ fontSize: 11, fill: "#374151" }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null;
+                    const d = payload[0].payload;
+                    return (
+                      <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs">
+                        <p className="font-semibold text-gray-700 mb-1">{d.name}</p>
+                        <p className="text-gray-600">{fmtPeso(d.value)} · {d.count} material{d.count !== 1 ? "s" : ""}</p>
+                      </div>
+                    );
+                  }}
+                />
+                <Bar
+                  dataKey="value"
+                  name="Value"
+                  radius={[0, 6, 6, 0]}
+                  barSize={20}
+                  onClick={handleMaterialCategoryClick}
+                  cursor="pointer"
+                >
+                  {materialCategoryData.map((c) => (
+                    <Cell key={c.name} fill={c.color} />
+                  ))}
+                  <LabelList
+                    dataKey="value"
+                    position="right"
+                    formatter={(v) => fmtPeso(v)}
+                    style={{ fontSize: 10, fill: "#374151", fontWeight: 600 }}
+                  />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        <div className="lg:col-span-1 bg-white rounded-lg shadow p-6">
+          <h2 className="text-sm font-bold text-gray-700 mb-1">Stock status</h2>
+          {loading ? (
+            <Skeleton className="h-40 w-full" />
+          ) : materialStatusData.length === 0 ? (
+            <p className="text-xs text-gray-400">No data</p>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={160}>
+                <PieChart>
+                  <Pie
+                    data={materialStatusData}
+                    dataKey="count"
+                    nameKey="status"
+                    innerRadius={40}
+                    outerRadius={60}
+                    paddingAngle={3}
+                    onClick={handleMaterialStatusClick}
+                    cursor="pointer"
+                  >
+                    {materialStatusData.map((s) => (
+                      <Cell key={s.status} fill={s.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null;
+                      const d = payload[0].payload;
+                      return (
+                        <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs">
+                          <p className="font-semibold" style={{ color: d.color }}>{d.status}</p>
+                          <p className="text-gray-600">{d.count} material{d.count !== 1 ? "s" : ""}</p>
+                        </div>
+                      );
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+              <ul className="space-y-1.5 mt-2">
+                {materialStatusData.map((s) => (
+                  <li key={s.status} className="flex items-center justify-between text-xs">
+                    <span className="flex items-center gap-1.5 text-gray-600">
+                      <span className="w-2 h-2 rounded-full inline-block" style={{ background: s.color }} />
+                      {s.status}
+                    </span>
+                    <span className="font-semibold text-gray-700">{s.count}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-gray-400 mt-2">Click a slice for details</p>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Materials low stock alerts */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-sm font-bold text-gray-700 mb-4">
+          Materials needing reorder
+          {!loading && (
+            <span className="ml-2 px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded font-medium">
+              {materialLowStock.length}
+            </span>
+          )}
+        </h2>
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
+          </div>
+        ) : materialLowStock.length === 0 ? (
+          <p className="text-xs text-gray-400">All raw materials are sufficiently stocked.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {materialLowStock.map((m) => {
+              const isOut = m.status === "Out of Stock";
+              return (
+                <div
+                  key={m.id}
+                  className={`flex items-center justify-between rounded-lg border px-3 py-2 ${
+                    isOut ? "bg-red-50 border-red-200" : "bg-amber-50 border-amber-200"
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-gray-700 truncate">{m.material_name}</p>
+                    <p className="text-xs text-gray-400 truncate">
+                      {m.category || "Uncategorized"}{m.supplier ? ` · ${m.supplier}` : ""}
+                    </p>
+                  </div>
+                  <span
+                    className={`ml-3 shrink-0 px-1.5 py-0.5 text-xs rounded font-medium ${
+                      isOut ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
+                    }`}
+                  >
+                    {m.current_stock} {m.unit}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Drill-down modal */}
       {breakdown && (
         <div
@@ -777,7 +1166,7 @@ function Inventory_db() {
                   {breakdown.label}
                 </h2>
                 <span className="text-xs text-gray-400">
-                  ({breakdown.products.length} product{breakdown.products.length !== 1 ? "s" : ""})
+                  ({breakdown.products.length} item{breakdown.products.length !== 1 ? "s" : ""})
                   {breakdown.type === "platform" && `, ${breakdown.sold} sold total`}
                 </span>
               </div>
@@ -791,7 +1180,7 @@ function Inventory_db() {
 
             <div className="overflow-y-auto p-6 pt-4">
               {breakdown.products.length === 0 ? (
-                <p className="text-xs text-gray-400">No products found.</p>
+                <p className="text-xs text-gray-400">No items found.</p>
               ) : (
                 <div className="space-y-3">
                   {breakdown.products.map((p) => (
@@ -802,7 +1191,7 @@ function Inventory_db() {
                           {p.code && <p className="text-xs font-mono text-gray-400">{p.code}</p>}
                         </div>
                         <span className="text-xs font-bold text-red-600 shrink-0">
-                          {p.qty} units
+                          {p.qty} {p.unit || "units"}
                         </span>
                       </div>
                       {(breakdown.type === "category" || breakdown.type === "product") && (
@@ -817,6 +1206,17 @@ function Inventory_db() {
                             TikTok: {p.tiktok}
                           </span>
                         </div>
+                      )}
+                      {(breakdown.type === "material-category" || breakdown.type === "material-status") && p.status && (
+                        <span
+                          className="inline-block mt-1 px-1.5 py-0.5 rounded-full text-xs font-medium"
+                          style={{
+                            background: `${STATUS_COLORS[p.status]}1a`,
+                            color: STATUS_COLORS[p.status],
+                          }}
+                        >
+                          {p.status}
+                        </span>
                       )}
                     </div>
                   ))}
