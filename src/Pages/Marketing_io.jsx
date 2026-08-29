@@ -224,7 +224,7 @@ function Marketing_io() {
             <select
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
-              className="border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 bg-white cursor-pointer focus:outline-none focus:ring-2 focus:ring-red-300 cursor-pointer"
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 bg-white cursor-pointer focus:outline-none focus:ring-2 focus:ring-red-300 "
             >
               {categories.map((c) => (
                 <option key={c} value={c}>{c === 'all' ? 'All Categories' : c}</option>
