@@ -1,10 +1,11 @@
+//SALES DASHBOARD TO.
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   ResponsiveContainer,
   BarChart,
   Bar,
-  LineChart,
-  Line,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -22,15 +23,14 @@ const PLATFORM_COLORS = {
 const LOW_PERFORMER_THRESHOLD = 5
 const CAMPAIGN_ENDING_SOON_DAYS = 7
 
-// How many top sellers to surface in the hover tooltip
+
 const TOP_N_IN_TOOLTIP = 3
 
-// Trend chart colors — matches the red/gray palette used across the rest
-// of this dashboard (bar charts, rank badges, active-campaign pills, etc.)
-const TREND_LINE_COLOR = '#b91c1c' // red-700, same family as the rank badges
-const TREND_PEAK_COLOR = '#dc2626' // red-600
-const TREND_GRID_COLOR = '#f3f4f6' // gray-100, same as other charts' CartesianGrid
-const TREND_AXIS_COLOR = '#9ca3af' // gray-400, same as other charts' axis ticks
+
+const TREND_LINE_COLOR = '#b91c1c' 
+const TREND_PEAK_COLOR = '#dc2626' 
+const TREND_GRID_COLOR = '#f3f4f6' 
+const TREND_AXIS_COLOR = '#9ca3af' 
 
 const normalizePlatform = (p) => {
   if (!p) return 'Unknown'
@@ -226,8 +226,6 @@ function Marketing() {
     return () => supabase.removeChannel(channel)
   }, [fetchAll])
 
-  // ── Derived data ───────────────────────────────────────────
-
   const totalSales = useMemo(
     () => orders.reduce((sum, o) => sum + centsToPesos(o.total_amount), 0),
     [orders]
@@ -263,9 +261,6 @@ function Marketing() {
     [products]
   )
 
-  // ── Sales trend by product, across months ───────────────────
-
-  // Keyed by order_uuid now (matches order_items.order_uuid), not order_id.
   const orderDateById = useMemo(() => {
     const map = {}
     orders.forEach((o) => {
@@ -275,8 +270,6 @@ function Marketing() {
     return map
   }, [orders])
 
-  // Full qty-per-product-per-month totals so the trend chart and month
-  // picker can look up any product's quantity in any month.
   const monthlyProductTotals = useMemo(() => {
     const months = {}
     orderItems.forEach((row) => {
@@ -303,7 +296,6 @@ function Marketing() {
     }
   }, [availableMonths, selectedMonth])
 
-  // Top products for whichever month is currently selected (defaults to most recent)
   const selectedMonthProducts = useMemo(() => {
     const key = selectedMonth && availableMonths.includes(selectedMonth) ? selectedMonth : availableMonths[0]
     if (!key || !monthlyProductTotals[key]) return []
@@ -318,7 +310,6 @@ function Marketing() {
     [campaigns]
   )
 
-  // Which campaign names were active at any point during a given month key ("YYYY-MM")
   const campaignsActiveInMonth = useCallback(
     (key) => {
       if (!key) return []
@@ -337,9 +328,6 @@ function Marketing() {
     [campaigns]
   )
 
-  // Total units sold per month, with that month's top 3 products attached
-  // (for the hover tooltip), which campaigns overlapped that month, and
-  // whether the month is a local peak (higher than both neighbors).
   const monthlyTrend = useMemo(() => {
     const monthsAscending = [...availableMonths].reverse()
     const distinctYears = new Set(monthsAscending.map((k) => k.split('-')[0]))
@@ -548,7 +536,13 @@ function Marketing() {
           <p className="text-xs text-gray-400">No sales data yet.</p>
         ) : (
           <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={monthlyTrend} margin={{ top: 24, right: 16, left: 0, bottom: 0 }}>
+            <AreaChart data={monthlyTrend} margin={{ top: 24, right: 16, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={TREND_LINE_COLOR} stopOpacity={0.35} />
+                  <stop offset="100%" stopColor={TREND_LINE_COLOR} stopOpacity={0} />
+                </linearGradient>
+              </defs>
               <CartesianGrid strokeDasharray="3 3" stroke={TREND_GRID_COLOR} vertical={false} />
               <XAxis
                 dataKey="month"
@@ -562,15 +556,16 @@ function Marketing() {
                 tickLine={false}
               />
               <Tooltip content={<TrendTooltip />} cursor={{ stroke: TREND_GRID_COLOR }} />
-              <Line
+              <Area
                 type="monotone"
                 dataKey="total"
                 stroke={TREND_LINE_COLOR}
                 strokeWidth={2}
+                fill="url(#trendFill)"
                 dot={<TrendDot />}
                 activeDot={{ r: 6, fill: TREND_LINE_COLOR }}
               />
-            </LineChart>
+            </AreaChart>
           </ResponsiveContainer>
         )}
       </div>

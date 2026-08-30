@@ -2,8 +2,8 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "../api/supabase";
 import {
   ResponsiveContainer,
-  LineChart,
-  Line,
+  AreaChart,
+  Area,
   BarChart,
   Bar,
   XAxis,
@@ -18,6 +18,22 @@ function formatPeso(cents) {
     style: "currency",
     currency: "PHP",
   });
+}
+
+const fmtAxis = (v) => `₱${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`;
+
+function TrendTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs">
+      <p className="font-semibold text-gray-700 mb-1">{label}</p>
+      {payload.map((p) => (
+        <p key={p.dataKey} style={{ color: p.stroke }}>
+          {p.name}: ₱{p.value.toLocaleString()}
+        </p>
+      ))}
+    </div>
+  );
 }
 
 function Finance() {
@@ -39,8 +55,6 @@ function Finance() {
   async function loadFinanceData() {
     setLoading(true);
 
-    // Pull everything needed for the 6-month trend in one query, then
-    // filter down to the selected date range for the KPI cards/chart.
     const sixMonthsAgo = new Date(new Date().setMonth(new Date().getMonth() - 6))
       .toISOString()
       .slice(0, 10);
@@ -73,7 +87,6 @@ function Finance() {
     setTotalDebit(debitSum);
     setTotalCredit(creditSum);
 
-    // Group by category (using the real joined ledger_categories name)
     const catMap = {};
     inRange.forEach((e) => {
       const name = e.ledger_categories?.name;
@@ -87,7 +100,6 @@ function Finance() {
       }))
     );
 
-    // Monthly trend: debit vs credit totals, last 6 months
     const months = {};
     entries.forEach((e) => {
       const key = e.date?.slice(0, 7);
@@ -126,7 +138,6 @@ function Finance() {
         </div>
       </div>
 
-      {/* KPI cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
         <div className="bg-white rounded-lg shadow p-6">
           <p className="text-xs font-bold text-gray-500 uppercase">
@@ -156,37 +167,66 @@ function Finance() {
         </div>
       </div>
 
-      {/* Monthly trend */}
       <div className="bg-white rounded-lg shadow p-6 mb-4">
-        <h2 className="text-sm font-bold text-gray-500 uppercase mb-4">
+        <h2 className="text-sm font-bold text-gray-700 mb-4">
           Debit vs Credit (last 6 months)
         </h2>
-        <ResponsiveContainer width="100%" height={280}>
-          <LineChart data={monthlyTrend}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-            <XAxis dataKey="month" fontSize={12} />
-            <YAxis fontSize={12} />
-            <Tooltip formatter={(v) => `₱${v.toLocaleString()}`} />
-            <Legend />
-            <Line
+        <ResponsiveContainer width="100%" height={260}>
+          <AreaChart data={monthlyTrend} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+            <defs>
+              <linearGradient id="debitFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#16a34a" stopOpacity={0.35} />
+                <stop offset="100%" stopColor="#16a34a" stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="creditFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#dc2626" stopOpacity={0.35} />
+                <stop offset="100%" stopColor="#dc2626" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+            <XAxis
+              dataKey="month"
+              tick={{ fontSize: 11, fill: "#9ca3af" }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <YAxis
+              tick={{ fontSize: 11, fill: "#9ca3af" }}
+              axisLine={false}
+              tickLine={false}
+              tickFormatter={fmtAxis}
+            />
+            <Tooltip content={<TrendTooltip />} />
+            <Legend
+              verticalAlign="top"
+              height={28}
+              iconType="line"
+              wrapperStyle={{ fontSize: 12 }}
+            />
+            <Area
               type="monotone"
               dataKey="debit"
+              name="Debit"
               stroke="#16a34a"
               strokeWidth={2}
-              name="Debit"
+              fill="url(#debitFill)"
+              dot={{ r: 3, fill: "#16a34a", strokeWidth: 0 }}
+              activeDot={{ r: 5 }}
             />
-            <Line
+            <Area
               type="monotone"
               dataKey="credit"
+              name="Credit"
               stroke="#dc2626"
               strokeWidth={2}
-              name="Credit"
+              fill="url(#creditFill)"
+              dot={{ r: 3, fill: "#dc2626", strokeWidth: 0 }}
+              activeDot={{ r: 5 }}
             />
-          </LineChart>
+          </AreaChart>
         </ResponsiveContainer>
       </div>
 
-      {/* By category */}
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-sm font-bold text-gray-500 uppercase mb-4">
           By Category

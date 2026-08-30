@@ -44,12 +44,6 @@ function getStartOfWeek(d) {
   return date;
 }
 
-function toDateInputValue(d) {
-  const date = new Date(d);
-  const offset = date.getTimezoneOffset();
-  return new Date(date.getTime() - offset * 60000).toISOString().slice(0, 10);
-}
-
 function timeAgo(date) {
   if (!date) return "—";
   const diffMs = Date.now() - date.getTime();
@@ -115,8 +109,6 @@ function useCountUp(target, duration = 600) {
 function Skeleton({ className = "h-8 w-16" }) {
   return <div className={`${className} bg-gray-100 rounded animate-pulse mt-1`} />;
 }
-
-
 
 function CurrencyTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
@@ -203,8 +195,6 @@ function Sales_db({ onGoToImport }) {
 
     setOrders(completedOrders || []);
 
-    // Match items via the internal UUID FK (order_uuid), not order_id —
-    // order_id alone is only unique per platform, not globally.
     const orderUuids = (completedOrders || []).map((o) => o.id).filter(Boolean);
 
     if (orderUuids.length === 0) {
@@ -264,16 +254,6 @@ function Sales_db({ onGoToImport }) {
 
     return () => supabase.removeChannel(channel);
   }, [fetchAll, fetchLastImportLog]);
-
-  const applyPreset = (preset) => {
-    const now = new Date();
-    let from;
-    if (preset === "today") from = new Date(now);
-    if (preset === "week") from = new Date(now.getTime() - 6 * 86400000);
-    if (preset === "month") from = new Date(now.getTime() - 29 * 86400000);
-    setDateFrom(toDateInputValue(from));
-    setDateTo(toDateInputValue(now));
-  };
 
   const clearDateRange = () => {
     setDateFrom("");
@@ -359,9 +339,6 @@ function Sales_db({ onGoToImport }) {
     return { current, previous };
   }, [trendPoints]);
 
-  // Previous-period comparisons for Total Sales / Avg Order Value.
-  // Uses the first half vs second half of the currently loaded trend buckets
-  // as a lightweight "vs previous period" signal.
   const periodComparison = useMemo(() => {
     if (trendPoints.length < 2) return { totalPrev: null, avgPrev: null };
     const mid = Math.ceil(trendPoints.length / 2);
@@ -385,8 +362,6 @@ function Sales_db({ onGoToImport }) {
   const animatedAvgOrder = useCountUp(avgOrderValue);
   const animatedItemsSold = useCountUp(totalItemsSold);
 
-  
-
   if (errorMsg && orders.length === 0) {
     return (
       <div className="p-6">
@@ -406,13 +381,11 @@ function Sales_db({ onGoToImport }) {
 
   return (
     <div className="p-6 space-y-4">
-      {/* Header */}
       <div className="bg-white rounded-lg shadow p-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold text-gray-800">Sales Dashboard</h1>
           </div>
-          
         </div>
 
         <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
@@ -430,34 +403,22 @@ function Sales_db({ onGoToImport }) {
             ))}
           </div>
 
-          <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
-            <button onClick={() => applyPreset("today")} className="text-xs px-2 py-1 rounded-md text-gray-600 hover:bg-white cursor-pointer">
-              Today
-            </button>
-            <button onClick={() => applyPreset("week")} className="text-xs px-2 py-1 rounded-md text-gray-600 hover:bg-white cursor-pointer">
-              7D
-            </button>
-            <button onClick={() => applyPreset("month")} className="text-xs px-2 py-1 rounded-md text-gray-600 hover:bg-white cursor-pointer">
-              30D
-            </button>
+          <div className="flex items-center gap-2">
             <input
               type="date"
               value={dateFrom}
-              max={dateTo || toDateInputValue(new Date())}
               onChange={(e) => setDateFrom(e.target.value)}
-              className="text-xs px-2 py-1 rounded-md bg-white border border-gray-200 text-gray-600"
+              className="border border-gray-300 rounded px-2 py-1 text-sm cursor-pointer"
             />
-            <span className="text-xs text-gray-400">to</span>
+            <span className="text-gray-400 text-sm">to</span>
             <input
               type="date"
               value={dateTo}
-              min={dateFrom}
-              max={toDateInputValue(new Date())}
               onChange={(e) => setDateTo(e.target.value)}
-              className="text-xs px-2 py-1 rounded-md bg-white border border-gray-200 text-gray-600"
+              className="border border-gray-300 rounded px-2 py-1 text-sm cursor-pointer"
             />
             {(dateFrom || dateTo) && (
-              <button onClick={clearDateRange} className="text-xs px-2 py-1 rounded-md text-gray-500 hover:text-gray-700 cursor-pointer">
+              <button onClick={clearDateRange} className="text-sm text-gray-500 hover:text-gray-700 cursor-pointer">
                 ✕
               </button>
             )}
@@ -470,12 +431,9 @@ function Sales_db({ onGoToImport }) {
           >
             {loading || refreshing ? "↻ Loading…" : "↻ Refresh"}
           </button>
-
-          
         </div>
       </div>
 
-      {/* Alerts */}
       {errorMsg && orders.length > 0 && (
         <div className="bg-white border border-amber-300 text-amber-700 rounded-lg shadow p-3 text-xs">
           Last refresh failed: {errorMsg}
@@ -502,7 +460,6 @@ function Sales_db({ onGoToImport }) {
         </div>
       )}
 
-      {/* KPI cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Total Sales</p>
@@ -560,7 +517,6 @@ function Sales_db({ onGoToImport }) {
         </div>
       </div>
 
-      {/* Platform cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {["Shopee", "Lazada", "TikTok"].map((platform) => {
           const entry = platformTotals.find((p) => p.platform === platform);
@@ -583,7 +539,6 @@ function Sales_db({ onGoToImport }) {
         })}
       </div>
 
-      {/* Sales trend */}
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-bold text-gray-700">Sales trend</h2>
@@ -648,7 +603,6 @@ function Sales_db({ onGoToImport }) {
         )}
       </div>
 
-      {/* Sales per platform */}
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-sm font-bold text-gray-700 mb-4">Sales per platform</h2>
         {loading ? (
@@ -673,7 +627,6 @@ function Sales_db({ onGoToImport }) {
         )}
       </div>
 
-      {/* Top products */}
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-bold text-gray-700">Top products sold</h2>
