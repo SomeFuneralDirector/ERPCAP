@@ -20,11 +20,11 @@ import {
   TrendingDown,
   AlertTriangle,
   ArrowRight,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle2,
 } from "lucide-react";
 import { supabase } from "../api/supabase";
-
-// ── shared constants / helpers ──────────────────────────────────────────
 
 const PLATFORM_COLORS = { Shopee: "#EE4D2D", Lazada: "#7C3AED", TikTok: "#1f2937" };
 
@@ -48,6 +48,8 @@ const MATERIAL_STATUS_STYLES = {
   "Out of Stock": "bg-red-100 text-red-700",
 };
 
+const PAGE_SIZE = 5;
+
 const fmtPeso = (pesos) =>
   `₱${(pesos ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtAxis = (v) => `₱${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`;
@@ -69,8 +71,6 @@ const isLowStockProduct = (item) => {
   return total <= 5;
 };
 
-// Campaign status is derived the same way as the Marketing Campaigns tab —
-// the only manual override is Cancelled.
 function deriveCampaignStatus(campaign) {
   if (campaign.status === "Cancelled") return "Cancelled";
   const today = new Date();
@@ -123,7 +123,13 @@ function startOfMonthISO() {
   return new Date(new Date().setDate(1)).toISOString().slice(0, 10);
 }
 
-// ── small building blocks ───────────────────────────────────────────────
+function usePagination(items, pageSize = PAGE_SIZE) {
+  const [page, setPage] = useState(0);
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+  const currentPage = Math.min(page, totalPages - 1);
+  const pageItems = items.slice(currentPage * pageSize, currentPage * pageSize + pageSize);
+  return { page: currentPage, setPage, totalPages, pageItems };
+}
 
 function Skeleton({ className = "h-7 w-20" }) {
   return <div className={`${className} bg-gray-100 rounded animate-pulse`} />;
@@ -143,9 +149,9 @@ function KpiCard({ icon: Icon, label, value, sub, loading, tone = "gray" }) {
         {label}
       </div>
       {loading ? (
-        <Skeleton className="h-8 w-24 mt-1" />
+        <Skeleton className="h-9 w-24 mt-1" />
       ) : (
-        <p className={`text-2xl font-bold mt-1 ${toneStyles[tone]}`}>{value}</p>
+        <p className={`text-3xl font-bold mt-1 ${toneStyles[tone]}`}>{value}</p>
       )}
       {sub && <p className="text-xs mt-1 text-gray-400">{sub}</p>}
     </div>
@@ -169,7 +175,7 @@ function SectionCard({ title, icon: Icon, onView, children }) {
           </button>
         )}
       </div>
-      <div className="flex-1">{children}</div>
+      <div className="flex-1 flex flex-col">{children}</div>
     </div>
   );
 }
@@ -178,7 +184,30 @@ function EmptyRow({ children }) {
   return <p className="text-xs text-gray-400 italic py-2">{children}</p>;
 }
 
-// ── Admin ────────────────────────────────────────────────────────────────
+function PaginationBar({ page, totalPages, onPrev, onNext }) {
+  if (totalPages <= 1) return null;
+  return (
+    <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
+      <button
+        onClick={onPrev}
+        disabled={page === 0}
+        className="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 disabled:opacity-30 disabled:hover:text-gray-500 cursor-pointer"
+      >
+        <ChevronLeft size={14} /> Prev
+      </button>
+      <span className="text-xs text-gray-400">
+        Page {page + 1} of {totalPages}
+      </span>
+      <button
+        onClick={onNext}
+        disabled={page === totalPages - 1}
+        className="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 disabled:opacity-30 disabled:hover:text-gray-500 cursor-pointer"
+      >
+        Next <ChevronRight size={14} />
+      </button>
+    </div>
+  );
+}
 
 function Admin({ onNavigate }) {
   const [ledgerEntries, setLedgerEntries] = useState([]);
@@ -260,7 +289,6 @@ function Admin({ onNavigate }) {
   useEffect(() => {
     loadDashboard(true);
 
-    // Keep the dashboard live — refresh on any change to the tables it summarizes.
     const channel = supabase
       .channel("admin-dashboard-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "ledger_entries" }, () => loadDashboard(false))
@@ -274,7 +302,6 @@ function Admin({ onNavigate }) {
     return () => supabase.removeChannel(channel);
   }, [loadDashboard]);
 
-  // ── Finance ──────────────────────────────────────────────────────────
   const startOfMonth = useMemo(() => startOfMonthISO(), []);
 
   const financeMTD = useMemo(() => {
@@ -302,7 +329,6 @@ function Admin({ onNavigate }) {
       }));
   }, [ledgerEntries]);
 
-  // ── Inventory: products ─────────────────────────────────────────────
   const productStats = useMemo(() => {
     const totalStock = products.reduce(
       (s, p) => s + (p.shopee_stock || 0) + (p.lazada_stock || 0) + (p.tiktok_stock || 0),
@@ -325,17 +351,15 @@ function Admin({ onNavigate }) {
     return { count: products.length, totalStock, low, platformTotals };
   }, [products]);
 
-  // ── Inventory: raw materials ────────────────────────────────────────
   const materialStats = useMemo(() => {
     const low = materials.filter((m) => m.status === "Low Stock");
     const out = materials.filter((m) => m.status === "Out of Stock");
-    const attention = [...out, ...low].slice(0, 5);
+    const attention = [...out, ...low];
     return { count: materials.length, low, out, attention };
   }, [materials]);
 
   const lowStockAlertCount = productStats.low.length + materialStats.low.length + materialStats.out.length;
 
-  // ── Marketing campaigns ─────────────────────────────────────────────
   const campaignStats = useMemo(() => {
     const withStatus = campaigns.map((c) => ({ ...c, _status: deriveCampaignStatus(c) }));
     const active = withStatus
@@ -348,7 +372,6 @@ function Admin({ onNavigate }) {
     return { activeCount: active.length, active: active.slice(0, 4) };
   }, [campaigns]);
 
-  // ── Sales ────────────────────────────────────────────────────────────
   const salesStats = useMemo(() => {
     const monthOrders = orders.filter((o) => {
       const d = orderDate(o);
@@ -371,7 +394,6 @@ function Admin({ onNavigate }) {
     return { totalMTD, avgOrder, ordersCount: monthOrders.length, platformTotals, trend };
   }, [orders, startOfMonth]);
 
-  // ── Production: work orders + finished goods ────────────────────────
   const productionStats = useMemo(() => {
     const active = workOrders.filter((wo) => wo.status === "Pending" || wo.status === "In Progress");
     const dueSoon = active
@@ -400,9 +422,11 @@ function Admin({ onNavigate }) {
     };
   }, [workOrders, startOfMonth]);
 
+  const lowStockProductsPage = usePagination(productStats.low);
+  const materialsAttentionPage = usePagination(materialStats.attention);
+
   return (
     <div className="p-6 space-y-4">
-      {/* Header */}
       <div className="bg-white rounded-lg shadow p-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Dashboard</h1>
@@ -427,7 +451,6 @@ function Admin({ onNavigate }) {
         </div>
       )}
 
-      {/* Top KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <KpiCard
           icon={TrendingUp}
@@ -462,7 +485,6 @@ function Admin({ onNavigate }) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Finance */}
         <SectionCard title="Finance — this month" icon={TrendingUp}>
           <div className="grid grid-cols-3 gap-3 mb-4">
             <div>
@@ -505,7 +527,6 @@ function Admin({ onNavigate }) {
           )}
         </SectionCard>
 
-        {/* Sales */}
         <SectionCard title="Sales — finished products" icon={TrendingUp} onView={() => goTo("sales")}>
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div>
@@ -540,7 +561,6 @@ function Admin({ onNavigate }) {
           )}
         </SectionCard>
 
-        {/* Inventory — products */}
         <SectionCard title="Inventory — finished products" icon={Package} onView={() => goTo("inventory")}>
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div>
@@ -557,23 +577,32 @@ function Admin({ onNavigate }) {
           ) : productStats.low.length === 0 ? (
             <EmptyRow>Nothing is low on stock. 🎉</EmptyRow>
           ) : (
-            <ul className="space-y-1.5">
-              {productStats.low.map((p) => {
-                const total = (p.shopee_stock || 0) + (p.lazada_stock || 0) + (p.tiktok_stock || 0);
-                return (
-                  <li key={p.id} className="flex items-center justify-between text-xs">
-                    <span className="text-gray-700 truncate pr-2">{p.product_name}</span>
-                    <span className="shrink-0 px-2 py-0.5 rounded-full font-semibold bg-red-100 text-red-700">
-                      {total} left
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
+            <>
+              <ul className="space-y-1.5">
+                {lowStockProductsPage.pageItems.map((p) => {
+                  const total = (p.shopee_stock || 0) + (p.lazada_stock || 0) + (p.tiktok_stock || 0);
+                  return (
+                    <li key={p.id} className="flex items-center justify-between text-xs">
+                      <span className="text-gray-700 truncate pr-2">{p.product_name}</span>
+                      <span className="shrink-0 px-2 py-0.5 rounded-full font-semibold bg-red-100 text-red-700">
+                        {total} left
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+              <PaginationBar
+                page={lowStockProductsPage.page}
+                totalPages={lowStockProductsPage.totalPages}
+                onPrev={() => lowStockProductsPage.setPage((p) => Math.max(0, p - 1))}
+                onNext={() =>
+                  lowStockProductsPage.setPage((p) => Math.min(lowStockProductsPage.totalPages - 1, p + 1))
+                }
+              />
+            </>
           )}
         </SectionCard>
 
-        {/* Inventory — raw materials */}
         <SectionCard title="Inventory — raw materials" icon={Boxes} onView={() => goTo("production_rm")}>
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div>
@@ -594,22 +623,31 @@ function Admin({ onNavigate }) {
           ) : materialStats.attention.length === 0 ? (
             <EmptyRow>All raw materials are in stock. 🎉</EmptyRow>
           ) : (
-            <ul className="space-y-1.5">
-              {materialStats.attention.map((m) => (
-                <li key={m.id} className="flex items-center justify-between text-xs">
-                  <span className="text-gray-700 truncate pr-2">{m.material_name}</span>
-                  <span
-                    className={`shrink-0 px-2 py-0.5 rounded-full font-semibold ${MATERIAL_STATUS_STYLES[m.status] || "bg-gray-100 text-gray-500"}`}
-                  >
-                    {m.current_stock} {m.unit}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul className="space-y-1.5">
+                {materialsAttentionPage.pageItems.map((m) => (
+                  <li key={m.id} className="flex items-center justify-between text-xs">
+                    <span className="text-gray-700 truncate pr-2">{m.material_name}</span>
+                    <span
+                      className={`shrink-0 px-2 py-0.5 rounded-full font-semibold ${MATERIAL_STATUS_STYLES[m.status] || "bg-gray-100 text-gray-500"}`}
+                    >
+                      {m.current_stock} {m.unit}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <PaginationBar
+                page={materialsAttentionPage.page}
+                totalPages={materialsAttentionPage.totalPages}
+                onPrev={() => materialsAttentionPage.setPage((p) => Math.max(0, p - 1))}
+                onNext={() =>
+                  materialsAttentionPage.setPage((p) => Math.min(materialsAttentionPage.totalPages - 1, p + 1))
+                }
+              />
+            </>
           )}
         </SectionCard>
 
-        {/* Marketing campaigns */}
         <SectionCard title="Marketing campaigns" icon={Megaphone} onView={() => goTo("marketing")}>
           <div className="mb-4">
             <p className="text-xs text-gray-400">Active / upcoming</p>
@@ -641,7 +679,6 @@ function Admin({ onNavigate }) {
           )}
         </SectionCard>
 
-        {/* Production — work orders + finished goods */}
         <SectionCard title="Production" icon={Factory} onView={() => goTo("production_wo")}>
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div>
