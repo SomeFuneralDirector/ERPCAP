@@ -275,7 +275,7 @@ function Marketing_io() {
                           <td className="py-2 pr-4">
                             {p.stock !== null ? (
                               <span className={lowStock ? 'text-amber-600 font-semibold' : 'text-gray-500'}>
-                                {p.stock}{lowStock && ' ⚠'}
+                                {p.stock}{lowStock}
                               </span>
                             ) : '—'}
                           </td>

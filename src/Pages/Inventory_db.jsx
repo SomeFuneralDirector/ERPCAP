@@ -43,12 +43,28 @@ const STATUS_COLORS = {
 
 // ─── Helpers ──────────────────────────────────────────────────
 
+function toNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function nonNegative(value) {
+  return Math.max(0, toNumber(value));
+}
+
+function safeDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 function totalStock(row) {
-  return (row.shopee_stock || 0) + (row.lazada_stock || 0) + (row.tiktok_stock || 0);
+  return nonNegative(row.shopee_stock) + nonNegative(row.lazada_stock) + nonNegative(row.tiktok_stock);
 }
 
 function formatLogTime(iso) {
-  const d = new Date(iso);
+  const d = safeDate(iso);
+  if (!d) return "—";
   const now = new Date();
   const diffMs = now - d;
   const diffMin = Math.floor(diffMs / 60_000);
@@ -62,8 +78,10 @@ function formatLogTime(iso) {
   return d.toLocaleDateString();
 }
 
-function colorForCategory(name, index) {
-  return MATERIAL_PALETTE[index % MATERIAL_PALETTE.length];
+function colorForCategory(name) {
+  // Hash the category name so its colour remains stable when sorting changes.
+  const hash = [...String(name || "")].reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  return MATERIAL_PALETTE[hash % MATERIAL_PALETTE.length];
 }
 
 // ─── Skeleton
@@ -177,7 +195,7 @@ function Inventory_db() {
           (items || []).forEach((r) => {
             const key = r.platform?.toLowerCase();
             if (key && soldTotals[key] !== undefined) {
-              soldTotals[key] += Number(r.quantity) || 0;
+              soldTotals[key] += nonNegative(r.quantity);
             }
           });
         }
@@ -202,9 +220,9 @@ function Inventory_db() {
       // Platform totals
       const totalsData = inv.reduce(
         (acc, r) => ({
-          shopee: acc.shopee + (r.shopee_stock || 0),
-          lazada: acc.lazada + (r.lazada_stock || 0),
-          tiktok: acc.tiktok + (r.tiktok_stock || 0),
+          shopee: acc.shopee + nonNegative(r.shopee_stock),
+          lazada: acc.lazada + nonNegative(r.lazada_stock),
+          tiktok: acc.tiktok + nonNegative(r.tiktok_stock),
         }),
         { shopee: 0, lazada: 0, tiktok: 0 }
       );
@@ -220,7 +238,7 @@ function Inventory_db() {
       setCats(
         Object.entries(catMap).map(([name, qty]) => ({
           name,
-          qty,
+          qty: nonNegative(qty),
           color: CAT_COLORS[name] ?? "#6b7280",
         }))
       );
@@ -230,22 +248,22 @@ function Inventory_db() {
 
       // Low stock alerts: stock <= reorder_point
       const low = inv
-        .filter((r) => totalStock(r) <= (r.reorder_point ?? 10))
+        .filter((r) => totalStock(r) <= nonNegative(r.reorder_point ?? 10))
         .sort((a, b) => totalStock(a) - totalStock(b))
         .slice(0, 8)
         .map((r) => ({
           name: r.product_name || "Unknown",
           code: r.product_code || "N/A",
           qty: totalStock(r),
-          reorder: r.reorder_point ?? 10,
+          reorder: nonNegative(r.reorder_point ?? 10),
         }));
       setLowStock(low);
 
       // Top movers - products with highest total stock
       const topPlatform = (r) => {
-        const s = r.shopee_stock || 0;
-        const l = r.lazada_stock || 0;
-        const t = r.tiktok_stock || 0;
+        const s = nonNegative(r.shopee_stock);
+        const l = nonNegative(r.lazada_stock);
+        const t = nonNegative(r.tiktok_stock);
         if (s >= l && s >= t) return "Shopee";
         if (l >= s && l >= t) return "Lazada";
         return "TikTok";
@@ -269,11 +287,11 @@ function Inventory_db() {
           const t = totalStock(r);
           return t < 5 && t > 0;
         })
-        .sort((a, b) => new Date(a.updated_at) - new Date(b.updated_at))
+        .sort((a, b) => (safeDate(a.updated_at)?.getTime() ?? Infinity) - (safeDate(b.updated_at)?.getTime() ?? Infinity))
         .slice(0, 5)
         .map((r) => ({
           name: r.product_name || "Unknown",
-          days: Math.floor((now - new Date(r.updated_at).getTime()) / 86_400_000),
+          days: Math.max(0, Math.floor((now - (safeDate(r.updated_at)?.getTime() ?? now)) / 86_400_000)),
         }))
         .filter((r) => r.days > 0);
       setSlowMovers(slow);
@@ -363,7 +381,7 @@ function Inventory_db() {
   const materialStats = useMemo(() => {
     const total = rawMaterials.length;
     const value = rawMaterials.reduce(
-      (sum, m) => sum + (Number(m.current_stock) || 0) * (Number(m.unit_cost) || 0),
+      (sum, m) => sum + nonNegative(m.current_stock) * nonNegative(m.unit_cost),
       0
     );
     const lowStockCount = rawMaterials.filter((m) => m.status === "Low Stock").length;
@@ -377,11 +395,11 @@ function Inventory_db() {
       const c = m.category || "Uncategorized";
       if (!map[c]) map[c] = { name: c, count: 0, value: 0 };
       map[c].count += 1;
-      map[c].value += (Number(m.current_stock) || 0) * (Number(m.unit_cost) || 0);
+      map[c].value += nonNegative(m.current_stock) * nonNegative(m.unit_cost);
     });
     return Object.values(map)
       .sort((a, b) => b.value - a.value)
-      .map((c, i) => ({ ...c, color: colorForCategory(c.name, i) }));
+      .map((c) => ({ ...c, color: colorForCategory(c.name) }));
   }, [rawMaterials]);
 
   const materialStatusData = useMemo(() => {
@@ -399,7 +417,7 @@ function Inventory_db() {
     return [...rawMaterials]
       .filter((m) => m.status === "Low Stock" || m.status === "Out of Stock")
       .sort((a, b) => {
-        if (a.status === b.status) return (a.current_stock || 0) - (b.current_stock || 0);
+        if (a.status === b.status) return nonNegative(a.current_stock) - nonNegative(b.current_stock);
         return a.status === "Out of Stock" ? -1 : 1;
       })
       .slice(0, 8);
@@ -416,9 +434,9 @@ function Inventory_db() {
         name: r.product_name || "Unknown",
         code: r.product_code || "N/A",
         qty: totalStock(r),
-        shopee: r.shopee_stock || 0,
-        lazada: r.lazada_stock || 0,
-        tiktok: r.tiktok_stock || 0,
+        shopee: nonNegative(r.shopee_stock),
+        lazada: nonNegative(r.lazada_stock),
+        tiktok: nonNegative(r.tiktok_stock),
       }))
       .sort((a, b) => b.qty - a.qty);
 
@@ -435,11 +453,11 @@ function Inventory_db() {
     if (!platform) return;
     const key = `${platform.toLowerCase()}_stock`;
     const products = rawInventory
-      .filter((r) => (r[key] || 0) > 0)
+      .filter((r) => nonNegative(r[key]) > 0)
       .map((r) => ({
         name: r.product_name || "Unknown",
         code: r.product_code || "N/A",
-        qty: r[key] || 0,
+        qty: nonNegative(r[key]),
       }))
       .sort((a, b) => b.qty - a.qty);
 
@@ -487,7 +505,7 @@ function Inventory_db() {
       .map((m) => ({
         name: m.material_name || "Unknown",
         code: m.supplier || "No supplier",
-        qty: m.current_stock ?? 0,
+        qty: nonNegative(m.current_stock),
         unit: m.unit || "",
         status: m.status || "In Stock",
       }))
@@ -509,7 +527,7 @@ function Inventory_db() {
       .map((m) => ({
         name: m.material_name || "Unknown",
         code: m.category || "Uncategorized",
-        qty: m.current_stock ?? 0,
+        qty: nonNegative(m.current_stock),
         unit: m.unit || "",
         status,
       }))
@@ -551,25 +569,11 @@ function Inventory_db() {
       <div className="bg-white rounded-lg shadow p-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Dashboard</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Inventory overview · Live stock summary
-            {lastUpdated && (
-              <span className="ml-2 text-gray-400">
-                · {lastUpdated.toLocaleTimeString()}
-                {refreshing && " · syncing…"}
-              </span>
-            )}
-          </p>
+          
         </div>
         <div className="flex items-center gap-3 self-start md:self-auto">
           <div className="hidden sm:flex items-center gap-3 text-xs text-gray-400">
-            <a href="#products-section" className="hover:text-red-600 transition-colors">
-              Products
-            </a>
-            <span className="text-gray-300">/</span>
-            <a href="#materials-section" className="hover:text-red-600 transition-colors">
-              Raw materials
-            </a>
+
           </div>
           <button
             onClick={() => fetchAll(false)}
@@ -593,9 +597,6 @@ function Inventory_db() {
       )}
 
       {/* ══════════════════════ PRODUCTS ══════════════════════ */}
-      <div id="products-section" className="scroll-mt-4">
-        <SectionHeading title="Products" subtitle="Shopee · Lazada · TikTok" />
-      </div>
 
       {/* Platform summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -644,9 +645,7 @@ function Inventory_db() {
         <div className="lg:col-span-2 bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between mb-1">
             <h2 className="text-sm font-bold text-gray-700">Stock by platform</h2>
-            {!loading && platformData.length > 0 && (
-              <span className="text-xs text-gray-400">Click a slice for details</span>
-            )}
+            
           </div>
           {loading ? (
             <Skeleton className="h-56 w-full" />
@@ -663,9 +662,6 @@ function Inventory_db() {
                     cx="50%"
                     cy="50%"
                     outerRadius={100}
-                    label={({ platform, percent }) =>
-                      `${platform} ${(percent * 100).toFixed(0)}%`
-                    }
                     onClick={handlePlatformClick}
                     cursor="pointer"
                   >
@@ -751,7 +747,6 @@ function Inventory_db() {
                   </li>
                 ))}
               </ul>
-              <p className="text-xs text-gray-400 mt-2">Click a slice for details</p>
             </>
           )}
         </div>
@@ -762,9 +757,7 @@ function Inventory_db() {
         <div className="lg:col-span-2 bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-bold text-gray-700">Top stocked items</h2>
-            {!loading && topMovers.length > 0 && (
-              <span className="text-xs text-gray-400">Click a bar for details</span>
-            )}
+            
           </div>
           {loading ? (
             <Skeleton className="h-56 w-full" />
@@ -790,12 +783,12 @@ function Inventory_db() {
                   })}
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+                <XAxis type="number" tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} />
                 <YAxis
                   type="category"
                   dataKey="name"
                   width={140}
-                  tick={{ fontSize: 11, fill: "#374151" }}
+                  tick={{ fontSize: 11, fill: "#000000" }}
                   axisLine={false}
                   tickLine={false}
                 />
@@ -980,9 +973,7 @@ function Inventory_db() {
         <div className="lg:col-span-2 bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-bold text-gray-700">Material value by category</h2>
-            {!loading && materialCategoryData.length > 0 && (
-              <span className="text-xs text-gray-400">Click a bar for details</span>
-            )}
+            
           </div>
           {loading ? (
             <Skeleton className="h-56 w-full" />
@@ -1000,12 +991,12 @@ function Inventory_db() {
                 barCategoryGap={12}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+                <XAxis type="number" tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} />
                 <YAxis
                   type="category"
                   dataKey="name"
                   width={140}
-                  tick={{ fontSize: 11, fill: "#374151" }}
+                  tick={{ fontSize: 11, fill: "#000000" }}
                   axisLine={false}
                   tickLine={false}
                 />
@@ -1093,7 +1084,7 @@ function Inventory_db() {
                   </li>
                 ))}
               </ul>
-              <p className="text-xs text-gray-400 mt-2">Click a slice for details</p>
+              
             </>
           )}
         </div>

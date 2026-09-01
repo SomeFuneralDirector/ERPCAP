@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../api/supabase";
 import {
   ResponsiveContainer,
@@ -13,7 +13,7 @@ import {
   Legend,
 } from "recharts";
 
-function formatPeso(cents) {
+function formatPeso(cents = 0) {
   return (cents / 100).toLocaleString("en-PH", {
     style: "currency",
     currency: "PHP",
@@ -29,7 +29,7 @@ function TrendTooltip({ active, payload, label }) {
       <p className="font-semibold text-gray-700 mb-1">{label}</p>
       {payload.map((p) => (
         <p key={p.dataKey} style={{ color: p.stroke }}>
-          {p.name}: ₱{p.value.toLocaleString()}
+          {p.name}: ₱{Number(p.value || 0).toLocaleString()}
         </p>
       ))}
     </div>
@@ -43,78 +43,87 @@ function Finance() {
   );
   const [dateTo, setDateTo] = useState(new Date().toISOString().slice(0, 10));
 
-  const [totalDebit, setTotalDebit] = useState(0);
-  const [totalCredit, setTotalCredit] = useState(0);
-  const [byCategory, setByCategory] = useState([]);
-  const [monthlyTrend, setMonthlyTrend] = useState([]);
+  const [entries, setEntries] = useState([]);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    loadFinanceData();
-  }, [dateFrom, dateTo]);
+    let isMounted = true;
 
-  async function loadFinanceData() {
-    setLoading(true);
+    async function loadFinanceData() {
+      if (!dateFrom || !dateTo || dateFrom > dateTo) {
+        setEntries([]);
+        setError("Invalid date range.");
+        setLoading(false);
+        return;
+      }
 
-    const sixMonthsAgo = new Date(new Date().setMonth(new Date().getMonth() - 6))
-      .toISOString()
-      .slice(0, 10);
+      setLoading(true);
+      setError("");
 
-    const { data, error } = await supabase
-      .from("ledger_entries")
-      .select(
-        "date, detail, type, amount, ledger_categories ( name )"
-      )
-      .gte("date", sixMonthsAgo);
+      // Query exactly the selected range. The previous implementation loaded
+      // six months but calculated cards/categories from a different range.
+      const { data, error: queryError } = await supabase
+        .from("ledger_entries")
+        .select("date, detail, type, amount, ledger_categories(name)")
+        .gte("date", dateFrom)
+        .lte("date", dateTo)
+        .order("date", { ascending: true });
 
-    if (error) {
-      console.error("Error loading ledger entries:", error);
+      if (!isMounted) return;
+
+      if (queryError) {
+        console.error("Error loading ledger entries:", queryError);
+        setEntries([]);
+        setError("Unable to load finance data.");
+      } else {
+        setEntries(data || []);
+      }
       setLoading(false);
-      return;
     }
 
-    const entries = data || [];
-    const inRange = entries.filter(
-      (e) => e.date >= dateFrom && e.date <= dateTo
-    );
+    loadFinanceData();
+    return () => {
+      isMounted = false;
+    };
+  }, [dateFrom, dateTo]);
 
-    const debitSum = inRange
-      .filter((e) => e.type === "debit")
-      .reduce((sum, e) => sum + e.amount, 0);
-    const creditSum = inRange
-      .filter((e) => e.type === "credit")
-      .reduce((sum, e) => sum + e.amount, 0);
+  const analytics = useMemo(() => {
+    const result = {
+      totalDebit: 0,
+      totalCredit: 0,
+      byCategory: {},
+      byMonth: {},
+    };
 
-    setTotalDebit(debitSum);
-    setTotalCredit(creditSum);
+    entries.forEach((entry) => {
+      const amount = Number(entry.amount);
+      if (!Number.isFinite(amount) || amount < 0) return;
 
-    const catMap = {};
-    inRange.forEach((e) => {
-      const name = e.ledger_categories?.name;
-      if (!name) return;
-      catMap[name] = (catMap[name] || 0) + e.amount;
+      const type = entry.type === "credit" ? "credit" : entry.type === "debit" ? "debit" : null;
+      if (!type) return;
+
+      result[type === "debit" ? "totalDebit" : "totalCredit"] += amount;
+
+      const category = entry.ledger_categories?.name || "Uncategorized";
+      result.byCategory[category] ||= { name: category, amount: 0 };
+      result.byCategory[category].amount += amount / 100;
+
+      const month = entry.date?.slice(0, 7);
+      if (month) {
+        result.byMonth[month] ||= { month, debit: 0, credit: 0 };
+        result.byMonth[month][type] += amount / 100;
+      }
     });
-    setByCategory(
-      Object.entries(catMap).map(([name, amount]) => ({
-        name,
-        amount: amount / 100,
-      }))
-    );
 
-    const months = {};
-    entries.forEach((e) => {
-      const key = e.date?.slice(0, 7);
-      if (!key) return;
-      months[key] = months[key] || { month: key, debit: 0, credit: 0 };
-      if (e.type === "debit") months[key].debit += e.amount / 100;
-      else months[key].credit += e.amount / 100;
-    });
-    setMonthlyTrend(
-      Object.values(months).sort((a, b) => a.month.localeCompare(b.month))
-    );
+    return {
+      totalDebit: result.totalDebit,
+      totalCredit: result.totalCredit,
+      byCategory: Object.values(result.byCategory).sort((a, b) => b.amount - a.amount),
+      monthlyTrend: Object.values(result.byMonth).sort((a, b) => a.month.localeCompare(b.month)),
+    };
+  }, [entries]);
 
-    setLoading(false);
-  }
-
+  const { totalDebit, totalCredit, byCategory, monthlyTrend } = analytics;
   const net = totalDebit - totalCredit;
 
   return (
@@ -138,19 +147,17 @@ function Finance() {
         </div>
       </div>
 
+      {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
         <div className="bg-white rounded-lg shadow p-6">
-          <p className="text-xs font-bold text-gray-500 uppercase">
-            Total Debit
-          </p>
+          <p className="text-xs font-bold text-gray-500 uppercase">Total Debit</p>
           <p className="text-2xl font-bold text-gray-800 mt-1">
             {loading ? "…" : formatPeso(totalDebit)}
           </p>
         </div>
         <div className="bg-white rounded-lg shadow p-6">
-          <p className="text-xs font-bold text-gray-500 uppercase">
-            Total Credit
-          </p>
+          <p className="text-xs font-bold text-gray-500 uppercase">Total Credit</p>
           <p className="text-2xl font-bold text-gray-800 mt-1">
             {loading ? "…" : formatPeso(totalCredit)}
           </p>
@@ -169,7 +176,7 @@ function Finance() {
 
       <div className="bg-white rounded-lg shadow p-6 mb-4">
         <h2 className="text-sm font-bold text-gray-700 mb-4">
-          Debit vs Credit (last 6 months)
+          Debit vs Credit
         </h2>
         <ResponsiveContainer width="100%" height={260}>
           <AreaChart data={monthlyTrend} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
@@ -186,12 +193,12 @@ function Finance() {
             <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
             <XAxis
               dataKey="month"
-              tick={{ fontSize: 11, fill: "#9ca3af" }}
+              tick={{ fontSize: 11, fill: "#080808" }}
               axisLine={false}
               tickLine={false}
             />
             <YAxis
-              tick={{ fontSize: 11, fill: "#9ca3af" }}
+              tick={{ fontSize: 11, fill: "#000000" }}
               axisLine={false}
               tickLine={false}
               tickFormatter={fmtAxis}
@@ -228,20 +235,16 @@ function Finance() {
       </div>
 
       <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-sm font-bold text-gray-500 uppercase mb-4">
-          By Category
-        </h2>
+        <h2 className="text-sm font-bold text-gray-500 uppercase mb-4">By Category</h2>
         {byCategory.length === 0 ? (
-          <p className="text-sm text-gray-400">
-            No categorized entries in this range.
-          </p>
+          <p className="text-sm text-gray-400">No categorized entries in this range.</p>
         ) : (
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={byCategory}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="name" fontSize={12} />
-              <YAxis fontSize={12} />
-              <Tooltip formatter={(v) => `₱${v.toLocaleString()}`} />
+              <XAxis dataKey="name" fontSize={12} tick={{ fill: "#000000" }} />
+              <YAxis fontSize={12} tick={{ fill: "#000000" }} />
+              <Tooltip formatter={(v) => `₱${Number(v || 0).toLocaleString()}`} />
               <Bar dataKey="amount" fill="#dc2626" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>

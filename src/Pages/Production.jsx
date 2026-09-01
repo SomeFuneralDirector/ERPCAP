@@ -55,6 +55,28 @@ function localDateKey(d) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+
+function toNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function nonNegative(value) {
+  return Math.max(0, toNumber(value));
+}
+
+function safeDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function localDateBoundary(date = new Date(), endOfDay = false) {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  d.setHours(endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0);
+  return d;
+}
+
 function ChartTooltip({ active, payload }) {
   if (!active || !payload?.length) return null;
   const d = payload[0];
@@ -98,8 +120,9 @@ function Production() {
     setLoading(true);
     setErrorMsg("");
 
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
+    const startOfToday = localDateBoundary();
+    const startOfTomorrow = new Date(startOfToday);
+    startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
 
     const [woRes, outputRes, usageRes, materialsRes, readyRes, shippedRes] = await Promise.all([
       supabase.from("work_orders").select("*").order("created_at", { ascending: false }),
@@ -122,32 +145,42 @@ function Production() {
         .from("production_orders")
         .select("order_id", { count: "exact", head: true })
         .eq("status", "SHIPPED")
-        .gte("shipped_at", startOfToday.toISOString()),
+        .gte("shipped_at", startOfToday.toISOString())
+        .lt("shipped_at", startOfTomorrow.toISOString()),
     ]);
 
     if (woRes.error) setErrorMsg(woRes.error.message);
     else setWorkOrders(woRes.data || []);
 
     if (!outputRes.error) setOutput(outputRes.data || []);
-    else console.error("production_output fetch error:", outputRes.error);
+    else {
+      console.error("production_output fetch error:", outputRes.error);
+      setOutput([]);
+    }
 
     if (!usageRes.error) setUsage(usageRes.data || []);
-    else console.error("raw_material_usage fetch error:", usageRes.error);
+    else {
+      console.error("raw_material_usage fetch error:", usageRes.error);
+      setUsage([]);
+    }
 
     if (!materialsRes.error) setMaterials(materialsRes.data || []);
-    else console.error("raw_materials fetch error:", materialsRes.error);
+    else {
+      console.error("raw_materials fetch error:", materialsRes.error);
+      setMaterials([]);
+    }
 
     if (readyRes.error) {
       console.error("production_orders (ready) fetch error:", readyRes.error);
       setErrorMsg((prev) => prev || `Ready to Ship data: ${readyRes.error.message}`);
     } else {
-      setReadyToShip(readyRes.data || []);
+      setReadyToShip((readyRes.data || []).filter((order) => safeDate(order.created_at)));
     }
 
     if (shippedRes.error) {
       console.error("production_orders (shipped) fetch error:", shippedRes.error);
     } else {
-      setShippedTodayCount(shippedRes.count || 0);
+      setShippedTodayCount(Math.max(0, shippedRes.count || 0));
     }
 
     setLoading(false);
@@ -160,35 +193,37 @@ function Production() {
   const activeWOs = workOrders.filter((w) => ["Pending", "In Progress"].includes(w.status));
   const inProgressWOs = workOrders.filter((w) => w.status === "In Progress");
   const pendingOutput = output.filter((o) => !o.allocated);
-  const pendingOutputQty = pendingOutput.reduce((sum, o) => sum + Number(o.quantity), 0);
+  const pendingOutputQty = pendingOutput.reduce((sum, o) => sum + nonNegative(o.quantity), 0);
   const lowMaterials = materials.filter((m) => m.status !== "In Stock");
 
   const todayKey = localDateKey(new Date());
   const todayOutputQty = output
     .filter((o) => o.production_date === todayKey)
-    .reduce((sum, o) => sum + Number(o.quantity), 0);
+    .reduce((sum, o) => sum + nonNegative(o.quantity), 0);
 
-  const readyToShipValue = readyToShip.reduce((sum, o) => sum + (o.total_amount || 0), 0) / 100;
+  const readyToShipValue = readyToShip.reduce((sum, o) => sum + nonNegative(o.total_amount), 0) / 100;
 
   // ── Ready to Ship chart: filtered by platform + date range ──────────
   const filteredReadyToShip = useMemo(() => {
     return readyToShip.filter((o) => {
-      if (rtsPlatform !== "all" && o.platform !== rtsPlatform) return false;
+      if (rtsPlatform !== "all" && (o.platform || "").toLowerCase() !== rtsPlatform) return false;
       if (rtsDateRange === "all") return true;
-      if (!o.created_at) return false;
-      const days = rtsDateRange === "today" ? 1 : rtsDateRange === "7d" ? 7 : 30;
-      const cutoff = new Date();
+      const createdAt = safeDate(o.created_at);
+      if (!createdAt) return false;
+      const days = rtsDateRange === "today" ? 0 : rtsDateRange === "7d" ? 6 : 29;
+      const cutoff = localDateBoundary();
       cutoff.setDate(cutoff.getDate() - days);
-      return new Date(o.created_at) >= cutoff;
+      return createdAt >= cutoff;
     });
   }, [readyToShip, rtsPlatform, rtsDateRange]);
 
-  const filteredReadyValue = filteredReadyToShip.reduce((sum, o) => sum + (o.total_amount || 0), 0) / 100;
+  const filteredReadyValue = filteredReadyToShip.reduce((sum, o) => sum + nonNegative(o.total_amount), 0) / 100;
 
   const readyPlatformChartData = useMemo(() => {
     const map = { shopee: 0, lazada: 0, tiktok: 0 };
     filteredReadyToShip.forEach((o) => {
-      if (map[o.platform] !== undefined) map[o.platform] += 1;
+      const platform = (o.platform || "").toLowerCase();
+      if (map[platform] !== undefined) map[platform] += 1;
     });
     return Object.entries(map)
       .filter(([, count]) => count > 0)
@@ -214,7 +249,7 @@ function Production() {
       const key = localDateKey(d);
       const qty = output
         .filter((o) => o.production_date === key)
-        .reduce((sum, o) => sum + Number(o.quantity), 0);
+        .reduce((sum, o) => sum + nonNegative(o.quantity), 0);
       days.push({ label: d.toLocaleDateString(undefined, { weekday: "short" }), qty });
     }
     return days;
@@ -229,7 +264,7 @@ function Production() {
       const key = localDateKey(d);
       const qty = usage
         .filter((u) => u.usage_date === key)
-        .reduce((sum, u) => sum + Number(u.quantity_used), 0);
+        .reduce((sum, u) => sum + nonNegative(u.quantity_used), 0);
       days.push({ label: d.toLocaleDateString(undefined, { weekday: "short" }), qty });
     }
     return days;
@@ -237,12 +272,14 @@ function Production() {
 
   // ── Top produced products, last 30 days ──────────────────────────────
   const topProductsChartData = useMemo(() => {
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 30);
+    const cutoff = localDateBoundary();
+    cutoff.setDate(cutoff.getDate() - 29);
     const map = {};
     output.forEach((o) => {
-      if (new Date(o.production_date) < cutoff) return;
-      map[o.product_name] = (map[o.product_name] || 0) + Number(o.quantity);
+      const productionDate = safeDate(o.production_date);
+      if (!productionDate || productionDate < cutoff) return;
+      const name = o.product_name || "Unknown";
+      map[name] = (map[name] || 0) + nonNegative(o.quantity);
     });
     return Object.entries(map)
       .map(([name, qty]) => ({ name, qty }))
@@ -255,11 +292,11 @@ function Production() {
     () =>
       lowMaterials
         .slice()
-        .sort((a, b) => a.current_stock - b.current_stock)
+        .sort((a, b) => nonNegative(a.current_stock) - nonNegative(b.current_stock))
         .slice(0, 8)
         .map((m) => ({
           name: m.material_name,
-          qty: m.current_stock,
+          qty: nonNegative(m.current_stock),
           unit: m.unit,
           color: m.status === "Out of Stock" ? "#dc2626" : "#f59e0b",
         })),
@@ -284,7 +321,10 @@ function Production() {
         type: "usage",
       })),
     ];
-    return items.sort((a, b) => new Date(b.time) - new Date(a.time)).slice(0, 8);
+    return items
+      .filter((item) => safeDate(item.time))
+      .sort((a, b) => safeDate(b.time).getTime() - safeDate(a.time).getTime())
+      .slice(0, 8);
   }, [output, usage]);
 
   return (
@@ -292,9 +332,6 @@ function Production() {
       <div className="bg-white rounded-lg shadow p-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Production</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Work orders → output → finished goods, with raw material usage tracked throughout
-          </p>
         </div>
         <button
           onClick={fetchAll}
@@ -483,8 +520,8 @@ function Production() {
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={outputChartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <Tooltip
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
@@ -524,12 +561,12 @@ function Production() {
                 barCategoryGap={8}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <XAxis type="number" tick={{ fontSize: 10, fill: "#000000" }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <YAxis
                   type="category"
                   dataKey="name"
                   width={100}
-                  tick={{ fontSize: 10, fill: "#374151" }}
+                  tick={{ fontSize: 10, fill: "#000000" }}
                   axisLine={false}
                   tickLine={false}
                 />
@@ -568,8 +605,8 @@ function Production() {
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={usageChartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <Tooltip
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
@@ -609,12 +646,12 @@ function Production() {
                 barCategoryGap={10}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <XAxis type="number" tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <YAxis
                   type="category"
                   dataKey="name"
                   width={130}
-                  tick={{ fontSize: 11, fill: "#374151" }}
+                  tick={{ fontSize: 11, fill: "#000000" }}
                   axisLine={false}
                   tickLine={false}
                 />

@@ -2,17 +2,29 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "../api/supabase";
 import { Loader2, AlertCircle } from "lucide-react";
 
-function formatPeso(cents) {
-  return (cents / 100).toLocaleString("en-PH", {
+function toNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function formatPeso(cents = 0) {
+  return (toNumber(cents) / 100).toLocaleString("en-PH", {
     style: "currency",
     currency: "PHP",
   });
 }
 
+function localDateKey(date = new Date()) {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 function BalanceSheet() {
   const [loading, setLoading] = useState(true);
   const [asOfDate, setAsOfDate] = useState(
-    new Date().toISOString().slice(0, 10)
+    localDateKey()
   );
 
   const [assets, setAssets] = useState([]);
@@ -34,6 +46,10 @@ function BalanceSheet() {
 
     if (error) {
       console.error("Error loading balance sheet data:", error);
+      setAssets([]);
+      setLiabilities([]);
+      setEquity([]);
+      setNetIncome(0);
       setLoading(false);
       return;
     }
@@ -45,17 +61,22 @@ function BalanceSheet() {
     const byCategory = {};
     entries.forEach((e) => {
       const name = e.ledger_categories?.name;
-      const classification = e.ledger_categories?.classification;
+      const classification = e.ledger_categories?.classification?.toLowerCase();
       if (!name || !classification) return;
+      if (e.type !== "debit" && e.type !== "credit") return;
 
-      if (!byCategory[name]) {
-        byCategory[name] = { name, classification, debit: 0, credit: 0 };
+      // Include classification in the key so identical names from different
+      // account classes cannot be merged accidentally.
+      const key = `${classification}:${name}`;
+      if (!byCategory[key]) {
+        byCategory[key] = { name, classification, debit: 0, credit: 0 };
       }
-      if (e.type === "debit") byCategory[name].debit += e.amount;
-      else byCategory[name].credit += e.amount;
+      const amount = Math.max(0, toNumber(e.amount));
+      if (e.type === "debit") byCategory[key].debit += amount;
+      else byCategory[key].credit += amount;
     });
 
-    const rows = Object.values(byCategory);
+    const rows = Object.values(byCategory).sort((a, b) => a.name.localeCompare(b.name));
 
     // Assets: normal debit balance (debit increases, credit decreases)
     const assetRows = rows
@@ -80,19 +101,20 @@ function BalanceSheet() {
       .filter((r) => r.classification === "expense")
       .reduce((sum, r) => sum + (r.debit - r.credit), 0);
 
-    setAssets(assetRows);
-    setLiabilities(liabilityRows);
-    setEquity(equityRows);
+    setAssets(assetRows.filter((row) => row.amount !== 0));
+    setLiabilities(liabilityRows.filter((row) => row.amount !== 0));
+    setEquity(equityRows.filter((row) => row.amount !== 0));
     setNetIncome(revenueTotal - expenseTotal);
 
     setLoading(false);
   }
 
-  const totalAssets = assets.reduce((s, r) => s + r.amount, 0);
-  const totalLiabilities = liabilities.reduce((s, r) => s + r.amount, 0);
-  const totalEquityAccounts = equity.reduce((s, r) => s + r.amount, 0);
+  const totalAssets = assets.reduce((s, r) => s + toNumber(r.amount), 0);
+  const totalLiabilities = liabilities.reduce((s, r) => s + toNumber(r.amount), 0);
+  const totalEquityAccounts = equity.reduce((s, r) => s + toNumber(r.amount), 0);
   const totalEquity = totalEquityAccounts + netIncome;
   const totalLiabilitiesAndEquity = totalLiabilities + totalEquity;
+  // Values are stored in cents, so exact integer comparison is appropriate.
   const isBalanced = totalAssets === totalLiabilitiesAndEquity;
 
   return (

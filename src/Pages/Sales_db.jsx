@@ -26,7 +26,27 @@ const fmtPHP = (n) =>
 
 const fmtAxis = (v) => `₱${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`;
 
-const centsToPesos = (c) => (c || 0) / 100;
+const toNumber = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+};
+
+const centsToPesos = (c) => Math.max(0, toNumber(c)) / 100;
+
+const safeDate = (value) => {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const localDateBoundary = (value, endOfDay = false) => {
+  if (!value) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setHours(endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0);
+  return date.getTime();
+};
 const normalizePlatform = (p) => {
   if (!p) return "Unknown";
   const key = p.toLowerCase();
@@ -61,12 +81,13 @@ function bucketSales(orders, mode) {
   orders.forEach((o) => {
     const raw = orderDate(o);
     if (!raw) return;
-    const d = new Date(raw);
+    const d = safeDate(raw);
+    if (!d) return;
     let key, label, sortKey;
 
     if (mode === "weekly") {
       const start = getStartOfWeek(d);
-      key = start.toISOString();
+      key = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
       label = start.toLocaleDateString(undefined, { month: "short", day: "numeric" });
       sortKey = start.getTime();
     } else if (mode === "monthly") {
@@ -193,9 +214,10 @@ function Sales_db({ onGoToImport }) {
       return;
     }
 
-    setOrders(completedOrders || []);
+    const validOrders = (completedOrders || []).filter((o) => safeDate(orderDate(o)));
+    setOrders(validOrders);
 
-    const orderUuids = (completedOrders || []).map((o) => o.id).filter(Boolean);
+    const orderUuids = validOrders.map((o) => o.id).filter(Boolean);
 
     if (orderUuids.length === 0) {
       setOrderItems([]);
@@ -212,7 +234,7 @@ function Sales_db({ onGoToImport }) {
           `Order items failed to load: ${itemsError.message}. Item/product totals shown may be incomplete.`
         );
       } else {
-        setOrderItems(items || []);
+        setOrderItems((items || []).filter((item) => toNumber(item.quantity) > 0));
       }
     }
 
@@ -255,11 +277,6 @@ function Sales_db({ onGoToImport }) {
     return () => supabase.removeChannel(channel);
   }, [fetchAll, fetchLastImportLog]);
 
-  const clearDateRange = () => {
-    setDateFrom("");
-    setDateTo("");
-  };
-
   const filteredOrders = useMemo(() => {
     let result = orders;
 
@@ -268,12 +285,13 @@ function Sales_db({ onGoToImport }) {
     }
 
     if (!dateFrom && !dateTo) return result;
-    const fromTime = dateFrom ? new Date(dateFrom).setHours(0, 0, 0, 0) : null;
-    const toTime = dateTo ? new Date(dateTo).setHours(23, 59, 59, 999) : null;
+    const fromTime = localDateBoundary(dateFrom)
+    const toTime = localDateBoundary(dateTo, true)
     return result.filter((o) => {
       const raw = orderDate(o);
       if (!raw) return false;
-      const t = new Date(raw).getTime();
+      const t = safeDate(raw)?.getTime()
+      if (t == null) return false
       if (fromTime !== null && t < fromTime) return false;
       if (toTime !== null && t > toTime) return false;
       return true;
@@ -296,7 +314,7 @@ function Sales_db({ onGoToImport }) {
   );
 
   const totalItemsSold = useMemo(
-    () => filteredOrderItems.reduce((sum, i) => sum + (i.quantity || 0), 0),
+    () => filteredOrderItems.reduce((sum, i) => sum + Math.max(0, toNumber(i.quantity)), 0),
     [filteredOrderItems]
   );
 
@@ -322,8 +340,9 @@ function Sales_db({ onGoToImport }) {
     filteredOrderItems.forEach((item) => {
       const name = item.product_name || "Unknown";
       if (!map[name]) map[name] = { name, qty: 0, amount: 0 };
-      map[name].qty += item.quantity || 0;
-      map[name].amount += (item.quantity || 0) * centsToPesos(item.unit_price);
+      const quantity = Math.max(0, toNumber(item.quantity))
+      map[name].qty += quantity
+      map[name].amount += quantity * centsToPesos(item.unit_price)
     });
     return Object.values(map)
       .sort((a, b) => b[productSort] - a[productSort])
@@ -341,9 +360,11 @@ function Sales_db({ onGoToImport }) {
 
   const periodComparison = useMemo(() => {
     if (trendPoints.length < 2) return { totalPrev: null, avgPrev: null };
-    const mid = Math.ceil(trendPoints.length / 2);
-    const prevBuckets = trendPoints.slice(0, mid);
-    const currBuckets = trendPoints.slice(mid);
+    // Compare equal-sized adjacent periods whenever possible. This avoids
+    // comparing two buckets against one bucket when the trend has an odd length.
+    const periodLength = Math.max(1, Math.floor(trendPoints.length / 2));
+    const prevBuckets = trendPoints.slice(-periodLength * 2, -periodLength);
+    const currBuckets = trendPoints.slice(-periodLength);
     const prevTotal = prevBuckets.reduce((s, b) => s + b.value, 0);
     const prevOrders = prevBuckets.reduce((s, b) => s + b.orders, 0);
     const currTotal = currBuckets.reduce((s, b) => s + b.value, 0);
@@ -417,11 +438,6 @@ function Sales_db({ onGoToImport }) {
               onChange={(e) => setDateTo(e.target.value)}
               className="border border-gray-300 rounded px-2 py-1 text-sm cursor-pointer"
             />
-            {(dateFrom || dateTo) && (
-              <button onClick={clearDateRange} className="text-sm text-gray-500 hover:text-gray-700 cursor-pointer">
-                ✕
-              </button>
-            )}
           </div>
 
           <button
@@ -461,7 +477,7 @@ function Sales_db({ onGoToImport }) {
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg shadow p-4">
+        <div className="bg-white rounded-lg shadow p-6">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Total Sales</p>
           {loading ? (
             <Skeleton />
@@ -476,7 +492,7 @@ function Sales_db({ onGoToImport }) {
           <p className="text-xs mt-1 text-gray-400">{filteredOrders.length} completed orders</p>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-4">
+        <div className="bg-white rounded-lg shadow p-6">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Avg Order Value</p>
           {loading ? (
             <Skeleton />
@@ -491,7 +507,7 @@ function Sales_db({ onGoToImport }) {
           <p className="text-xs mt-1 text-gray-400">per completed order</p>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-4">
+        <div className="bg-white rounded-lg shadow p-6">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Items Sold</p>
           {loading ? (
             <Skeleton />
@@ -501,7 +517,7 @@ function Sales_db({ onGoToImport }) {
           <p className="text-xs mt-1 text-gray-400">units across all orders</p>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-4">
+        <div className="bg-white rounded-lg shadow p-6">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Latest Period</p>
           {loading ? (
             <Skeleton />
@@ -523,7 +539,7 @@ function Sales_db({ onGoToImport }) {
           const color = PLATFORM_COLORS[platform];
           const share = totalSales > 0 ? ((entry?.amount || 0) / totalSales) * 100 : 0;
           return (
-            <div key={platform} className="bg-white rounded-lg shadow p-4">
+            <div key={platform} className="bg-white rounded-lg shadow p-6">
               <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full inline-block" style={{ background: color }} />
                 {platform}
@@ -570,8 +586,8 @@ function Sales_db({ onGoToImport }) {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-              <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
               <Tooltip
                 content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null;
@@ -613,8 +629,8 @@ function Sales_db({ onGoToImport }) {
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={platformTotals} margin={{ top: 20, right: 16, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-              <XAxis dataKey="platform" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
+              <XAxis dataKey="platform" tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
               <Tooltip content={<CurrencyTooltip />} />
               <Bar dataKey="amount" name="Sales" radius={[6, 6, 0, 0]}>
                 {platformTotals.map((p) => (
@@ -655,8 +671,8 @@ function Sales_db({ onGoToImport }) {
           <ResponsiveContainer width="100%" height={Math.max(180, topProducts.length * 40)}>
             <BarChart data={topProducts} layout="vertical" margin={{ top: 0, right: 48, left: 8, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-              <YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 11, fill: "#374151" }} axisLine={false} tickLine={false} />
+              <XAxis type="number" tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} />
+              <YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} />
               <Tooltip
                 formatter={(value, name) =>
                   name === "amount" ? [fmtPHP(value), "Revenue"] : [`${value} sold`, "Quantity"]

@@ -41,7 +41,18 @@ const normalizePlatform = (p) => {
   return p
 }
 
-const centsToPesos = (c) => (c || 0) / 100
+const toNumber = (value) => {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : 0
+}
+
+const centsToPesos = (c) => Math.max(0, toNumber(c)) / 100
+
+const safeDate = (value) => {
+  if (!value) return null
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
+}
 
 const fmtCurrency = (n) =>
   `₱${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
@@ -49,7 +60,8 @@ const fmtCurrency = (n) =>
 const orderDate = (o) => o.completed_at || o.created_at || o.paid_time
 
 const monthKey = (date) => {
-  const d = new Date(date)
+  const d = safeDate(date)
+  if (!d) return null
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
@@ -66,8 +78,10 @@ function deriveCampaignStatus(c) {
   if (c.status === 'Cancelled') return 'Cancelled'
   const today = new Date()
   today.setHours(0, 0, 0, 0)
-  const start = c.start_date ? new Date(c.start_date) : null
-  const end = c.end_date ? new Date(c.end_date) : null
+  const start = safeDate(c.start_date)
+  const end = safeDate(c.end_date)
+  if (start) start.setHours(0, 0, 0, 0)
+  if (end) end.setHours(23, 59, 59, 999)
   if (end && today > end) return 'Ended'
   if (start && today < start) return 'Upcoming'
   return 'Active'
@@ -180,8 +194,9 @@ function Marketing() {
       return
     }
 
-    setOrders(completedOrders || [])
-    const orderUuids = (completedOrders || []).map((o) => o.id).filter(Boolean)
+    const validOrders = (completedOrders || []).filter((o) => safeDate(orderDate(o)))
+    setOrders(validOrders)
+    const orderUuids = validOrders.map((o) => o.id).filter(Boolean)
 
     const [itemsRes, campaignsRes] = await Promise.all([
       orderUuids.length > 0
@@ -199,14 +214,14 @@ function Marketing() {
       console.error('Error fetching order items:', itemsRes.error)
       setOrderItems([])
     } else {
-      setOrderItems(itemsRes.data || [])
+      setOrderItems((itemsRes.data || []).filter((item) => toNumber(item.quantity) > 0))
     }
 
     if (campaignsRes.error) {
       console.error('Error fetching campaigns:', campaignsRes.error)
       setCampaigns([])
     } else {
-      setCampaigns(campaignsRes.data || [])
+      setCampaigns((campaignsRes.data || []).filter((campaign) => campaign?.name))
     }
 
     setInitialLoading(false)
@@ -249,7 +264,7 @@ function Marketing() {
     orderItems.forEach((row) => {
       const name = row.product_name || 'Unnamed Product'
       if (!map[name]) map[name] = { name, qty: 0, sales: 0 }
-      const qty = Number(row.quantity) || 0
+      const qty = Math.max(0, toNumber(row.quantity))
       map[name].qty += qty
       map[name].sales += qty * centsToPesos(row.unit_price)
     })
@@ -276,9 +291,10 @@ function Marketing() {
       const date = orderDateById[row.order_uuid]
       if (!date) return
       const key = monthKey(date)
+      if (!key) return
       if (!months[key]) months[key] = {}
       const name = row.product_name || 'Unnamed Product'
-      const qty = Number(row.quantity) || 0
+      const qty = Math.max(0, toNumber(row.quantity))
       months[key][name] = (months[key][name] || 0) + qty
     })
     return months
@@ -319,8 +335,9 @@ function Marketing() {
       return campaigns
         .filter((c) => c.status !== 'Cancelled')
         .filter((c) => {
-          const start = c.start_date ? new Date(c.start_date) : monthStart
-          const end = c.end_date ? new Date(c.end_date) : monthEnd
+          const start = safeDate(c.start_date) || monthStart
+          const end = safeDate(c.end_date) || monthEnd
+          end.setHours(23, 59, 59, 999)
           return start <= monthEnd && end >= monthStart
         })
         .map((c) => c.name)
@@ -377,7 +394,9 @@ function Marketing() {
 
     return campaignsWithStatus.filter((c) => {
       if (c.derivedStatus !== 'Active' || !c.end_date) return false
-      const end = new Date(c.end_date)
+      const end = safeDate(c.end_date)
+      if (!end) return false
+      end.setHours(23, 59, 59, 999)
       return end >= now && end <= cutoff
     })
   }, [campaignsWithStatus])
@@ -487,8 +506,8 @@ function Marketing() {
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={platformSales} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                <XAxis dataKey="platform" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+                <XAxis dataKey="platform" tick={{ fontSize: 11, fill: '#000000' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: '#000000' }} axisLine={false} tickLine={false} />
                 <Tooltip formatter={(v) => fmtCurrency(v)} />
                 <Bar dataKey="amount" name="Sales" radius={[6, 6, 0, 0]}>
                   {platformSales.map((p) => (
@@ -546,12 +565,12 @@ function Marketing() {
               <CartesianGrid strokeDasharray="3 3" stroke={TREND_GRID_COLOR} vertical={false} />
               <XAxis
                 dataKey="month"
-                tick={{ fontSize: 11, fill: TREND_AXIS_COLOR }}
+                tick={{ fontSize: 11, fill: "#000000" }}
                 axisLine={false}
                 tickLine={false}
               />
               <YAxis
-                tick={{ fontSize: 11, fill: TREND_AXIS_COLOR }}
+                tick={{ fontSize: 11, fill: "#000000"  }}
                 axisLine={false}
                 tickLine={false}
               />

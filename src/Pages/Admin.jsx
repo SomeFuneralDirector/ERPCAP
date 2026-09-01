@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -53,7 +54,7 @@ const PAGE_SIZE = 5;
 const fmtPeso = (pesos) =>
   `₱${(pesos ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtAxis = (v) => `₱${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`;
-const centsToPesos = (c) => (c || 0) / 100;
+const centsToPesos = (c) => Math.max(0, toNumber(c)) / 100;
 
 const normalizePlatform = (p) => {
   if (!p) return "Unknown";
@@ -67,7 +68,7 @@ const normalizePlatform = (p) => {
 const orderDate = (o) => o.completed_at || o.created_at || o.paid_time;
 
 const isLowStockProduct = (item) => {
-  const total = (item.shopee_stock || 0) + (item.lazada_stock || 0) + (item.tiktok_stock || 0);
+  const total = stockValue(item.shopee_stock) + stockValue(item.lazada_stock) + stockValue(item.tiktok_stock);
   return total <= 5;
 };
 
@@ -75,8 +76,10 @@ function deriveCampaignStatus(campaign) {
   if (campaign.status === "Cancelled") return "Cancelled";
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const start = campaign.start_date ? new Date(campaign.start_date) : null;
-  const end = campaign.end_date ? new Date(campaign.end_date) : null;
+  const start = toDate(campaign.start_date);
+  const end = toDate(campaign.end_date);
+  if (start) start.setHours(0, 0, 0, 0);
+  if (end) end.setHours(23, 59, 59, 999);
   if (end && today > end) return "Ended";
   if (start && today < start) return "Upcoming";
   return "Active";
@@ -92,10 +95,10 @@ function getStartOfWeek(d) {
 function bucketWeeklySales(orders) {
   const buckets = {};
   orders.forEach((o) => {
-    const raw = orderDate(o);
-    if (!raw) return;
-    const start = getStartOfWeek(new Date(raw));
-    const key = start.toISOString();
+    const date = toDate(orderDate(o));
+    if (!date) return;
+    const start = getStartOfWeek(date);
+    const key = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(2, "0")}`;
     if (!buckets[key]) {
       buckets[key] = {
         label: start.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
@@ -120,7 +123,24 @@ function timeAgo(date) {
 }
 
 function startOfMonthISO() {
-  return new Date(new Date().setDate(1)).toISOString().slice(0, 10);
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-01`;
+}
+
+function toNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function toDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function stockValue(value) {
+  return Math.max(0, toNumber(value));
 }
 
 function usePagination(items, pageSize = PAGE_SIZE) {
@@ -135,7 +155,7 @@ function Skeleton({ className = "h-7 w-20" }) {
   return <div className={`${className} bg-gray-100 rounded animate-pulse`} />;
 }
 
-function KpiCard({ icon: Icon, label, value, sub, loading, tone = "gray" }) {
+function KpiCard({ label, value, sub, loading, tone = "gray" }) {
   const toneStyles = {
     gray: "text-gray-800",
     green: "text-green-600",
@@ -143,15 +163,12 @@ function KpiCard({ icon: Icon, label, value, sub, loading, tone = "gray" }) {
     amber: "text-amber-600",
   };
   return (
-    <div className="bg-white rounded-lg shadow p-4">
-      <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400">
-        <Icon size={14} />
-        {label}
-      </div>
+    <div className="bg-white rounded-lg shadow p-6">
+      <p className="text-xs font-bold uppercase text-gray-500">{label}</p>
       {loading ? (
-        <Skeleton className="h-9 w-24 mt-1" />
+        <Skeleton className="h-8 w-24 mt-1" />
       ) : (
-        <p className={`text-3xl font-bold mt-1 ${toneStyles[tone]}`}>{value}</p>
+        <p className={`text-2xl font-bold mt-1 ${toneStyles[tone]}`}>{value}</p>
       )}
       {sub && <p className="text-xs mt-1 text-gray-400">{sub}</p>}
     </div>
@@ -222,12 +239,15 @@ function Admin({ onNavigate }) {
   const [errorMsg, setErrorMsg] = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
 
+  const navigate = useNavigate();
+
   const goTo = useCallback(
-    (tab) => {
-      if (typeof onNavigate === "function") onNavigate(tab);
+    (path) => {
+      navigate(`/${path}`);
     },
-    [onNavigate]
+    [navigate]
   );
+  
 
   const loadDashboard = useCallback(async (isInitial = false) => {
     if (isInitial) setLoading(true);
@@ -274,11 +294,11 @@ function Admin({ onNavigate }) {
       );
     }
 
-    setLedgerEntries(ledgerRes.data || []);
+    setLedgerEntries((ledgerRes.data || []).filter((e) => e?.date));
     setProducts(productsRes.data || []);
     setMaterials(materialsRes.data || []);
     setCampaigns(campaignsRes.data || []);
-    setOrders(ordersRes.data || []);
+    setOrders((ordersRes.data || []).filter((o) => toDate(orderDate(o))));
     setWorkOrders(workOrdersRes.data || []);
 
     setLastUpdated(new Date());
@@ -306,8 +326,12 @@ function Admin({ onNavigate }) {
 
   const financeMTD = useMemo(() => {
     const inRange = ledgerEntries.filter((e) => e.date >= startOfMonth);
-    const debit = inRange.filter((e) => e.type === "debit").reduce((s, e) => s + e.amount, 0) / 100;
-    const credit = inRange.filter((e) => e.type === "credit").reduce((s, e) => s + e.amount, 0) / 100;
+    const debit = inRange
+      .filter((e) => e.type === "debit")
+      .reduce((s, e) => s + Math.max(0, toNumber(e.amount)), 0) / 100;
+    const credit = inRange
+      .filter((e) => e.type === "credit")
+      .reduce((s, e) => s + Math.max(0, toNumber(e.amount)), 0) / 100;
     return { debit, credit, net: debit - credit };
   }, [ledgerEntries, startOfMonth]);
 
@@ -317,36 +341,37 @@ function Admin({ onNavigate }) {
       const key = e.date?.slice(0, 7);
       if (!key) return;
       if (!map[key]) map[key] = { month: key, debit: 0, credit: 0 };
-      if (e.type === "debit") map[key].debit += e.amount / 100;
-      else map[key].credit += e.amount / 100;
+      const amount = Math.max(0, toNumber(e.amount)) / 100;
+      if (e.type === "debit") map[key].debit += amount;
+      else if (e.type === "credit") map[key].credit += amount;
     });
     return Object.values(map)
       .sort((a, b) => a.month.localeCompare(b.month))
       .map((m) => ({
         ...m,
         net: m.debit - m.credit,
-        label: new Date(`${m.month}-01`).toLocaleDateString(undefined, { month: "short" }),
+        label: new Date(`${m.month}-01T00:00:00`).toLocaleDateString(undefined, { month: "short" }),
       }));
   }, [ledgerEntries]);
 
   const productStats = useMemo(() => {
     const totalStock = products.reduce(
-      (s, p) => s + (p.shopee_stock || 0) + (p.lazada_stock || 0) + (p.tiktok_stock || 0),
+      (s, p) => s + stockValue(p.shopee_stock) + stockValue(p.lazada_stock) + stockValue(p.tiktok_stock),
       0
     );
     const low = products.filter(isLowStockProduct).sort((a, b) => {
-      const ta = (a.shopee_stock || 0) + (a.lazada_stock || 0) + (a.tiktok_stock || 0);
-      const tb = (b.shopee_stock || 0) + (b.lazada_stock || 0) + (b.tiktok_stock || 0);
+      const ta = stockValue(a.shopee_stock) + stockValue(a.lazada_stock) + stockValue(a.tiktok_stock);
+      const tb = stockValue(b.shopee_stock) + stockValue(b.lazada_stock) + stockValue(b.tiktok_stock);
       return ta - tb;
     });
     const platformTotals = ["Shopee", "Lazada", "TikTok"].map((platform) => ({
       platform,
       value:
         platform === "Shopee"
-          ? products.reduce((s, p) => s + (p.shopee_stock || 0), 0)
+          ? products.reduce((s, p) => s + stockValue(p.shopee_stock), 0)
           : platform === "Lazada"
-          ? products.reduce((s, p) => s + (p.lazada_stock || 0), 0)
-          : products.reduce((s, p) => s + (p.tiktok_stock || 0), 0),
+          ? products.reduce((s, p) => s + stockValue(p.lazada_stock), 0)
+          : products.reduce((s, p) => s + stockValue(p.tiktok_stock), 0),
     }));
     return { count: products.length, totalStock, low, platformTotals };
   }, [products]);
@@ -375,7 +400,7 @@ function Admin({ onNavigate }) {
   const salesStats = useMemo(() => {
     const monthOrders = orders.filter((o) => {
       const d = orderDate(o);
-      return d && d >= startOfMonth;
+      return d && d.slice(0, 10) >= startOfMonth;
     });
     const totalMTD = monthOrders.reduce((s, o) => s + centsToPesos(o.total_amount), 0);
     const avgOrder = monthOrders.length > 0 ? totalMTD / monthOrders.length : 0;
@@ -404,7 +429,7 @@ function Admin({ onNavigate }) {
     const completed = workOrders.filter((wo) => wo.status === "Completed");
     const completedMTD = completed.filter((wo) => {
       const d = wo.completed_at || wo.created_at;
-      return d && d >= startOfMonth;
+      return d && d.slice(0, 10) >= startOfMonth;
     });
     const unitsFinishedMTD = completedMTD.reduce((s, wo) => s + (wo.quantity || 0), 0);
     const recentlyFinished = [...completedMTD]
@@ -430,11 +455,7 @@ function Admin({ onNavigate }) {
       <div className="bg-white rounded-lg shadow p-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Dashboard</h1>
-          {lastUpdated && (
-            <p className="text-xs text-gray-400 mt-1">
-              {refreshing ? "Syncing…" : `Updated ${timeAgo(lastUpdated)}`}
-            </p>
-          )}
+          
         </div>
         <button
           onClick={() => loadDashboard(false)}
@@ -454,14 +475,14 @@ function Admin({ onNavigate }) {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <KpiCard
           icon={TrendingUp}
-          label="Sales (MTD)"
+          label="Sales (Month-to-Date)"
           value={fmtPeso(salesStats.totalMTD)}
           sub={`${salesStats.ordersCount} completed orders`}
           loading={loading}
         />
         <KpiCard
           icon={financeMTD.net >= 0 ? TrendingUp : TrendingDown}
-          label="Net Finance (MTD)"
+          label="Net Finance (Month-to-Date)"
           value={fmtPeso(financeMTD.net)}
           sub={`${fmtPeso(financeMTD.debit)} debit · ${fmtPeso(financeMTD.credit)} credit`}
           loading={loading}
@@ -485,7 +506,7 @@ function Admin({ onNavigate }) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <SectionCard title="Finance — this month" icon={TrendingUp}>
+        <SectionCard title="Finance - this month" icon={TrendingUp} onView={() => goTo("finance")}>
           <div className="grid grid-cols-3 gap-3 mb-4">
             <div>
               <p className="text-xs text-gray-400">Debit</p>
@@ -514,8 +535,8 @@ function Admin({ onNavigate }) {
             <ResponsiveContainer width="100%" height={160}>
               <BarChart data={monthlyNet} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} />
+<YAxis tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
                 <Tooltip formatter={(v) => fmtPeso(v)} labelFormatter={(l) => `Net — ${l}`} />
                 <Bar dataKey="net" radius={[4, 4, 4, 4]}>
                   {monthlyNet.map((m, i) => (
@@ -527,7 +548,7 @@ function Admin({ onNavigate }) {
           )}
         </SectionCard>
 
-        <SectionCard title="Sales — finished products" icon={TrendingUp} onView={() => goTo("sales")}>
+        <SectionCard title="Sales - finished products" icon={TrendingUp} onView={() => goTo("sales_db")}>
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div>
               <p className="text-xs text-gray-400">This month</p>
@@ -552,8 +573,8 @@ function Admin({ onNavigate }) {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} />
+<YAxis tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
                 <Tooltip formatter={(v) => fmtPeso(v)} />
                 <Area type="monotone" dataKey="value" stroke="#b91c1c" strokeWidth={2} fill="url(#adminSalesFill)" />
               </AreaChart>
@@ -561,7 +582,7 @@ function Admin({ onNavigate }) {
           )}
         </SectionCard>
 
-        <SectionCard title="Inventory — finished products" icon={Package} onView={() => goTo("inventory")}>
+        <SectionCard title="Inventory - finished products" icon={Package} onView={() => goTo("inventory")}>
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div>
               <p className="text-xs text-gray-400">Products</p>
@@ -580,7 +601,7 @@ function Admin({ onNavigate }) {
             <>
               <ul className="space-y-1.5">
                 {lowStockProductsPage.pageItems.map((p) => {
-                  const total = (p.shopee_stock || 0) + (p.lazada_stock || 0) + (p.tiktok_stock || 0);
+                  const total = stockValue(p.shopee_stock) + stockValue(p.lazada_stock) + stockValue(p.tiktok_stock);
                   return (
                     <li key={p.id} className="flex items-center justify-between text-xs">
                       <span className="text-gray-700 truncate pr-2">{p.product_name}</span>
@@ -603,7 +624,7 @@ function Admin({ onNavigate }) {
           )}
         </SectionCard>
 
-        <SectionCard title="Inventory — raw materials" icon={Boxes} onView={() => goTo("production_rm")}>
+        <SectionCard title="Inventory - raw materials" icon={Boxes} onView={() => goTo("production_rm")}>
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div>
               <p className="text-xs text-gray-400">Materials tracked</p>

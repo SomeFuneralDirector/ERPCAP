@@ -2,17 +2,29 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "../api/supabase";
 import { Loader2 } from "lucide-react";
 
-function formatPeso(cents) {
-  return (cents / 100).toLocaleString("en-PH", {
+function toNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function formatPeso(cents = 0) {
+  return (toNumber(cents) / 100).toLocaleString("en-PH", {
     style: "currency",
     currency: "PHP",
   });
 }
 
+function localDateKey(date = new Date()) {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 function IncomeStatement() {
   const [loading, setLoading] = useState(true);
   const [dateFrom, setDateFrom] = useState(
-    new Date(new Date().setDate(1)).toISOString().slice(0, 10)
+    `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-01`
   );
   const [dateTo, setDateTo] = useState(new Date().toISOString().slice(0, 10));
 
@@ -34,6 +46,8 @@ function IncomeStatement() {
 
     if (error) {
       console.error("Error loading income statement data:", error);
+      setRevenue([]);
+      setExpenses([]);
       setLoading(false);
       return;
     }
@@ -45,30 +59,34 @@ function IncomeStatement() {
     const byCategory = {};
     entries.forEach((e) => {
       const name = e.ledger_categories?.name;
-      const classification = e.ledger_categories?.classification;
+      const classification = e.ledger_categories?.classification?.toLowerCase();
       if (!name || !classification) return;
-      if (classification !== "revenue" && classification !== "expense")
-        return;
+      if (classification !== "revenue" && classification !== "expense") return;
+      if (e.type !== "debit" && e.type !== "credit") return;
 
-      if (!byCategory[name]) {
-        byCategory[name] = { name, classification, debit: 0, credit: 0 };
+      const key = `${classification}:${name}`;
+      if (!byCategory[key]) {
+        byCategory[key] = { name, classification, debit: 0, credit: 0 };
       }
-      if (e.type === "debit") byCategory[name].debit += e.amount;
-      else byCategory[name].credit += e.amount;
+      const amount = Math.max(0, toNumber(e.amount));
+      if (e.type === "debit") byCategory[key].debit += amount;
+      else byCategory[key].credit += amount;
     });
 
-    const rows = Object.values(byCategory);
+    const rows = Object.values(byCategory).sort((a, b) => a.name.localeCompare(b.name));
 
     // Revenue: normal credit balance
     const revenueRows = rows
       .filter((r) => r.classification === "revenue")
       .map((r) => ({ name: r.name, amount: r.credit - r.debit }))
+      .filter((r) => r.amount !== 0)
       .sort((a, b) => b.amount - a.amount);
 
     // Expenses: normal debit balance
     const expenseRows = rows
       .filter((r) => r.classification === "expense")
       .map((r) => ({ name: r.name, amount: r.debit - r.credit }))
+      .filter((r) => r.amount !== 0)
       .sort((a, b) => b.amount - a.amount);
 
     setRevenue(revenueRows);
@@ -76,8 +94,8 @@ function IncomeStatement() {
     setLoading(false);
   }
 
-  const totalRevenue = revenue.reduce((s, r) => s + r.amount, 0);
-  const totalExpenses = expenses.reduce((s, r) => s + r.amount, 0);
+  const totalRevenue = revenue.reduce((s, r) => s + toNumber(r.amount), 0);
+  const totalExpenses = expenses.reduce((s, r) => s + toNumber(r.amount), 0);
   const netIncome = totalRevenue - totalExpenses;
 
   return (
