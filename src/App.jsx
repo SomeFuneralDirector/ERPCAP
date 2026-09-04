@@ -12,6 +12,7 @@ import Income_statement from "./Pages/Income_statement.jsx";
 import Marketing from "./Pages/Marketing.jsx";
 import Marketing_io from "./Pages/Marketing_io.jsx";
 import Marketing_camp from "./Pages/Marketing_camp.jsx";
+import Marketing_reco from "./Pages/Marketing_reco.jsx";
 import Sales from './Pages/Sales.jsx';
 import Sales_db from './Pages/Sales_db.jsx';
 import Inventory from './Pages/Inventory.jsx';
@@ -58,6 +59,7 @@ const DashboardLayout = () => {
           <Route path="/marketing" element={<Marketing />} />
           <Route path="/marketing_io" element={<Marketing_io />} />
           <Route path="/marketing_camp" element={<Marketing_camp />} />
+          <Route path="/marketing_reco" element={<Marketing_reco/>}/>
           <Route path="/sales" element={<Sales />} />
           <Route path="/sales_db" element={<Sales_db />} />
           <Route path="/inventory" element={<Inventory />} />

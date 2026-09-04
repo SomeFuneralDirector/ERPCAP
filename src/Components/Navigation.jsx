@@ -46,6 +46,7 @@ const navItems = [
       { id: "marketing-dashboard", label: "Dashboard", icon: LayoutDashboard, path: "/marketing" },
       { id: "marketing-campaigns", label: "Campaigns", icon: CampaignIcon, path: "/marketing_camp" },
       { id: "marketing-inventory", label: "Inventory Overview", icon: Layers, path: "/marketing_io" },
+      { id: "marketing-recommendation", label: "Recommendation", icon: Layers, path: "/marketing_reco" },
     ],
   },
   {
