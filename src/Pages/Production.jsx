@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, PackageMinus } from "lucide-react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -48,33 +48,16 @@ const DATE_RANGE_OPTIONS = [
 // shifts the date backward for any local time before UTC catches up
 // (e.g. before 8am in Manila, UTC+8), silently breaking day-bucket
 // matches against date-only DB columns like `production_date`.
+function toNum(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
 function localDateKey(d) {
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
-}
-
-
-function toNumber(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : 0;
-}
-
-function nonNegative(value) {
-  return Math.max(0, toNumber(value));
-}
-
-function safeDate(value) {
-  if (!value) return null;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function localDateBoundary(date = new Date(), endOfDay = false) {
-  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  d.setHours(endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0);
-  return d;
 }
 
 function ChartTooltip({ active, payload }) {
@@ -107,6 +90,7 @@ function Production() {
   const [output, setOutput] = useState([]);
   const [usage, setUsage] = useState([]);
   const [materials, setMaterials] = useState([]);
+  const [finishedGoods, setFinishedGoods] = useState([]);
   const [readyToShip, setReadyToShip] = useState([]);
   const [shippedTodayCount, setShippedTodayCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -120,11 +104,10 @@ function Production() {
     setLoading(true);
     setErrorMsg("");
 
-    const startOfToday = localDateBoundary();
-    const startOfTomorrow = new Date(startOfToday);
-    startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
 
-    const [woRes, outputRes, usageRes, materialsRes, readyRes, shippedRes] = await Promise.all([
+    const [woRes, outputRes, usageRes, materialsRes, finishedGoodsRes, readyRes, shippedRes] = await Promise.all([
       supabase.from("work_orders").select("*").order("created_at", { ascending: false }),
       supabase
         .from("production_output")
@@ -137,6 +120,12 @@ function Production() {
         .order("usage_date", { ascending: false })
         .limit(300),
       supabase.from("raw_materials").select("id, material_name, status, current_stock, unit"),
+      // Finished goods stock — shared with Inventory's Products page. Same
+      // `reorder_point` column that page's threshold is based on, so a
+      // product flagged low here is flagged low there too.
+      supabase
+        .from("inventory")
+        .select("id, product_code, product_name, category, shopee_stock, lazada_stock, tiktok_stock, reorder_point"),
       supabase
         .from("production_orders")
         .select("order_id, platform, total_amount, created_at")
@@ -145,42 +134,35 @@ function Production() {
         .from("production_orders")
         .select("order_id", { count: "exact", head: true })
         .eq("status", "SHIPPED")
-        .gte("shipped_at", startOfToday.toISOString())
-        .lt("shipped_at", startOfTomorrow.toISOString()),
+        .gte("shipped_at", startOfToday.toISOString()),
     ]);
 
     if (woRes.error) setErrorMsg(woRes.error.message);
     else setWorkOrders(woRes.data || []);
 
     if (!outputRes.error) setOutput(outputRes.data || []);
-    else {
-      console.error("production_output fetch error:", outputRes.error);
-      setOutput([]);
-    }
+    else console.error("production_output fetch error:", outputRes.error);
 
     if (!usageRes.error) setUsage(usageRes.data || []);
-    else {
-      console.error("raw_material_usage fetch error:", usageRes.error);
-      setUsage([]);
-    }
+    else console.error("raw_material_usage fetch error:", usageRes.error);
 
     if (!materialsRes.error) setMaterials(materialsRes.data || []);
-    else {
-      console.error("raw_materials fetch error:", materialsRes.error);
-      setMaterials([]);
-    }
+    else console.error("raw_materials fetch error:", materialsRes.error);
+
+    if (!finishedGoodsRes.error) setFinishedGoods(finishedGoodsRes.data || []);
+    else console.error("inventory (finished goods) fetch error:", finishedGoodsRes.error);
 
     if (readyRes.error) {
       console.error("production_orders (ready) fetch error:", readyRes.error);
       setErrorMsg((prev) => prev || `Ready to Ship data: ${readyRes.error.message}`);
     } else {
-      setReadyToShip((readyRes.data || []).filter((order) => safeDate(order.created_at)));
+      setReadyToShip(readyRes.data || []);
     }
 
     if (shippedRes.error) {
       console.error("production_orders (shipped) fetch error:", shippedRes.error);
     } else {
-      setShippedTodayCount(Math.max(0, shippedRes.count || 0));
+      setShippedTodayCount(shippedRes.count || 0);
     }
 
     setLoading(false);
@@ -193,37 +175,50 @@ function Production() {
   const activeWOs = workOrders.filter((w) => ["Pending", "In Progress"].includes(w.status));
   const inProgressWOs = workOrders.filter((w) => w.status === "In Progress");
   const pendingOutput = output.filter((o) => !o.allocated);
-  const pendingOutputQty = pendingOutput.reduce((sum, o) => sum + nonNegative(o.quantity), 0);
+  const pendingOutputQty = pendingOutput.reduce((sum, o) => sum + Number(o.quantity), 0);
   const lowMaterials = materials.filter((m) => m.status !== "In Stock");
+
+  // Same rule as Inventory's Products page: total stock across platforms
+  // at or below the product's reorder_point (default 5 if unset).
+  const finishedGoodsLow = useMemo(
+    () =>
+      finishedGoods
+        .map((p) => ({
+          ...p,
+          totalStock: toNum(p.shopee_stock) + toNum(p.lazada_stock) + toNum(p.tiktok_stock),
+          threshold: p.reorder_point ?? 5,
+        }))
+        .filter((p) => p.totalStock <= p.threshold)
+        .sort((a, b) => a.totalStock - b.totalStock),
+    [finishedGoods]
+  );
 
   const todayKey = localDateKey(new Date());
   const todayOutputQty = output
     .filter((o) => o.production_date === todayKey)
-    .reduce((sum, o) => sum + nonNegative(o.quantity), 0);
+    .reduce((sum, o) => sum + Number(o.quantity), 0);
 
-  const readyToShipValue = readyToShip.reduce((sum, o) => sum + nonNegative(o.total_amount), 0) / 100;
+  const readyToShipValue = readyToShip.reduce((sum, o) => sum + (o.total_amount || 0), 0) / 100;
 
   // ── Ready to Ship chart: filtered by platform + date range ──────────
   const filteredReadyToShip = useMemo(() => {
     return readyToShip.filter((o) => {
-      if (rtsPlatform !== "all" && (o.platform || "").toLowerCase() !== rtsPlatform) return false;
+      if (rtsPlatform !== "all" && o.platform !== rtsPlatform) return false;
       if (rtsDateRange === "all") return true;
-      const createdAt = safeDate(o.created_at);
-      if (!createdAt) return false;
-      const days = rtsDateRange === "today" ? 0 : rtsDateRange === "7d" ? 6 : 29;
-      const cutoff = localDateBoundary();
+      if (!o.created_at) return false;
+      const days = rtsDateRange === "today" ? 1 : rtsDateRange === "7d" ? 7 : 30;
+      const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - days);
-      return createdAt >= cutoff;
+      return new Date(o.created_at) >= cutoff;
     });
   }, [readyToShip, rtsPlatform, rtsDateRange]);
 
-  const filteredReadyValue = filteredReadyToShip.reduce((sum, o) => sum + nonNegative(o.total_amount), 0) / 100;
+  const filteredReadyValue = filteredReadyToShip.reduce((sum, o) => sum + (o.total_amount || 0), 0) / 100;
 
   const readyPlatformChartData = useMemo(() => {
     const map = { shopee: 0, lazada: 0, tiktok: 0 };
     filteredReadyToShip.forEach((o) => {
-      const platform = (o.platform || "").toLowerCase();
-      if (map[platform] !== undefined) map[platform] += 1;
+      if (map[o.platform] !== undefined) map[o.platform] += 1;
     });
     return Object.entries(map)
       .filter(([, count]) => count > 0)
@@ -249,7 +244,7 @@ function Production() {
       const key = localDateKey(d);
       const qty = output
         .filter((o) => o.production_date === key)
-        .reduce((sum, o) => sum + nonNegative(o.quantity), 0);
+        .reduce((sum, o) => sum + Number(o.quantity), 0);
       days.push({ label: d.toLocaleDateString(undefined, { weekday: "short" }), qty });
     }
     return days;
@@ -264,7 +259,7 @@ function Production() {
       const key = localDateKey(d);
       const qty = usage
         .filter((u) => u.usage_date === key)
-        .reduce((sum, u) => sum + nonNegative(u.quantity_used), 0);
+        .reduce((sum, u) => sum + Number(u.quantity_used), 0);
       days.push({ label: d.toLocaleDateString(undefined, { weekday: "short" }), qty });
     }
     return days;
@@ -272,14 +267,12 @@ function Production() {
 
   // ── Top produced products, last 30 days ──────────────────────────────
   const topProductsChartData = useMemo(() => {
-    const cutoff = localDateBoundary();
-    cutoff.setDate(cutoff.getDate() - 29);
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 30);
     const map = {};
     output.forEach((o) => {
-      const productionDate = safeDate(o.production_date);
-      if (!productionDate || productionDate < cutoff) return;
-      const name = o.product_name || "Unknown";
-      map[name] = (map[name] || 0) + nonNegative(o.quantity);
+      if (new Date(o.production_date) < cutoff) return;
+      map[o.product_name] = (map[o.product_name] || 0) + Number(o.quantity);
     });
     return Object.entries(map)
       .map(([name, qty]) => ({ name, qty }))
@@ -292,11 +285,11 @@ function Production() {
     () =>
       lowMaterials
         .slice()
-        .sort((a, b) => nonNegative(a.current_stock) - nonNegative(b.current_stock))
+        .sort((a, b) => a.current_stock - b.current_stock)
         .slice(0, 8)
         .map((m) => ({
           name: m.material_name,
-          qty: nonNegative(m.current_stock),
+          qty: m.current_stock,
           unit: m.unit,
           color: m.status === "Out of Stock" ? "#dc2626" : "#f59e0b",
         })),
@@ -321,10 +314,7 @@ function Production() {
         type: "usage",
       })),
     ];
-    return items
-      .filter((item) => safeDate(item.time))
-      .sort((a, b) => safeDate(b.time).getTime() - safeDate(a.time).getTime())
-      .slice(0, 8);
+    return items.sort((a, b) => new Date(b.time) - new Date(a.time)).slice(0, 8);
   }, [output, usage]);
 
   return (
@@ -332,6 +322,9 @@ function Production() {
       <div className="bg-white rounded-lg shadow p-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Production</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Work orders → output → finished goods, with raw material usage tracked throughout
+          </p>
         </div>
         <button
           onClick={fetchAll}
@@ -383,7 +376,52 @@ function Production() {
           color="text-red-700"
           loading={loading}
         />
+        <StatCard
+          label="Finished goods low"
+          value={finishedGoodsLow.length}
+          sub="from Inventory · reorder point"
+          color="text-red-700"
+          loading={loading}
+        />
       </div>
+
+      {/* Cross-module alert: Inventory tells Production which finished
+          products need a new work order, using the same reorder_point
+          threshold the Products page displays. */}
+      {!loading && finishedGoodsLow.length > 0 && (
+        <div className="bg-white rounded-lg shadow border border-red-200 p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <PackageMinus size={18} className="text-red-600" />
+            <h2 className="text-sm font-bold text-gray-700">
+              Finished goods running low — from Inventory
+            </h2>
+            <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs rounded font-medium">
+              {finishedGoodsLow.length}
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {finishedGoodsLow.map((p) => (
+              <div
+                key={p.id}
+                className="flex items-center justify-between rounded-lg border border-red-200 bg-red-50/40 px-3 py-2"
+              >
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-gray-700 truncate">{p.product_name}</p>
+                  <p className="text-xs text-gray-400 font-mono truncate">
+                    {p.product_code} {p.category ? `· ${p.category}` : ""}
+                  </p>
+                </div>
+                <span className="ml-3 shrink-0 px-1.5 py-0.5 text-xs rounded font-medium bg-red-100 text-red-700">
+                  {p.totalStock} / {p.threshold} left
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-gray-400 mt-3">
+            Consider logging a new Work Order for these products.
+          </p>
+        </div>
+      )}
 
       {/* Ready to Ship by platform + Work order status */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -520,8 +558,8 @@ function Production() {
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={outputChartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <Tooltip
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
@@ -561,12 +599,12 @@ function Production() {
                 barCategoryGap={8}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 10, fill: "#000000" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <XAxis type="number" tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <YAxis
                   type="category"
                   dataKey="name"
                   width={100}
-                  tick={{ fontSize: 10, fill: "#000000" }}
+                  tick={{ fontSize: 10, fill: "#374151" }}
                   axisLine={false}
                   tickLine={false}
                 />
@@ -605,8 +643,8 @@ function Production() {
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={usageChartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <Tooltip
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
@@ -646,12 +684,12 @@ function Production() {
                 barCategoryGap={10}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <XAxis type="number" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <YAxis
                   type="category"
                   dataKey="name"
                   width={130}
-                  tick={{ fontSize: 11, fill: "#000000" }}
+                  tick={{ fontSize: 11, fill: "#374151" }}
                   axisLine={false}
                   tickLine={false}
                 />

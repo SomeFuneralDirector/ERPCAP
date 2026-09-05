@@ -8,12 +8,13 @@ import {
   Eye,
   Pencil,
   Archive,
+  Boxes,
 } from "lucide-react";
 import { supabase } from "../api/supabase";
 
 const isLowStock = (item) => {
   const total = (item.shopee_stock || 0) + (item.lazada_stock || 0) + (item.tiktok_stock || 0);
-  return total <= 5;
+  return total <= (item.reorder_point ?? 5);
 };
 
 const EMPTY_FORM = {
@@ -23,6 +24,7 @@ const EMPTY_FORM = {
   shopee_stock: "",
   lazada_stock: "",
   tiktok_stock: "",
+  reorder_point: "5",
 };
 
 function AddProductModal({ onClose, onSaved, editItem = null }) {
@@ -40,6 +42,7 @@ function AddProductModal({ onClose, onSaved, editItem = null }) {
         shopee_stock: editItem.shopee_stock?.toString() || "",
         lazada_stock: editItem.lazada_stock?.toString() || "",
         tiktok_stock: editItem.tiktok_stock?.toString() || "",
+        reorder_point: editItem.reorder_point?.toString() ?? "5",
       });
     }
   }, [editItem]);
@@ -67,6 +70,7 @@ function AddProductModal({ onClose, onSaved, editItem = null }) {
       lazada_stock: lazada,
       tiktok_stock: tiktok,
       stock: total, // Auto-calculate total
+      reorder_point: form.reorder_point === "" ? 5 : Math.max(0, parseInt(form.reorder_point) || 0),
       updated_at: new Date().toISOString(),
     };
 
@@ -193,6 +197,24 @@ function AddProductModal({ onClose, onSaved, editItem = null }) {
             </div>
           </div>
 
+          <div>
+            <label className="block text-xs font-semibold text-amber-700 mb-1 uppercase tracking-wide">
+              Low Stock Alert Threshold
+            </label>
+            <input
+              type="number"
+              min="0"
+              placeholder="5"
+              value={form.reorder_point}
+              onChange={(e) => set("reorder_point", e.target.value)}
+              className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+            />
+            <p className="text-xs text-gray-400 mt-1">
+              Flagged as low stock — and surfaced to Production — at or below this total across all
+              platforms. Defaults to 5.
+            </p>
+          </div>
+
           {error && (
             <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2 border border-red-200">
               {error}
@@ -224,7 +246,7 @@ function AddProductModal({ onClose, onSaved, editItem = null }) {
 
 function ViewProductModal({ item, onClose }) {
   if (!item) return null;
-  
+
   const totalStock = (item.shopee_stock || 0) + (item.lazada_stock || 0) + (item.tiktok_stock || 0);
 
   return (
@@ -263,12 +285,18 @@ function ViewProductModal({ item, onClose }) {
             <p className="text-sm text-gray-800">{item.product_name}</p>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 pt-2 border-t border-gray-100">
+          <div className="grid grid-cols-2 gap-4 pt-2 border-t border-gray-100">
             <div>
               <label className="block text-xs font-semibold text-amber-700 uppercase tracking-wide">
                 Total Stock
               </label>
               <p className="text-sm font-bold text-amber-700">{totalStock}</p>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                Low Stock Threshold
+              </label>
+              <p className="text-sm text-gray-800">{item.reorder_point ?? 5}</p>
             </div>
           </div>
 
@@ -335,6 +363,11 @@ function Inventory() {
   const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [itemToArchive, setItemToArchive] = useState(null);
 
+  // Cross-module alert: raw material shortages reported by Production.
+  // A shortage here is an early warning that restocking the finished
+  // products below may stall even after a new work order is logged.
+  const [lowMaterials, setLowMaterials] = useState([]);
+
   const fetchInventory = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase
@@ -350,9 +383,22 @@ function Inventory() {
     setLoading(false);
   }, []);
 
+  const fetchMaterialAlerts = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("raw_materials")
+      .select("id, material_name, status, current_stock, unit")
+      .neq("status", "In Stock")
+      .order("current_stock", { ascending: true })
+      .limit(6);
+
+    if (!error) setLowMaterials(data || []);
+    else console.error("raw_materials alert fetch error:", error);
+  }, []);
+
   useEffect(() => {
     fetchInventory();
-  }, [fetchInventory]);
+    fetchMaterialAlerts();
+  }, [fetchInventory, fetchMaterialAlerts]);
 
   const handleView = (item) => {
     setSelectedItem(item);
@@ -404,20 +450,20 @@ function Inventory() {
     }),
     { shopee: 0, lazada: 0, tiktok: 0 }
   );
-  
+
   // Calculate total as sum of all platforms
   const totalStock = totals.shopee + totals.lazada + totals.tiktok;
 
   const saveStock = async (id, field, value) => {
     const newValue = parseInt(value);
     if (isNaN(newValue) || newValue < 0) return;
-    
+
     setSaving(true);
     const updateData = {
       [field]: newValue,
       updated_at: new Date().toISOString()
     };
-    
+
     // If updating a platform stock, recalculate total
     if (field === 'shopee_stock' || field === 'lazada_stock' || field === 'tiktok_stock') {
       const item = inventory.find(i => i.id === id);
@@ -428,12 +474,12 @@ function Inventory() {
         updateData.stock = shopee + lazada + tiktok;
       }
     }
-    
+
     const { error } = await supabase
       .from("inventory")
       .update(updateData)
       .eq("id", id);
-      
+
     if (!error) {
       setInventory((prev) =>
         prev.map((i) => {
@@ -488,7 +534,10 @@ function Inventory() {
             Add Product
           </button>
           <button
-            onClick={fetchInventory}
+            onClick={() => {
+              fetchInventory();
+              fetchMaterialAlerts();
+            }}
             disabled={loading}
             className="px-4 py-2 bg-red-700 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors disabled:opacity-50 cursor-pointer"
           >
@@ -496,6 +545,37 @@ function Inventory() {
           </button>
         </div>
       </div>
+
+      {/* Cross-module alert: Production tells Inventory which raw
+          materials are running out, since that affects whether these
+          finished products can actually be restocked. */}
+      {lowMaterials.length > 0 && (
+        <div className="bg-white rounded-lg shadow border border-amber-200 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Boxes size={16} className="text-amber-600" />
+            <p className="text-sm font-bold text-gray-700">
+              Production is low on {lowMaterials.length} raw material{lowMaterials.length !== 1 ? "s" : ""}
+            </p>
+          </div>
+          <p className="text-xs text-gray-500 mb-2">
+            Restocking finished goods that depend on these may be delayed:
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {lowMaterials.map((m) => (
+              <span
+                key={m.id}
+                className={`px-2 py-1 rounded-full text-xs font-medium ${
+                  m.status === "Out of Stock"
+                    ? "bg-red-100 text-red-700"
+                    : "bg-amber-100 text-amber-700"
+                }`}
+              >
+                {m.material_name} · {m.current_stock} {m.unit}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="bg-white rounded-lg shadow px-4 py-3 flex flex-col md:flex-row gap-3 items-center">
@@ -631,8 +711,9 @@ function Inventory() {
 
                   for (const item of filtered) {
                     const totalStock = (item.shopee_stock || 0) + (item.lazada_stock || 0) + (item.tiktok_stock || 0);
-                    const low = totalStock <= 5;
-                    
+                    const threshold = item.reorder_point ?? 5;
+                    const low = totalStock <= threshold;
+
                     if (item.category !== lastCat) {
                       rows.push(
                         <tr key={`cat-${item.category}`}>
@@ -674,7 +755,10 @@ function Inventory() {
                           <div className="flex items-center gap-2">
                             {item.product_name}
                             {low && (
-                              <span className="px-1.5 py-0.5 bg-red-100 text-red-600 text-xs rounded font-medium shrink-0">
+                              <span
+                                title={`At or below threshold of ${threshold} — visible on Production's dashboard`}
+                                className="px-1.5 py-0.5 bg-red-100 text-red-600 text-xs rounded font-medium shrink-0"
+                              >
                                 Low
                               </span>
                             )}
@@ -882,7 +966,7 @@ function Inventory() {
       <div className="flex gap-4 flex-wrap text-xs text-gray-500 pb-2">
         <span className="flex items-center gap-1.5">
           <span className="w-3 h-3 rounded bg-red-100 border border-red-300 inline-block" />
-          Low stock (≤ 5 total across all platforms)
+          Low stock (at or below each product's threshold, default 5) — also shown on Production's dashboard
         </span>
       </div>
 

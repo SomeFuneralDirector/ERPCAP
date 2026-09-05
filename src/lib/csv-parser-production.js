@@ -303,7 +303,7 @@ function parseLazadaOrders(rows) {
           product_name:   get(row, map.product_name),
           sku:            get(row, map.sku) || null,
           variation:      get(row, map.variation) || null,
-          quantity:       1,
+          quantity:       parseInt(get(row, map.quantity)) || 1,
           unit_price:     parsePrice(get(row, map.unit_price)),
           original_price: parsePrice(get(row, map.unit_price)),
           platform_disc:  0,

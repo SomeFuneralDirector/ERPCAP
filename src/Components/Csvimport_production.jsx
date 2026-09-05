@@ -199,6 +199,26 @@ export default function Csvimport_production({ onImportComplete }) {
   let inserted = 0, skipped = 0
   const errors = []
   const unmatchedProducts = []
+  const stockBlocked = []
+
+  // ── Preload current stock for this platform, once ──────────────────────
+  // A CSV import is always one platform, so we only need that platform's
+  // stock column. We decrement a local copy as orders are processed so two
+  // orders in the same file competing for the last few units are gated
+  // against each other, not just against the DB's stale snapshot.
+  const stockField = `${parsed.platform}_stock`
+  const { data: stockRows, error: stockErr } = await supabase
+    .from('inventory')
+    .select(`product_name, ${stockField}`)
+
+  if (stockErr) {
+    console.error('Failed to load inventory stock for availability check:', stockErr)
+  }
+
+  const availableStock = {}
+  ;(stockRows || []).forEach((row) => {
+    availableStock[row.product_name] = row[stockField] ?? 0
+  })
 
   for (let i = 0; i < parsed.orders.length; i++) {
     const order = parsed.orders[i]
@@ -214,6 +234,33 @@ export default function Csvimport_production({ onImportComplete }) {
       skipped++
       continue
     }
+
+    // ── Stock availability check ────────────────────────────────────────
+    // Only blocks on items we actually found in Inventory but don't have
+    // enough of. Items with no matching product at all are left alone here
+    // — that's the existing `unmatched` case, still handled after insert by
+    // the deduct_inventory_for_production_order RPC below.
+    const shortages = (order.items || [])
+      .filter((item) => item.product_name && availableStock[item.product_name] !== undefined)
+      .filter((item) => availableStock[item.product_name] < item.quantity)
+      .map(
+        (item) =>
+          `"${item.product_name}" — ${availableStock[item.product_name]} in stock, order needs ${item.quantity}`
+      )
+
+    if (shortages.length > 0) {
+      stockBlocked.push(`${order.order_id}: ${shortages.join('; ')}`)
+      skipped++
+      continue
+    }
+
+    // Reserve stock locally so later orders in this same file see the
+    // reduced quantity, before anything is actually written to the DB.
+    ;(order.items || []).forEach((item) => {
+      if (item.product_name && availableStock[item.product_name] !== undefined) {
+        availableStock[item.product_name] -= item.quantity
+      }
+    })
 
     try {
       const { data: orderRow, error: orderErr } = await supabase
@@ -300,7 +347,7 @@ export default function Csvimport_production({ onImportComplete }) {
     status:        'success',
   })
 
-  setImportResult({ inserted, skipped, errors, unmatchedProducts, dateRange })
+  setImportResult({ inserted, skipped, errors, unmatchedProducts, stockBlocked, dateRange })
   setStep('done')
   if (onImportComplete) onImportComplete()
 }
@@ -408,6 +455,11 @@ export default function Csvimport_production({ onImportComplete }) {
             </StatCard>
           </div>
 
+          <p className="text-xs text-gray-400 mb-3">
+            Stock availability is checked when you click import below — any order whose product is
+            out of stock in Inventory will be skipped and listed afterward.
+          </p>
+
           <div className="overflow-x-auto rounded-lg border border-gray-200 mb-5">
             <table className="w-full text-sm">
               <thead className="bg-gray-50">
@@ -494,7 +546,6 @@ export default function Csvimport_production({ onImportComplete }) {
       )}
 
       {/* ── DONE ── */}
-      {/* ── DONE ── */}
       {step === "done" && importResult && (
         <div>
           <div className="text-center p-8 bg-green-50 border border-green-200 rounded-xl mb-5">
@@ -510,18 +561,40 @@ export default function Csvimport_production({ onImportComplete }) {
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3 mb-5">
+          <div className="grid grid-cols-3 gap-3 mb-5">
             <StatCard label="Imported">
               <span className="text-2xl font-bold text-green-600">
                 {importResult.inserted}
               </span>
             </StatCard>
-            <StatCard label="Skipped (duplicates / errors)">
+            <StatCard label="Blocked — Out of Stock">
+              <span className="text-2xl font-bold text-red-600">
+                {importResult.stockBlocked?.length || 0}
+              </span>
+            </StatCard>
+            <StatCard label="Skipped (total)">
               <span className="text-2xl font-bold text-amber-500">
                 {importResult.skipped}
               </span>
             </StatCard>
           </div>
+
+          {importResult.stockBlocked?.length > 0 && (
+            <div className="p-4 bg-red-50 border border-red-200 rounded-lg mb-4">
+              <p className="font-semibold text-red-700 text-sm mb-2">
+                Blocked — product out of stock in Inventory ({importResult.stockBlocked.length})
+              </p>
+              <p className="text-xs text-red-500 mb-2">
+                These orders were not imported. Restock the product in Inventory, then re-import
+                this file — already-imported orders won't be duplicated.
+              </p>
+              {importResult.stockBlocked.map((s, i) => (
+                <p key={i} className="text-xs text-red-600 mt-1">
+                  • {s}
+                </p>
+              ))}
+            </div>
+          )}
 
           {importResult.unmatchedProducts?.length > 0 && (
             <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg mb-4">

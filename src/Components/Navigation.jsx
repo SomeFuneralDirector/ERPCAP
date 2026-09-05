@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Package, ShoppingCart, Megaphone, Factory,
   Settings, ChevronRight, ChevronLeft, Menu, X, LogOut,
   Users, Activity, Megaphone as CampaignIcon,
-  Layers, ClipboardList, Box, Boxes, PhilippinePesoIcon, BookCheck, SheetIcon, PhilippinePeso
+  Layers, ClipboardList, Box, Boxes, PhilippinePesoIcon, BookCheck, SheetIcon, PhilippinePeso, Sparkle, Amphora, PackageCheck, SwatchBook, Gauge
 } from "lucide-react";
 import logotry from '../assets/logo.jpg';
 import { useAuth } from "../context/AuthContext";
@@ -34,7 +34,7 @@ const navItems = [
     children: [
       { id: "inventory-dashboard", label: "Dashboard", icon: LayoutDashboard, path: "/inventory_db" },
       { id: "inventory-products", label: "Products", icon: Box, path: "/inventory" },
-      { id: "production-rawmaterials", label: "Raw Materials", icon: Box, path: "/production_rm" },
+      { id: "production-rawmaterials", label: "Raw Materials", icon: Amphora, path: "/production_rm" },
     ],
   },
   {
@@ -46,7 +46,7 @@ const navItems = [
       { id: "marketing-dashboard", label: "Dashboard", icon: LayoutDashboard, path: "/marketing" },
       { id: "marketing-campaigns", label: "Campaigns", icon: CampaignIcon, path: "/marketing_camp" },
       { id: "marketing-inventory", label: "Inventory Overview", icon: Layers, path: "/marketing_io" },
-      { id: "marketing-recommendation", label: "Recommendation", icon: Layers, path: "/marketing_reco" },
+      { id: "marketing-recommendation", label: "Recommendation", icon: Sparkle, path: "/marketing_reco" },
     ],
   },
   {
@@ -68,9 +68,9 @@ const navItems = [
       { id: "production-dashboard", label: "Dashboard", icon: LayoutDashboard, path: "/production" },
        { id: "production-transaction", label: "Transactions", icon: Boxes, path: "/production_transaction" },
       { id: "production-workorders", label: "Work Orders", icon: ClipboardList, path: "/production_wo" },
-      { id: "production-output", label: "Production Output", icon: ClipboardList, path: "/production_output" },
-      { id: "production-finished", label: "Finished Goods", icon: Boxes, path: "/production_fg" },
-      { id: "production-usage", label: "Raw Materials Usage", icon: Boxes, path: "/RawMaterialUsage" },
+      { id: "production-output", label: "Production Output", icon: SwatchBook, path: "/production_output" },
+      { id: "production-finished", label: "Finished Goods", icon: PackageCheck, path: "/production_fg" },
+      { id: "production-usage", label: "Raw Materials Usage", icon: Gauge, path: "/RawMaterialUsage" },
     ],
   },
 ];
