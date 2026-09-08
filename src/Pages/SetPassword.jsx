@@ -22,13 +22,22 @@ function SetPassword() {
       return
     }
 
-    setSaving(true)
+        setSaving(true)
     const { error } = await supabase.auth.updateUser({ password })
-    setSaving(false)
 
     if (error) {
+      setSaving(false)
       setError(error.message)
       return
+    }
+
+    const { error: activateError } = await supabase.rpc('activate_my_profile')
+    setSaving(false)
+
+    if (activateError) {
+      // Password is already set at this point, don't block the user over
+      // this, just log it. Worst case, an admin sees "Invited" a bit longer.
+      console.error('activate_my_profile failed:', activateError)
     }
 
     navigate('/')

@@ -4,15 +4,6 @@ import { Eye, EyeOff } from 'lucide-react'
 
 const ROLES = ['admin', 'inventory', 'marketing', 'sales', 'production']
 
-const TABS = [
-  { key: 'active', label: 'Active Users' },
-  { key: 'deactivated', label: 'Deactivated' },
-]
-
-function generateDefaultPassword(role) {
-  return `${role}123`
-}
-
 function User_Management() {
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
@@ -89,97 +80,92 @@ function User_Management() {
     setModalOpen(true)
   }
 
-  // UPDATED VERSION - Replace this function
- async function handleSaveUser(formData) {
-  setError(null)
+  async function handleSaveUser(formData) {
+    setError(null)
 
-  if (editingUser) {
-    const { error } = await supabase
-      .from('profiles')
-      .update({
+    if (editingUser) {
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          full_name: formData.full_name,
+          role: formData.role,
+        })
+        .eq('id', editingUser.id)
+
+      if (error) {
+        setError(error.message)
+        return
+      }
+
+      setUsers(prev =>
+        prev.map(u =>
+          u.id === editingUser.id ? { ...u, ...formData } : u
+        )
+      )
+      setModalOpen(false)
+      return
+    }
+
+    setCreating(true)
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+
+      if (!token) {
+        setError('No authentication token found. Please log in again.')
+        setCreating(false)
+        return
+      }
+
+      const requestBody = {
+        email: formData.email,
         full_name: formData.full_name,
         role: formData.role,
-      })
-      .eq('id', editingUser.id)
-
-    if (error) {
-      setError(error.message)
-      return
-    }
-
-    setUsers(prev =>
-      prev.map(u =>
-        u.id === editingUser.id ? { ...u, ...formData } : u
-      )
-    )
-    setModalOpen(false)
-    return
-  }
-
-  setCreating(true)
-  
-  try {
-    // Get the current session to get the token
-    const { data: { session } } = await supabase.auth.getSession()
-    const token = session?.access_token
-
-    if (!token) {
-      setError('No authentication token found. Please log in again.')
-      setCreating(false)
-      return
-    }
-
-    console.log('Using token (first 50 chars):', token.substring(0, 50) + '...')
-
-        const requestBody = {
-      email: formData.email,
-      full_name: formData.full_name,
-      role: formData.role,
-      redirectTo: `${window.location.origin}/set-password`,
-    }
-
-    console.log('Sending request body:', requestBody)
-
-    // Use fetch with explicit Authorization header
-    const response = await fetch(
-      'https://ddwkxtffyajfdwveoann.supabase.co/functions/v1/admin-create-user',
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
+        redirectTo: `${window.location.origin}/set-password`,
       }
-    )
 
-    const data = await response.json()
-    console.log('Response status:', response.status)
-    console.log('Response data:', data)
+      const response = await fetch(
+        'https://ddwkxtffyajfdwveoann.supabase.co/functions/v1/admin-create-user',
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        }
+      )
 
-    if (!response.ok) {
-      setError(data.error || `Error ${response.status}: ${response.statusText}`)
-      return
+      const data = await response.json()
+
+      if (!response.ok) {
+        setError(data.error || `Error ${response.status}: ${response.statusText}`)
+        return
+      }
+
+      if (!data?.profile) {
+        setError('User created but no profile returned')
+        return
+      }
+
+      setUsers(prev => [data.profile, ...prev])
+      setModalOpen(false)
+    } catch (err) {
+      setError(err.message || 'An unexpected error occurred')
+    } finally {
+      setCreating(false)
     }
-
-    if (!data?.profile) {
-      setError('User created but no profile returned')
-      return
-    }
-
-    setUsers(prev => [data.profile, ...prev])
-    setModalOpen(false)
-  } catch (err) {
-    console.error('Unexpected error:', err)
-    setError(err.message || 'An unexpected error occurred')
-  } finally {
-    setCreating(false)
   }
-}
 
   const filteredUsers = users.filter(u => {
-    if (activeTab === 'active' && u.active === false) return false
-    if (activeTab === 'deactivated' && u.active !== false) return false
+    const isDeactivated = u.active === false
+    const isInvited = u.status === 'invited' && !isDeactivated
+
+    if (activeTab === 'active' && (isDeactivated || isInvited)) return false
+    if (activeTab === 'invited' && !isInvited) return false
+    if (activeTab === 'deactivated' && !isDeactivated) return false
+
     if (roleFilter !== 'all' && u.role !== roleFilter) return false
     if (
       search &&
@@ -190,6 +176,20 @@ function User_Management() {
     return true
   })
 
+  const activeCount = users.filter(u => u.active !== false && u.status !== 'invited').length
+  const invitedCount = users.filter(u => u.status === 'invited' && u.active !== false).length
+  const deactivatedCount = users.filter(u => u.active === false).length
+
+  function statusBadge(user) {
+    if (user.active === false) {
+      return <span className="px-2 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">Inactive</span>
+    }
+    if (user.status === 'invited') {
+      return <span className="px-2 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">Invited</span>
+    }
+    return <span className="px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">Active</span>
+  }
+
   return (
     <div className="p-6">
       <div className="flex items-center justify-between bg-white rounded-lg shadow p-6 mb-4">
@@ -198,7 +198,7 @@ function User_Management() {
             User Management
           </h1>
         </div>
-        {activeTab === 'active' && (
+        {activeTab !== 'deactivated' && (
           <button
             onClick={openAddModal}
             className="bg-red-700 hover:bg-red-600 text-white font-semibold px-4 py-2 rounded-lg shadow transition cursor-pointer"
@@ -224,7 +224,17 @@ function User_Management() {
                 : 'border-transparent text-gray-500 hover:text-red-500'
             }`}
           >
-            Active Users ({users.filter(u => u.active !== false).length})
+            Active Users ({activeCount})
+          </button>
+          <button
+            onClick={() => setActiveTab('invited')}
+            className={`px-4 py-2 cursor-pointer font-semibold text-sm border-b-2 transition ${
+              activeTab === 'invited'
+                ? 'border-amber-500 text-amber-600'
+                : 'border-transparent text-gray-500 hover:text-amber-500'
+            }`}
+          >
+            Invited ({invitedCount})
           </button>
           <button
             onClick={() => setActiveTab('deactivated')}
@@ -234,7 +244,7 @@ function User_Management() {
                 : 'border-transparent text-gray-500 hover:text-red-500'
             }`}
           >
-            Deactivated ({users.filter(u => u.active === false).length})
+            Deactivated ({deactivatedCount})
           </button>
         </div>
 
@@ -277,7 +287,7 @@ function User_Management() {
           <p className="text-gray-500 text-sm">Loading users...</p>
         ) : filteredUsers.length === 0 ? (
           <p className="text-gray-400 text-sm italic">
-            No {activeTab === 'active' ? 'active' : 'deactivated'} users found.
+            No {activeTab} users found.
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -292,73 +302,68 @@ function User_Management() {
                 </tr>
               </thead>
               <tbody>
-                {filteredUsers.map(user => (
-                  <tr
-                    key={user.id}
-                    className={`border-b border-gray-100 hover:bg-red-50/40 ${
-                      user.active === false ? 'opacity-50' : ''
-                    }`}
-                  >
-                    <td className="py-2 pr-4 font-medium text-gray-700">
-                      {user.full_name || '—'}
-                    </td>
-                    <td className="py-2 pr-4 text-gray-600">{user.email}</td>
-                    <td className="py-2 pr-4">
-                      {user.active === false ? (
-                        <span className="text-xs text-gray-500 capitalize">
-                          {user.role}
-                        </span>
-                      ) : (
-                        <select
-                          value={user.role}
-                          disabled={savingId === user.id}
-                          onChange={e => handleRoleChange(user.id, e.target.value)}
-                          className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-red-400 bg-white"
-                        >
-                          {ROLES.map(r => (
-                            <option key={r} value={r}>
-                              {r.charAt(0).toUpperCase() + r.slice(1)}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                    </td>
-                    <td className="py-2 pr-4">
-                      <span
-                        className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                          user.active === false
-                            ? 'bg-gray-100 text-gray-500'
-                            : 'bg-green-100 text-green-700'
-                        }`}
-                      >
-                        {user.active === false ? 'Inactive' : 'Active'}
-                      </span>
-                    </td>
-                    <td className="py-2 pr-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        {user.active !== false && (
-                          <button
-                            onClick={() => openEditModal(user)}
-                            className="text-red-600 hover:underline text-xs font-semibold"
+                {filteredUsers.map(user => {
+                  const isDeactivated = user.active === false
+                  const isInvited = user.status === 'invited' && !isDeactivated
+
+                  return (
+                    <tr
+                      key={user.id}
+                      className={`border-b border-gray-100 hover:bg-red-50/40 ${
+                        isDeactivated ? 'opacity-50' : ''
+                      }`}
+                    >
+                      <td className="py-2 pr-4 font-medium text-gray-700">
+                        {user.full_name || '—'}
+                      </td>
+                      <td className="py-2 pr-4 text-gray-600">{user.email}</td>
+                      <td className="py-2 pr-4">
+                        {isDeactivated || isInvited ? (
+                          <span className="text-xs text-gray-500 capitalize">
+                            {user.role}
+                          </span>
+                        ) : (
+                          <select
+                            value={user.role}
+                            disabled={savingId === user.id}
+                            onChange={e => handleRoleChange(user.id, e.target.value)}
+                            className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-red-400 bg-white"
                           >
-                            Edit
-                          </button>
+                            {ROLES.map(r => (
+                              <option key={r} value={r}>
+                                {r.charAt(0).toUpperCase() + r.slice(1)}
+                              </option>
+                            ))}
+                          </select>
                         )}
-                        <button
-                          onClick={() => handleToggleActive(user)}
-                          disabled={savingId === user.id}
-                          className={`text-xs font-semibold transition disabled:opacity-50 ${
-                            user.active === false
-                              ? 'text-gray-500 hover:text-gray-700 hover:underline'
-                              : 'text-gray-400 hover:text-red-600 hover:underline'
-                          }`}
-                        >
-                          {user.active === false ? 'Restore' : 'Deactivate'}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="py-2 pr-4">{statusBadge(user)}</td>
+                      <td className="py-2 pr-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          {!isDeactivated && !isInvited && (
+                            <button
+                              onClick={() => openEditModal(user)}
+                              className="text-red-600 hover:underline text-xs font-semibold"
+                            >
+                              Edit
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleToggleActive(user)}
+                            disabled={savingId === user.id}
+                            className={`text-xs font-semibold transition disabled:opacity-50 ${
+                              isDeactivated
+                                ? 'text-gray-500 hover:text-gray-700 hover:underline'
+                                : 'text-gray-400 hover:text-red-600 hover:underline'
+                            }`}
+                          >
+                            {isDeactivated ? 'Restore' : isInvited ? 'Cancel invite' : 'Deactivate'}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -376,6 +381,7 @@ function User_Management() {
     </div>
   )
 }
+
 function UserModal({ user, saving, onClose, onSave }) {
   const [fullName, setFullName] = useState(user?.full_name || '')
   const [email, setEmail] = useState(user?.email || '')
