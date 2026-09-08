@@ -9,6 +9,7 @@ import Finance from "./Pages/Finance.jsx";
 import ExpenseForm from "./Pages/ExpenseForm.jsx";
 import Ledger from "./Pages/Ledger.jsx";
 import User_Management from "./Pages/User_Management.jsx";
+import SetPassword from "./Pages/SetPassword.jsx";
 import Balance_sheet from "./Pages/Balance_sheet.jsx";
 import Income_statement from "./Pages/Income_statement.jsx";
 import Marketing from "./Pages/Marketing.jsx";
@@ -89,7 +90,14 @@ function App() {
         <Routes>
           {/* Public routes */}
           <Route path="/" element={<Login />} />
-          
+
+          {/* Invite-link landing page. Public in the sense that it
+              doesn't go through ProtectedRoute's app-level checks or
+              render the dashboard shell, the user's only "auth" at this
+              point is the magic-link session Supabase created when they
+              clicked the invite, they haven't set a password yet. */}
+          <Route path="/set-password" element={<SetPassword />} />
+
           {/* Protected routes with layout */}
           <Route path="/*" element={
             <ProtectedRoute>

@@ -131,11 +131,11 @@ function User_Management() {
 
     console.log('Using token (first 50 chars):', token.substring(0, 50) + '...')
 
-    const requestBody = {
+        const requestBody = {
       email: formData.email,
-      password: formData.password,
       full_name: formData.full_name,
       role: formData.role,
+      redirectTo: `${window.location.origin}/set-password`,
     }
 
     console.log('Sending request body:', requestBody)
@@ -376,30 +376,19 @@ function User_Management() {
     </div>
   )
 }
-
 function UserModal({ user, saving, onClose, onSave }) {
   const [fullName, setFullName] = useState(user?.full_name || '')
   const [email, setEmail] = useState(user?.email || '')
   const [role, setRole] = useState(user?.role || ROLES[0])
-  const [password, setPassword] = useState(user ? '' : generateDefaultPassword(ROLES[0]))
-  const [showPassword, setShowPassword] = useState(false)
 
   function handleSubmit(e) {
     e.preventDefault()
-    console.log('Form submitted with data:', { full_name: fullName, email, role, password }) // Debug log
-    onSave({ full_name: fullName, email, role, password })
-  }
-
-  const handleRoleChange = (newRole) => {
-    setRole(newRole)
-    if (!user) {
-      setPassword(generateDefaultPassword(newRole))
-    }
+    onSave({ full_name: fullName, email, role })
   }
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
         <h2 className="text-lg font-bold text-gray-800 mb-4">
           {user ? 'Edit User' : 'Add User'}
         </h2>
@@ -412,7 +401,6 @@ function UserModal({ user, saving, onClose, onSave }) {
             <input
               type="text"
               value={fullName}
-              placeholder='Juan Dela Cruz'
               onChange={e => setFullName(e.target.value)}
               required
               className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-red-400"
@@ -426,7 +414,6 @@ function UserModal({ user, saving, onClose, onSave }) {
             <input
               type="email"
               value={email}
-              placeholder='Juan@Example.com'
               onChange={e => setEmail(e.target.value)}
               required
               disabled={!!user}
@@ -440,7 +427,7 @@ function UserModal({ user, saving, onClose, onSave }) {
             </label>
             <select
               value={role}
-              onChange={e => handleRoleChange(e.target.value)}
+              onChange={e => setRole(e.target.value)}
               className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-red-400 bg-white"
             >
               {ROLES.map(r => (
@@ -452,32 +439,9 @@ function UserModal({ user, saving, onClose, onSave }) {
           </div>
 
           {!user && (
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1">
-                Default Password
-              </label>
-              <div className="relative">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  required
-                  minLength={8}
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-red-400 pr-10"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(s => !s)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                >
-                  {showPassword ? (
-                    <EyeOff className="w-5 h-5" />
-                  ) : (
-                    <Eye className="w-5 h-5" />
-                  )}
-                </button>
-              </div>
-            </div>
+            <p className="text-xs text-gray-400">
+              An invite link will be emailed to this address. The user sets their own password when they click it.
+            </p>
           )}
 
           <div className="flex justify-end gap-2 pt-2">
@@ -493,7 +457,7 @@ function UserModal({ user, saving, onClose, onSave }) {
               disabled={saving}
               className="px-4 py-2 rounded-lg text-sm font-semibold bg-red-700 hover:bg-red-600 text-white disabled:opacity-50"
             >
-              {saving ? 'Creating...' : user ? 'Save Changes' : 'Add User'}
+              {saving ? 'Sending...' : user ? 'Save Changes' : 'Send Invite'}
             </button>
           </div>
         </form>
