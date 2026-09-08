@@ -1,5 +1,6 @@
+//PRODUCTION DASHBOARD!!!!
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { AlertTriangle, PackageMinus } from "lucide-react";
+import { PackageMinus } from "lucide-react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -18,15 +19,15 @@ import {
 import { supabase } from "../api/supabase";
 
 const PLATFORM_BADGE = {
-  shopee: "bg-red-100 text-red-700",
-  lazada: "bg-indigo-100 text-indigo-700",
-  tiktok: "bg-gray-100 text-gray-700",
+  shopee: "bg-orange-100 text-orange-700",
+  lazada: "bg-purple-100 text-purple-700",
+  tiktok: "bg-gray-200 text-gray-800",
 };
 
 const PLATFORM_HEX = {
-  shopee: "#dc2626",
-  lazada: "#4f46e5",
-  tiktok: "#4b5563",
+  shopee: "#EE4D2D",
+  lazada: "#7C3AED",
+  tiktok: "#1f2937",
 };
 
 const WO_STATUS_HEX = {
@@ -43,8 +44,10 @@ const DATE_RANGE_OPTIONS = [
   { value: "30d", label: "Last 30 days" },
 ];
 
+const FINISHED_GOODS_PAGE_SIZE = 6;
+
 // Build a YYYY-MM-DD key from a Date's LOCAL calendar fields.
-// Never use toISOString() for this — it converts to UTC first, which
+// Never use toISOString() for this: it converts to UTC first, which
 // shifts the date backward for any local time before UTC catches up
 // (e.g. before 8am in Manila, UTC+8), silently breaking day-bucket
 // matches against date-only DB columns like `production_date`.
@@ -95,14 +98,19 @@ function Production() {
   const [shippedTodayCount, setShippedTodayCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
+  const [softErrors, setSoftErrors] = useState([]);
 
   // Filters for the "Ready to Ship by platform" chart specifically
   const [rtsPlatform, setRtsPlatform] = useState("all");
   const [rtsDateRange, setRtsDateRange] = useState("all");
 
+  // Pagination for the "Finished goods running low" list
+  const [finishedGoodsPage, setFinishedGoodsPage] = useState(0);
+
   const fetchAll = useCallback(async () => {
     setLoading(true);
     setErrorMsg("");
+    setSoftErrors([]);
 
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
@@ -120,7 +128,7 @@ function Production() {
         .order("usage_date", { ascending: false })
         .limit(300),
       supabase.from("raw_materials").select("id, material_name, status, current_stock, unit"),
-      // Finished goods stock — shared with Inventory's Products page. Same
+      // Finished goods stock: shared with Inventory's Products page. Same
       // `reorder_point` column that page's threshold is based on, so a
       // product flagged low here is flagged low there too.
       supabase
@@ -137,34 +145,55 @@ function Production() {
         .gte("shipped_at", startOfToday.toISOString()),
     ]);
 
-    if (woRes.error) setErrorMsg(woRes.error.message);
+    // work_orders is the one dataset the whole page depends on. If it
+    // fails, block with a full-page error + retry, same as Inventory_db
+    // does for its primary `inventory` fetch. Everything else below is
+    // supplementary: a failure there is surfaced as a small amber notice
+    // and doesn't stop the rest of the dashboard from rendering.
+    const softIssues = [];
+
+    if (woRes.error) setErrorMsg(woRes.error.message || "Couldn't load work orders.");
     else setWorkOrders(woRes.data || []);
 
     if (!outputRes.error) setOutput(outputRes.data || []);
-    else console.error("production_output fetch error:", outputRes.error);
+    else {
+      console.error("production_output fetch error:", outputRes.error);
+      softIssues.push("Production output couldn't be loaded.");
+    }
 
     if (!usageRes.error) setUsage(usageRes.data || []);
-    else console.error("raw_material_usage fetch error:", usageRes.error);
+    else {
+      console.error("raw_material_usage fetch error:", usageRes.error);
+      softIssues.push("Material usage couldn't be loaded.");
+    }
 
     if (!materialsRes.error) setMaterials(materialsRes.data || []);
-    else console.error("raw_materials fetch error:", materialsRes.error);
+    else {
+      console.error("raw_materials fetch error:", materialsRes.error);
+      softIssues.push("Raw materials couldn't be loaded.");
+    }
 
     if (!finishedGoodsRes.error) setFinishedGoods(finishedGoodsRes.data || []);
-    else console.error("inventory (finished goods) fetch error:", finishedGoodsRes.error);
+    else {
+      console.error("inventory (finished goods) fetch error:", finishedGoodsRes.error);
+      softIssues.push("Finished goods stock couldn't be loaded.");
+    }
 
     if (readyRes.error) {
       console.error("production_orders (ready) fetch error:", readyRes.error);
-      setErrorMsg((prev) => prev || `Ready to Ship data: ${readyRes.error.message}`);
+      softIssues.push("Ready to Ship data couldn't be loaded.");
     } else {
       setReadyToShip(readyRes.data || []);
     }
 
     if (shippedRes.error) {
       console.error("production_orders (shipped) fetch error:", shippedRes.error);
+      softIssues.push("Today's shipped count couldn't be loaded.");
     } else {
       setShippedTodayCount(shippedRes.count || 0);
     }
 
+    setSoftErrors(softIssues);
     setLoading(false);
   }, []);
 
@@ -193,6 +222,21 @@ function Production() {
     [finishedGoods]
   );
 
+  const finishedGoodsPageCount = Math.max(1, Math.ceil(finishedGoodsLow.length / FINISHED_GOODS_PAGE_SIZE));
+
+  // Keep the current page in range if the underlying list shrinks (e.g.
+  // after a refresh resolves some low-stock items).
+  useEffect(() => {
+    if (finishedGoodsPage > finishedGoodsPageCount - 1) {
+      setFinishedGoodsPage(Math.max(0, finishedGoodsPageCount - 1));
+    }
+  }, [finishedGoodsPageCount, finishedGoodsPage]);
+
+  const finishedGoodsLowPage = useMemo(() => {
+    const start = finishedGoodsPage * FINISHED_GOODS_PAGE_SIZE;
+    return finishedGoodsLow.slice(start, start + FINISHED_GOODS_PAGE_SIZE);
+  }, [finishedGoodsLow, finishedGoodsPage]);
+
   const todayKey = localDateKey(new Date());
   const todayOutputQty = output
     .filter((o) => o.production_date === todayKey)
@@ -200,7 +244,7 @@ function Production() {
 
   const readyToShipValue = readyToShip.reduce((sum, o) => sum + (o.total_amount || 0), 0) / 100;
 
-  // ── Ready to Ship chart: filtered by platform + date range ──────────
+  // Ready to Ship chart: filtered by platform + date range
   const filteredReadyToShip = useMemo(() => {
     return readyToShip.filter((o) => {
       if (rtsPlatform !== "all" && o.platform !== rtsPlatform) return false;
@@ -235,7 +279,7 @@ function Production() {
       .map(([status, count]) => ({ name: status, value: count, color: WO_STATUS_HEX[status] }));
   }, [workOrders]);
 
-  // ── Output by day, last 7 days (fixed: local date keys, not UTC) ────
+  // Output by day, last 7 days (local date keys, not UTC)
   const outputChartData = useMemo(() => {
     const days = [];
     const today = new Date();
@@ -250,7 +294,7 @@ function Production() {
     return days;
   }, [output]);
 
-  // ── Material usage by day, last 7 days ───────────────────────────────
+  // Material usage by day, last 7 days
   const usageChartData = useMemo(() => {
     const days = [];
     const today = new Date();
@@ -265,7 +309,7 @@ function Production() {
     return days;
   }, [usage]);
 
-  // ── Top produced products, last 30 days ──────────────────────────────
+  // Top produced products, last 30 days
   const topProductsChartData = useMemo(() => {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 30);
@@ -280,7 +324,7 @@ function Production() {
       .slice(0, 6);
   }, [output]);
 
-  // ── Materials needing reorder, as a chart ────────────────────────────
+  // Materials needing reorder, as a chart
   const materialsChartData = useMemo(
     () =>
       lowMaterials
@@ -296,13 +340,13 @@ function Production() {
     [lowMaterials]
   );
 
-  // ── Recent activity feed ─────────────────────────────────────────────
+  // Recent activity feed
   const activity = useMemo(() => {
     const items = [
       ...output.map((o) => ({
         id: `out-${o.id}`,
         time: o.created_at,
-        text: `Produced ${o.quantity} × ${o.product_name} (batch ${o.batch_number})`,
+        text: `Produced ${o.quantity} x ${o.product_name} (batch ${o.batch_number})`,
         type: "output",
       })),
       ...usage.map((u) => ({
@@ -317,14 +361,30 @@ function Production() {
     return items.sort((a, b) => new Date(b.time) - new Date(a.time)).slice(0, 8);
   }, [output, usage]);
 
+  // Blocking error state: same pattern as Inventory_db, replace the page
+  // with a single card + retry when the primary dataset failed to load.
+  if (errorMsg && workOrders.length === 0) {
+    return (
+      <div className="p-6">
+        <div className="bg-white rounded-lg shadow p-6 border border-red-200">
+          <h1 className="text-2xl font-bold text-gray-800 mb-2">Production - Dashboard</h1>
+          <p className="text-sm text-red-600 mb-4">{errorMsg}</p>
+          <button
+            onClick={fetchAll}
+            className="px-4 py-2 bg-red-700 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors"
+          >
+            ↻ Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 space-y-4">
       <div className="bg-white rounded-lg shadow p-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Production</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Work orders → output → finished goods, with raw material usage tracked throughout
-          </p>
+          <h1 className="text-2xl font-bold text-gray-800">Production - Dashboard</h1>
         </div>
         <button
           onClick={fetchAll}
@@ -335,13 +395,16 @@ function Production() {
         </button>
       </div>
 
-      {errorMsg && (
-        <div className="bg-white border border-red-300 text-red-600 rounded-lg shadow p-4 text-sm">
-          {errorMsg}
+      {softErrors.length > 0 && (
+        <div className="bg-white border border-amber-300 text-amber-700 rounded-lg shadow p-3 text-xs space-y-0.5">
+          {softErrors.map((msg) => (
+            <p key={msg}>{msg}</p>
+          ))}
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      {/* KPI row */}
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
         <StatCard
           label="Active work orders"
           value={activeWOs.length}
@@ -358,7 +421,7 @@ function Production() {
         <StatCard
           label="Pending allocation"
           value={pendingOutputQty.toLocaleString()}
-          sub={`${pendingOutput.length} batch(es) → Finished Goods`}
+          sub={`${pendingOutput.length} batch(es) to Finished Goods`}
           color="text-amber-600"
           loading={loading}
         />
@@ -379,49 +442,11 @@ function Production() {
         <StatCard
           label="Finished goods low"
           value={finishedGoodsLow.length}
-          sub="from Inventory · reorder point"
+          sub="from Inventory, reorder point"
           color="text-red-700"
           loading={loading}
         />
       </div>
-
-      {/* Cross-module alert: Inventory tells Production which finished
-          products need a new work order, using the same reorder_point
-          threshold the Products page displays. */}
-      {!loading && finishedGoodsLow.length > 0 && (
-        <div className="bg-white rounded-lg shadow border border-red-200 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <PackageMinus size={18} className="text-red-600" />
-            <h2 className="text-sm font-bold text-gray-700">
-              Finished goods running low — from Inventory
-            </h2>
-            <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs rounded font-medium">
-              {finishedGoodsLow.length}
-            </span>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {finishedGoodsLow.map((p) => (
-              <div
-                key={p.id}
-                className="flex items-center justify-between rounded-lg border border-red-200 bg-red-50/40 px-3 py-2"
-              >
-                <div className="min-w-0">
-                  <p className="text-xs font-medium text-gray-700 truncate">{p.product_name}</p>
-                  <p className="text-xs text-gray-400 font-mono truncate">
-                    {p.product_code} {p.category ? `· ${p.category}` : ""}
-                  </p>
-                </div>
-                <span className="ml-3 shrink-0 px-1.5 py-0.5 text-xs rounded font-medium bg-red-100 text-red-700">
-                  {p.totalStock} / {p.threshold} left
-                </span>
-              </div>
-            ))}
-          </div>
-          <p className="text-xs text-gray-400 mt-3">
-            Consider logging a new Work Order for these products.
-          </p>
-        </div>
-      )}
 
       {/* Ready to Ship by platform + Work order status */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -548,18 +573,18 @@ function Production() {
         </div>
       </div>
 
-      {/* Output last 7 days + Materials needing reorder (now a chart) */}
+      {/* Output last 7 days + Materials needing reorder */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 bg-white rounded-lg shadow p-6">
-          <h2 className="text-sm font-bold text-gray-700 mb-4">Output — last 7 days</h2>
+          <h2 className="text-sm font-bold text-gray-700 mb-4">Output, last 7 days</h2>
           {loading ? (
             <Skeleton className="h-56 w-full" />
           ) : (
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={outputChartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <Tooltip
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
@@ -599,7 +624,7 @@ function Production() {
                 barCategoryGap={8}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <XAxis type="number" tick={{ fontSize: 10, fill: "#000000" }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <YAxis
                   type="category"
                   dataKey="name"
@@ -636,15 +661,15 @@ function Production() {
       {/* Material usage trend + Top produced products */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-sm font-bold text-gray-700 mb-4">Material usage — last 7 days</h2>
+          <h2 className="text-sm font-bold text-gray-700 mb-4">Material usage, last 7 days</h2>
           {loading ? (
             <Skeleton className="h-48 w-full" />
           ) : (
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={usageChartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <Tooltip
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
@@ -670,7 +695,7 @@ function Production() {
         </div>
 
         <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-sm font-bold text-gray-700 mb-4">Top produced products — last 30 days</h2>
+          <h2 className="text-sm font-bold text-gray-700 mb-4">Top produced products, last 30 days</h2>
           {loading ? (
             <Skeleton className="h-48 w-full" />
           ) : topProductsChartData.length === 0 ? (
@@ -684,7 +709,7 @@ function Production() {
                 barCategoryGap={10}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <XAxis type="number" tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <YAxis
                   type="category"
                   dataKey="name"
@@ -702,6 +727,68 @@ function Production() {
           )}
         </div>
       </div>
+
+      {/* Cross-module alert: Inventory tells Production which finished
+          products need a new work order, using the same reorder_point
+          threshold the Products page displays. Paginated since this list
+          can grow past what's comfortable to scan in one grid. */}
+      {!loading && finishedGoodsLow.length > 0 && (
+        <div className="bg-white rounded-lg shadow border border-red-200 p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <PackageMinus size={18} className="text-red-600" />
+            <h2 className="text-sm font-bold text-gray-700">
+              Finished goods running low, from Inventory
+            </h2>
+            <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs rounded font-medium">
+              {finishedGoodsLow.length}
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {finishedGoodsLowPage.map((p) => (
+              <div
+                key={p.id}
+                className="flex items-center justify-between rounded-lg border border-red-200 bg-red-50/40 px-3 py-2"
+              >
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-gray-700 truncate">{p.product_name}</p>
+                  <p className="text-xs text-gray-400 font-mono truncate">
+                    {p.product_code} {p.category ? `, ${p.category}` : ""}
+                  </p>
+                </div>
+                <span className="ml-3 shrink-0 px-1.5 py-0.5 text-xs rounded font-medium bg-red-100 text-red-700">
+                  {p.totalStock} / {p.threshold} left
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {finishedGoodsPageCount > 1 && (
+            <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100">
+              <button
+                onClick={() => setFinishedGoodsPage((p) => Math.max(0, p - 1))}
+                disabled={finishedGoodsPage === 0}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+              >
+                Prev
+              </button>
+              <span className="text-xs text-gray-400">
+                Page {finishedGoodsPage + 1} of {finishedGoodsPageCount}
+              </span>
+              <button
+                onClick={() => setFinishedGoodsPage((p) => Math.min(finishedGoodsPageCount - 1, p + 1))}
+                disabled={finishedGoodsPage >= finishedGoodsPageCount - 1}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+              >
+                Next
+              </button>
+            </div>
+          )}
+
+          <p className="text-xs text-gray-400 mt-3">
+            Consider logging a new Work Order for these products.
+          </p>
+        </div>
+      )}
 
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-sm font-bold text-gray-700 mb-4">Recent activity</h2>

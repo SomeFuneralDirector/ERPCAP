@@ -405,7 +405,7 @@ function Sales_db({ onGoToImport }) {
       <div className="bg-white rounded-lg shadow p-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-gray-800">Sales Dashboard</h1>
+            <h1 className="text-2xl font-bold text-gray-800">Sales - Dashboard</h1>
           </div>
         </div>
 

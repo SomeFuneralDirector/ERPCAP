@@ -106,8 +106,7 @@ function Production_transaction() {
     <div className="p-6 space-y-6">
 
       <div className="bg-white rounded-lg shadow p-6">
-        <h1 className="text-2xl font-bold text-gray-800">Production</h1>
-        <p className="text-sm text-gray-500 mt-1">Import and prepare Ready to Ship orders for courier handoff</p>
+        <h1 className="text-2xl font-bold text-gray-800">Production - Transaction</h1>
       </div>
 
       <div className="bg-white rounded-lg shadow p-6">

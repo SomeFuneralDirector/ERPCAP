@@ -22,7 +22,7 @@ const navItems = [
       { id: "admin-ledger", label: "Ledger", icon: BookCheck, path: "/ledger" },
       { id: "admin-balance_sheet", label: "Balance Sheet", icon: SheetIcon, path: "/balance_sheet" },
        { id: "admin-income_statement", label: "Income Statement", icon: BookCheck, path: "/income_statement" },
-       { id: "admin-users", label: "User Management", icon: Users, path: "/admin/users" },
+       { id: "admin-user_management", label: "User Management", icon: Users, path: "/user_management" },
       { id: "admin-logs", label: "Activity Logs", icon: Activity, path: "/activity_logs" },
     ],
   },

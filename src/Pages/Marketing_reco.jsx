@@ -11,10 +11,6 @@ import {
 } from "lucide-react";
 import { supabase } from "../api/supabase";
 
-// ══════════════════════════════════════════════════════════════
-// Same conventions as Marketing.jsx / Marketing_io.jsx —
-// duplicated here on purpose so this file has no cross-file deps.
-// ══════════════════════════════════════════════════════════════
 const normalizePlatform = (p) => {
   if (!p) return "Unknown";
   const key = p.toLowerCase();
@@ -41,7 +37,6 @@ const orderDate = (o) => o.completed_at || o.created_at || o.paid_time;
 
 const fmtPHP = (n) => `₱${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
-// Same status rule as Marketing_campaigns.jsx / Marketing.jsx
 function deriveCampaignStatus(c) {
   if (c.status === "Cancelled") return "Cancelled";
   const today = new Date();
@@ -462,10 +457,7 @@ function Marketing_reco() {
     <div className="p-6 space-y-4">
       <div className="bg-white rounded-lg shadow p-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Marketing — Recommendations</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Rule-based suggestions from sales velocity, sell-through, trend, stock, and campaign lift
-          </p>
+          <h1 className="text-2xl font-bold text-gray-800">Marketing - Recommendations</h1>
         </div>
         <button
           onClick={fetchAll}

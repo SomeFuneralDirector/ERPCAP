@@ -642,7 +642,7 @@ function Admin({ onNavigate }) {
           {loading ? (
             <Skeleton className="h-24 w-full" />
           ) : materialStats.attention.length === 0 ? (
-            <EmptyRow>All raw materials are in stock. 🎉</EmptyRow>
+            <EmptyRow>All raw materials are in stock.</EmptyRow>
           ) : (
             <>
               <ul className="space-y-1.5">

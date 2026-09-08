@@ -568,7 +568,7 @@ function Inventory_db() {
       {/* Header */}
       <div className="bg-white rounded-lg shadow p-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Dashboard</h1>
+          <h1 className="text-2xl font-bold text-gray-800">Inventory - Dashboard</h1>
           
         </div>
         <div className="flex items-center gap-3 self-start md:self-auto">

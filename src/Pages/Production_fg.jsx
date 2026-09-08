@@ -199,7 +199,7 @@ function Production_fg() {
   return (
     <div className="p-6 space-y-4">
       <div className="bg-white rounded-lg shadow p-6">
-        <h1 className="text-2xl font-bold text-gray-800">Production — Finished Goods</h1>
+        <h1 className="text-2xl font-bold text-gray-800">Production - Finished Goods</h1>
         <p className="text-sm text-gray-500 mt-1">
           Finished batches waiting to be pushed into sellable Products stock
         </p>

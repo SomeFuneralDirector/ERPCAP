@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom";
 import Login from "./Pages/Login.jsx";
 import "./App.css";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
@@ -7,6 +8,7 @@ import Activity_logs from "./Pages/Activity_logs.jsx";
 import Finance from "./Pages/Finance.jsx";
 import ExpenseForm from "./Pages/ExpenseForm.jsx";
 import Ledger from "./Pages/Ledger.jsx";
+import User_Management from "./Pages/User_Management.jsx";
 import Balance_sheet from "./Pages/Balance_sheet.jsx";
 import Income_statement from "./Pages/Income_statement.jsx";
 import Marketing from "./Pages/Marketing.jsx";
@@ -54,6 +56,7 @@ const DashboardLayout = () => {
           <Route path="/finance" element={<Finance />} />
           <Route path="/expense_form" element={<ExpenseForm />} />
           <Route path="/ledger" element={<Ledger />} />
+          <Route path="/user_management" element={<User_Management />} />
           <Route path="/balance_sheet" element={<Balance_sheet />} />
           <Route path="/income_statement" element={<Income_statement />} />
           <Route path="/marketing" element={<Marketing />} />

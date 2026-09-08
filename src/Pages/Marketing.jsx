@@ -1,4 +1,4 @@
-//SALES DASHBOARD TO.
+//MARKETING DASHBOARD TO.
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   ResponsiveContainer,
@@ -425,7 +425,7 @@ function Marketing() {
       {/* Header */}
       <div className="bg-white rounded-lg shadow p-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Marketing</h1>
+          <h1 className="text-2xl font-bold text-gray-800">Marketing - Dashboard</h1>
         </div>
         <button
           onClick={() => fetchAll(false)}

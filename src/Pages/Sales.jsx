@@ -91,8 +91,7 @@ function Sales() {
     <div className="p-6 space-y-6">
 
       <div className="bg-white rounded-lg shadow p-6">
-        <h1 className="text-2xl font-bold text-gray-800">Sales</h1>
-        <p className="text-sm text-gray-500 mt-1">Import and manage completed orders from all platforms</p>
+        <h1 className="text-2xl font-bold text-gray-800">Sales - Transaction</h1>
       </div>
 
       <div className="bg-white rounded-lg shadow p-6">

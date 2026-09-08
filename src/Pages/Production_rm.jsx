@@ -1,3 +1,4 @@
+// INVENTORY RAW MATERIALS TO!!!!!!!
 import { useState, useEffect, useCallback } from "react";
 import { Search, Plus, X, Eye, Pencil, Trash2 } from "lucide-react";
 import { supabase } from "../api/supabase";
@@ -468,7 +469,7 @@ function Production_rm() {
       {/* Header */}
       <div className="bg-white rounded-lg shadow p-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Raw Materials</h1>
+          <h1 className="text-2xl font-bold text-gray-800">Inventory - Raw Materials</h1>
         </div>
         <div className="flex gap-2 self-start md:self-auto">
           <button
