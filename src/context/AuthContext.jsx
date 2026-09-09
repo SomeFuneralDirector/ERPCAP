@@ -12,47 +12,50 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       const session = data.session;
-      console.log('Session data:', session);
-      
+
       if (session) {
-        setUser(session.user);
-        
         supabase
           .from('profiles')
-          .select('role')
+          .select('role, active')
           .eq('id', session.user.id)
           .single()
-          .then(({ data, error }) => {
-            console.log('Profile data:', data);
-            console.log('Profile error:', error);
-            
+          .then(async ({ data, error }) => {
+            if (!error && data?.active === false) {
+              await supabase.auth.signOut();
+              setUser(null);
+              setRole(null);
+              setLoading(false);
+              return;
+            }
+
+            setUser(session.user);
             if (!error && data) {
-              console.log('Setting role to:', data.role);
               setRole(data.role);
-            } else {
-              console.log('No role found for user');
             }
             setLoading(false);
           });
       } else {
-        console.log('No session found');
         setLoading(false);
       }
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange(
       (event, session) => {
-        console.log('Auth state changed:', event, session);
-        
         if (session?.user) {
-          setUser(session.user);
           supabase
             .from('profiles')
-            .select('role')
+            .select('role, active')
             .eq('id', session.user.id)
             .single()
-            .then(({ data }) => {
-              console.log('Updated role:', data?.role);
+            .then(async ({ data, error }) => {
+              if (!error && data?.active === false) {
+                await supabase.auth.signOut();
+                setUser(null);
+                setRole(null);
+                return;
+              }
+
+              setUser(session.user);
               setRole(data?.role || null);
             });
         } else {
@@ -64,8 +67,6 @@ export const AuthProvider = ({ children }) => {
 
     return () => listener.subscription.unsubscribe();
   }, []);
-
-  console.log('AuthContext state - user:', user, 'role:', role, 'loading:', loading);
 
   return (
     <AuthContext.Provider value={{ user, role, loading }}>
