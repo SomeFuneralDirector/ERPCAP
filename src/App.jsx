@@ -22,7 +22,6 @@ import Inventory from './Pages/Inventory.jsx';
 import Inventory_db from './Pages/Inventory_db.jsx';
 import Production from './Pages/Production.jsx';
 import Production_wo from './Pages/Production_wo.jsx';
-import Production_output from "./Pages/Production_output.jsx";
 import Production_rm from './Pages/Production_rm.jsx';
 import Production_fg from './Pages/Production_fg.jsx';
 import RawMaterialUsage from "./Pages/RawMaterialUsage.jsx";
@@ -71,7 +70,6 @@ const DashboardLayout = () => {
           <Route path="/production" element={<Production />} />
           <Route path="/production_transaction" element={<Production_transaction />} />
           <Route path="/production_wo" element={<Production_wo />} />
-          <Route path="/production_output" element={<Production_output />} />
           <Route path="/production_rm" element={<Production_rm />} />
           <Route path="/production_fg" element={<Production_fg />} />
           <Route path="/RawMaterialUsage" element={<RawMaterialUsage/>} />

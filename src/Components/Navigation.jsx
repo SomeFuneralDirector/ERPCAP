@@ -68,7 +68,6 @@ const navItems = [
       { id: "production-dashboard", label: "Dashboard", icon: LayoutDashboard, path: "/production" },
        { id: "production-transaction", label: "Transactions", icon: Boxes, path: "/production_transaction" },
       { id: "production-workorders", label: "Work Orders", icon: ClipboardList, path: "/production_wo" },
-      { id: "production-output", label: "Production Output", icon: SwatchBook, path: "/production_output" },
       { id: "production-finished", label: "Finished Goods", icon: PackageCheck, path: "/production_fg" },
       { id: "production-usage", label: "Raw Materials Usage", icon: Gauge, path: "/RawMaterialUsage" },
     ],
@@ -251,7 +250,7 @@ function Nav() {
         <button
           onClick={handleLogout}
           title={collapsed ? "Logout" : undefined}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-400 hover:bg-red-50 hover:text-red-500 transition-all"
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-400 hover:bg-red-50 hover:text-red-500 transition-all cursor-pointer"
         >
           <LogOut size={18} className="flex-shrink-0" strokeWidth={1.8} />
           {!collapsed && <span className="flex-1 text-left">Logout</span>}

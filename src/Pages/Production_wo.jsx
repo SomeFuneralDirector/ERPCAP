@@ -1,149 +1,270 @@
-import React, { useState, useEffect } from 'react'
-import { supabase } from '../api/supabase'
+import React, { useState, useEffect, useRef } from "react";
+import { supabase } from "../api/supabase";
 
-const STATUS_FLOW = ['Pending', 'In Progress', 'Completed', 'Cancelled']
-const ACTIVE_STATUSES = ['Pending', 'In Progress']
-const HISTORY_STATUSES = ['Completed', 'Cancelled']
+const STATUS_FLOW = ["Pending", "In Progress", "Completed", "Cancelled"];
+const ACTIVE_STATUSES = ["Pending", "In Progress"];
+const HISTORY_STATUSES = ["Completed", "Cancelled"];
 
 const STATUS_STYLES = {
-  Pending: 'bg-white text-red-600 border border-red-300',
-  'In Progress': 'bg-red-500 text-white',
-  Completed: 'bg-gray-100 text-gray-600 border border-gray-300',
-  Cancelled: 'bg-gray-100 text-gray-400 border border-gray-300 line-through',
-}
+  Pending: "text-red-600 rounded-none",
+  "In Progress": "text-red-600 rounded-none",
+  Completed: "text-green-600 rounded-none",
+  Cancelled: " text-red-600  rounded-none",
+};
 
 const PLATFORM_STYLES = {
-  Shopee: 'bg-orange-100 text-orange-600 border border-orange-300',
-  Lazada: 'bg-blue-100 text-blue-600 border border-blue-300',
-  TikTok: 'bg-gray-800 text-white',
-}
+  Shopee: "text-orange-700  rounded-none",
+  Lazada: "text-blue-700  rounded-none",
+  TikTok: "text-black-700 rounded-none",
+  All: "text-emerald-700 rounded-none",
+};
 
 function emptyForm() {
   return {
-    wo_number: '',
-    product_name: '',
-    quantity: '',
-    platform: 'Shopee',
-    assigned_to: '',
-    due_date: '',
-    notes: '',
-  }
+    wo_number: "",
+    product_id: null,
+    product_name: "",
+    quantity: "",
+    platform: "Shopee",
+    assigned_to: "",
+    due_date: "",
+    notes: "",
+  };
+}
+
+// ── Searchable product input ─────────────────────────────────────────────
+// Lets the user search existing inventory products instead of blind-typing.
+// If nothing matches, the typed text is kept as a free-text product name
+// (e.g. a brand-new product not yet added to Inventory).
+function ProductSearchInput({ productId, productName, onSelect, products }) {
+  const [query, setQuery] = useState(productName || "");
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef(null);
+
+  useEffect(() => {
+    setQuery(productName || "");
+  }, [productName]);
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const filtered = !query
+    ? products
+    : products.filter(
+        (p) =>
+          p.product_name.toLowerCase().includes(query.toLowerCase()) ||
+          p.product_code.toLowerCase().includes(query.toLowerCase())
+      );
+
+  const handlePick = (p) => {
+    setQuery(p.product_name);
+    onSelect({ product_id: p.id, product_name: p.product_name });
+    setOpen(false);
+  };
+
+  const handleTyping = (e) => {
+    const v = e.target.value;
+    setQuery(v);
+    onSelect({ product_id: null, product_name: v });
+    setOpen(true);
+  };
+
+  return (
+    <div className="relative" ref={wrapperRef}>
+      <input
+        type="text"
+        value={query}
+        onChange={handleTyping}
+        onFocus={() => setOpen(true)}
+        placeholder="Search product name or code…"
+        className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-red-400"
+        required
+      />
+      {productId && (
+        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+          Matched
+        </span>
+      )}
+      {open && filtered.length > 0 && (
+        <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg">
+          {filtered.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => handlePick(p)}
+              className="w-full text-left px-3 py-2 text-sm hover:bg-red-50 cursor-pointer flex justify-between items-center"
+            >
+              <span className="text-gray-800">{p.product_name}</span>
+              <span className="text-xs text-gray-400 font-mono ml-2">
+                {p.product_code}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      {open && query && filtered.length === 0 && (
+        <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs text-gray-400">
+          No match in Inventory — will be saved as "{query}".
+        </div>
+      )}
+    </div>
+  );
 }
 
 function Production_wo() {
-  const [workOrders, setWorkOrders] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [errorMsg, setErrorMsg] = useState('')
-  const [activeTab, setActiveTab] = useState('active')
+  const [workOrders, setWorkOrders] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [activeTab, setActiveTab] = useState("active");
 
-  const [isFormOpen, setIsFormOpen] = useState(false)
-  const [formData, setFormData] = useState(emptyForm())
-  const [saving, setSaving] = useState(false)
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [formData, setFormData] = useState(emptyForm());
+  const [saving, setSaving] = useState(false);
+  const [loadingWoNumber, setLoadingWoNumber] = useState(false);
 
-  const [viewOrder, setViewOrder] = useState(null)
+  const [viewOrder, setViewOrder] = useState(null);
 
   useEffect(() => {
-    fetchWorkOrders()
-  }, [])
+    fetchWorkOrders();
+    fetchProducts();
+  }, []);
 
   async function fetchWorkOrders() {
-    setLoading(true)
-    setErrorMsg('')
+    setLoading(true);
+    setErrorMsg("");
     const { data, error } = await supabase
-      .from('work_orders')
-      .select('*')
-      .order('created_at', { ascending: false })
+      .from("work_orders")
+      .select("*")
+      .order("created_at", { ascending: false });
 
     if (error) {
-      setErrorMsg(error.message)
+      setErrorMsg(error.message);
     } else {
-      setWorkOrders(data || [])
+      setWorkOrders(data || []);
     }
-    setLoading(false)
+    setLoading(false);
   }
 
-  function generateWoNumber() {
-    const stamp = Date.now().toString().slice(-6)
-    return `WO-${stamp}`
+  async function fetchProducts() {
+    const { data, error } = await supabase
+      .from("inventory")
+      .select("id, product_code, product_name")
+      .order("product_name", { ascending: true });
+    if (!error) setProducts(data || []);
   }
 
-  function openCreateForm() {
-    setFormData({ ...emptyForm(), wo_number: generateWoNumber() })
-    setIsFormOpen(true)
+  async function generateWoNumber() {
+    const { data, error } = await supabase
+      .from("work_orders")
+      .select("wo_number");
+
+    let maxNum = 0;
+    if (!error) {
+      data?.forEach((row) => {
+        const match = row.wo_number?.match(/^WO-(\d+)$/);
+        if (match) {
+          const n = parseInt(match[1], 10);
+          if (n > maxNum) maxNum = n;
+        }
+      });
+    }
+    return `WO-${String(maxNum + 1).padStart(6, "0")}`;
+  }
+
+  async function openCreateForm() {
+    setLoadingWoNumber(true);
+    setFormData({ ...emptyForm(), wo_number: "" });
+    setIsFormOpen(true);
+    const wo_number = await generateWoNumber();
+    setFormData((prev) => ({ ...prev, wo_number }));
+    setLoadingWoNumber(false);
   }
 
   function closeForm() {
-    setIsFormOpen(false)
-    setFormData(emptyForm())
+    setIsFormOpen(false);
+    setFormData(emptyForm());
   }
 
   function handleFormChange(e) {
-    const { name, value } = e.target
-    setFormData((prev) => ({ ...prev, [name]: value }))
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  }
+
+  function handleProductSelect({ product_id, product_name }) {
+    setFormData((prev) => ({ ...prev, product_id, product_name }));
   }
 
   async function handleCreateWorkOrder(e) {
-    e.preventDefault()
-    setSaving(true)
-    setErrorMsg('')
+    e.preventDefault();
+    setSaving(true);
+    setErrorMsg("");
 
     const payload = {
       wo_number: formData.wo_number,
+      product_id: formData.product_id || null,
       product_name: formData.product_name,
       quantity: Number(formData.quantity) || 0,
       platform: formData.platform,
       assigned_to: formData.assigned_to || null,
       due_date: formData.due_date || null,
       notes: formData.notes || null,
-      status: 'Pending',
-    }
+      status: "Pending",
+    };
 
-    const { error } = await supabase.from('work_orders').insert([payload])
+    const { error } = await supabase.from("work_orders").insert([payload]);
 
-    setSaving(false)
+    setSaving(false);
 
     if (error) {
-      setErrorMsg(error.message)
-      return
+      setErrorMsg(error.message);
+      return;
     }
 
-    closeForm()
-    fetchWorkOrders()
+    closeForm();
+    fetchWorkOrders();
   }
 
   async function handleStatusChange(order, newStatus) {
-    const updates = { status: newStatus }
-    if (newStatus === 'Completed') {
-      updates.completed_at = new Date().toISOString()
+    const updates = { status: newStatus };
+    if (newStatus === "Completed") {
+      updates.completed_at = new Date().toISOString();
     }
 
     const { error } = await supabase
-      .from('work_orders')
+      .from("work_orders")
       .update(updates)
-      .eq('id', order.id)
+      .eq("id", order.id);
 
     if (error) {
-      setErrorMsg(error.message)
-      return
+      setErrorMsg(error.message);
+      return;
     }
 
     setWorkOrders((prev) =>
-      prev.map((wo) => (wo.id === order.id ? { ...wo, ...updates } : wo))
-    )
+      prev.map((wo) => (wo.id === order.id ? { ...wo, ...updates } : wo)),
+    );
 
     if (viewOrder && viewOrder.id === order.id) {
-      setViewOrder((prev) => ({ ...prev, ...updates }))
+      setViewOrder((prev) => ({ ...prev, ...updates }));
     }
   }
 
   const activeOrders = workOrders.filter((wo) =>
-    ACTIVE_STATUSES.includes(wo.status)
-  )
+    ACTIVE_STATUSES.includes(wo.status),
+  );
   const historyOrders = workOrders.filter((wo) =>
-    HISTORY_STATUSES.includes(wo.status)
-  )
+    HISTORY_STATUSES.includes(wo.status),
+  );
 
-  const displayedOrders = activeTab === 'active' ? activeOrders : historyOrders
+  const displayedOrders = activeTab === "active" ? activeOrders : historyOrders;
 
   return (
     <div className="p-6">
@@ -155,7 +276,7 @@ function Production_wo() {
           onClick={openCreateForm}
           className="bg-red-700 hover:bg-red-600 text-white font-semibold px-4 py-2 rounded-lg shadow transition cursor-pointer"
         >
-         + New Work Order
+          New Work Order
         </button>
       </div>
 
@@ -169,21 +290,21 @@ function Production_wo() {
         {/* Tabs */}
         <div className="flex gap-2 mb-6 border-b border-gray-200">
           <button
-            onClick={() => setActiveTab('active')}
-            className={`px-4 py-2 font-semibold text-sm border-b-2 transition ${
-              activeTab === 'active'
-                ? 'border-red-600 text-red-600'
-                : 'border-transparent text-gray-500 hover:text-red-500 cursor-pointer'
+            onClick={() => setActiveTab("active")}
+            className={`px-4 py-2 font-semibold text-sm border-b-2 transition cursor-pointer ${
+              activeTab === "active"
+                ? "border-red-600 text-red-600"
+                : "border-transparent text-gray-500 hover:text-red-500"
             }`}
           >
             Active ({activeOrders.length})
           </button>
           <button
-            onClick={() => setActiveTab('history')}
-            className={`px-4 py-2 font-semibold text-sm border-b-2 transition ${
-              activeTab === 'history'
-                ? 'border-red-600 text-red-600'
-                : 'border-transparent text-gray-500 hover:text-red-500 cursor-pointer'
+            onClick={() => setActiveTab("history")}
+            className={`px-4 py-2 font-semibold text-sm border-b-2 transition cursor-pointer ${
+              activeTab === "history"
+                ? "border-red-600 text-red-600"
+                : "border-transparent text-gray-500 hover:text-red-500"
             }`}
           >
             History ({historyOrders.length})
@@ -194,7 +315,7 @@ function Production_wo() {
           <p className="text-gray-500 text-sm">Loading work orders...</p>
         ) : displayedOrders.length === 0 ? (
           <p className="text-gray-400 text-sm italic">
-            No {activeTab === 'active' ? 'active' : 'completed/cancelled'} work
+            No {activeTab === "active" ? "active" : "completed/cancelled"} work
             orders yet.
           </p>
         ) : (
@@ -226,22 +347,23 @@ function Production_wo() {
                     <td className="py-2 pr-4">
                       <span
                         className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                          PLATFORM_STYLES[wo.platform] || 'bg-gray-100 text-gray-500'
+                          PLATFORM_STYLES[wo.platform] ||
+                          "bg-gray-100 text-gray-500"
                         }`}
                       >
                         {wo.platform}
                       </span>
                     </td>
-                    <td className="py-2 pr-4">{wo.assigned_to || '—'}</td>
+                    <td className="py-2 pr-4">{wo.assigned_to || "—"}</td>
                     <td className="py-2 pr-4">
                       {wo.due_date
                         ? new Date(wo.due_date).toLocaleDateString()
-                        : '—'}
+                        : "—"}
                     </td>
                     <td className="py-2 pr-4">
                       <span
                         className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                          STATUS_STYLES[wo.status] || ''
+                          STATUS_STYLES[wo.status] || ""
                         }`}
                       >
                         {wo.status}
@@ -251,7 +373,7 @@ function Production_wo() {
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => setViewOrder(wo)}
-                          className="text-red-600 hover:underline text-xs font-semibold"
+                          className="text-red-600 hover:underline text-xs font-semibold cursor-pointer"
                         >
                           View
                         </button>
@@ -261,7 +383,7 @@ function Production_wo() {
                             onChange={(e) =>
                               handleStatusChange(wo, e.target.value)
                             }
-                            className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-red-400"
+                            className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-red-400 cursor-pointer"
                           >
                             {STATUS_FLOW.map((s) => (
                               <option key={s} value={s}>
@@ -297,7 +419,9 @@ function Production_wo() {
                   name="wo_number"
                   value={formData.wo_number}
                   onChange={handleFormChange}
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-red-400"
+                  placeholder={loadingWoNumber ? "Loading…" : ""}
+                  disabled={loadingWoNumber}
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-red-400 disabled:bg-gray-50 disabled:text-gray-400"
                   required
                 />
               </div>
@@ -306,13 +430,11 @@ function Production_wo() {
                 <label className="block text-xs font-semibold text-gray-500 mb-1">
                   Product
                 </label>
-                <input
-                  type="text"
-                  name="product_name"
-                  value={formData.product_name}
-                  onChange={handleFormChange}
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-red-400"
-                  required
+                <ProductSearchInput
+                  productId={formData.product_id}
+                  productName={formData.product_name}
+                  onSelect={handleProductSelect}
+                  products={products}
                 />
               </div>
 
@@ -339,11 +461,12 @@ function Production_wo() {
                     name="platform"
                     value={formData.platform}
                     onChange={handleFormChange}
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-red-400"
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-red-400 cursor-pointer"
                   >
                     <option value="Shopee">Shopee</option>
                     <option value="Lazada">Lazada</option>
                     <option value="TikTok">TikTok</option>
+                    <option value="All">All Platforms</option>
                   </select>
                 </div>
               </div>
@@ -370,7 +493,7 @@ function Production_wo() {
                     name="due_date"
                     value={formData.due_date}
                     onChange={handleFormChange}
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-red-400"
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-red-400 cursor-pointer"
                   />
                 </div>
               </div>
@@ -392,16 +515,16 @@ function Production_wo() {
                 <button
                   type="button"
                   onClick={closeForm}
-                  className="px-4 py-2 rounded-lg text-sm font-semibold text-gray-600 hover:bg-gray-100"
+                  className="px-4 py-2 rounded-lg text-sm font-semibold text-gray-600 hover:bg-gray-100 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={saving}
-                  className="px-4 py-2 rounded-lg text-sm font-semibold bg-red-600 hover:bg-red-700 text-white disabled:opacity-50"
+                  disabled={saving || loadingWoNumber}
+                  className="px-4 py-2 rounded-lg text-sm font-semibold bg-red-600 hover:bg-red-700 text-white disabled:opacity-50 cursor-pointer"
                 >
-                  {saving ? 'Saving...' : 'Create Work Order'}
+                  {saving ? "Saving..." : "Create Work Order"}
                 </button>
               </div>
             </form>
@@ -419,7 +542,7 @@ function Production_wo() {
               </h2>
               <span
                 className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                  STATUS_STYLES[viewOrder.status] || ''
+                  STATUS_STYLES[viewOrder.status] || ""
                 }`}
               >
                 {viewOrder.status}
@@ -440,7 +563,8 @@ function Production_wo() {
                 <dd>
                   <span
                     className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                      PLATFORM_STYLES[viewOrder.platform] || 'bg-gray-100 text-gray-500'
+                      PLATFORM_STYLES[viewOrder.platform] ||
+                      "bg-gray-100 text-gray-500"
                     }`}
                   >
                     {viewOrder.platform}
@@ -449,14 +573,14 @@ function Production_wo() {
               </div>
               <div className="flex justify-between">
                 <dt className="font-semibold text-gray-500">Assigned To</dt>
-                <dd>{viewOrder.assigned_to || '—'}</dd>
+                <dd>{viewOrder.assigned_to || "—"}</dd>
               </div>
               <div className="flex justify-between">
                 <dt className="font-semibold text-gray-500">Due Date</dt>
                 <dd>
                   {viewOrder.due_date
                     ? new Date(viewOrder.due_date).toLocaleDateString()
-                    : '—'}
+                    : "—"}
                 </dd>
               </div>
               {viewOrder.notes && (
@@ -477,7 +601,7 @@ function Production_wo() {
                   onChange={(e) =>
                     handleStatusChange(viewOrder, e.target.value)
                   }
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-red-400"
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-red-400 cursor-pointer"
                 >
                   {STATUS_FLOW.map((s) => (
                     <option key={s} value={s}>
@@ -491,7 +615,7 @@ function Production_wo() {
             <div className="flex justify-end">
               <button
                 onClick={() => setViewOrder(null)}
-                className="px-4 py-2 rounded-lg text-sm font-semibold text-gray-600 hover:bg-gray-100"
+                className="px-4 py-2 rounded-lg text-sm font-semibold text-gray-600 hover:bg-gray-100 cursor-pointer"
               >
                 Close
               </button>
@@ -500,7 +624,7 @@ function Production_wo() {
         </div>
       )}
     </div>
-  )
+  );
 }
 
 export default Production_wo;

@@ -9,6 +9,9 @@ import {
   Pencil,
   Archive,
   Boxes,
+  Bell,
+  Check,
+  XCircle,
 } from "lucide-react";
 import { supabase } from "../api/supabase";
 
@@ -134,7 +137,7 @@ function AddProductModal({ onClose, onSaved, editItem = null }) {
               <select
                 value={form.category}
                 onChange={(e) => set("category", e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300 cursor-pointer"
               >
                 <option value="Women">Women</option>
                 <option value="Men">Men</option>
@@ -225,14 +228,14 @@ function AddProductModal({ onClose, onSaved, editItem = null }) {
         <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+            className="px-4 py-2 text-sm text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors cursor-pointer"
           >
             Cancel
           </button>
           <button
             onClick={handleSubmit}
             disabled={saving}
-            className="px-5 py-2 text-sm font-semibold text-white bg-red-700 rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors"
+            className="px-5 py-2 text-sm font-semibold text-white bg-red-700 rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors cursor-pointer"
           >
             {saving ? "Saving…" : isEdit ? "Update Product" : "Add Product"}
           </button>
@@ -336,11 +339,188 @@ function ViewProductModal({ item, onClose }) {
         <div className="px-6 py-4 border-t border-gray-100 flex justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+            className="px-4 py-2 text-sm text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors cursor-pointer"
           >
             Close
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── AllocationRequestsPanel ─────────────────────────────────────────────
+// Notification card: Production requests allocation, Inventory approves/
+// rejects here. This is the ONLY place that actually writes stock changes
+// caused by production output — keeps Inventory as the source of truth.
+function AllocationRequestsPanel({ requests, inventory, onResolved }) {
+  const [busyId, setBusyId] = useState(null);
+  const [error, setError] = useState("");
+
+  const handleApprove = async (req) => {
+    setError("");
+
+    const productId = req.product_id;
+    const platform = req.platform;
+
+    if (!productId) {
+      setError(
+        `"${req.product_name}" isn't linked to an inventory product. Ask Production to re-submit this request with the correct product.`
+      );
+      return;
+    }
+    if (!platform || platform === "All") {
+      setError(
+        `${req.wo_number || req.product_name} doesn't specify a single platform. Ask Production to re-submit this request with one platform.`
+      );
+      return;
+    }
+
+    setBusyId(req.id);
+
+    const product = inventory.find((p) => p.id === productId);
+    const field =
+      platform === "Shopee"
+        ? "shopee_stock"
+        : platform === "Lazada"
+        ? "lazada_stock"
+        : "tiktok_stock";
+    const newFieldValue = (product?.[field] || 0) + req.quantity;
+    const newTotal =
+      (platform === "Shopee" ? newFieldValue : product?.shopee_stock || 0) +
+      (platform === "Lazada" ? newFieldValue : product?.lazada_stock || 0) +
+      (platform === "TikTok" ? newFieldValue : product?.tiktok_stock || 0);
+
+    const { error: invError } = await supabase
+      .from("inventory")
+      .update({ [field]: newFieldValue, stock: newTotal, updated_at: new Date().toISOString() })
+      .eq("id", productId);
+
+    if (invError) {
+      setError(invError.message);
+      setBusyId(null);
+      return;
+    }
+
+    const { error: reqError } = await supabase
+      .from("allocation_requests")
+      .update({
+        status: "approved",
+        resolved_at: new Date().toISOString(),
+        resolved_product_id: productId,
+        resolved_platform: platform,
+      })
+      .eq("id", req.id);
+
+    setBusyId(null);
+    if (reqError) {
+      setError(reqError.message);
+      return;
+    }
+
+    onResolved();
+  };
+
+  const handleReject = async (req) => {
+    setError("");
+    setBusyId(req.id);
+
+    const { error: reqError } = await supabase
+      .from("allocation_requests")
+      .update({ status: "rejected", resolved_at: new Date().toISOString() })
+      .eq("id", req.id);
+
+    setBusyId(null);
+    if (reqError) {
+      setError(reqError.message);
+      return;
+    }
+
+    onResolved();
+  };
+
+  if (requests.length === 0) return null;
+
+  return (
+    <div className="bg-white rounded-lg shadow border border-red-200 p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <Bell size={16} className="text-red-600" />
+        <p className="text-sm font-bold text-gray-700">
+          {requests.length} allocation request{requests.length !== 1 ? "s" : ""} awaiting your approval
+        </p>
+      </div>
+
+      {error && (
+        <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2 border border-red-200 mb-3">
+          {error}
+        </p>
+      )}
+
+      <div className="space-y-3">
+        {requests.map((req) => {
+          const product = inventory.find((p) => p.id === req.product_id);
+          const platformStyle =
+            req.platform === "Shopee"
+              ? "bg-red-100 text-red-700"
+              : req.platform === "Lazada"
+              ? "bg-indigo-100 text-indigo-700"
+              : req.platform === "TikTok"
+              ? "bg-gray-200 text-gray-700"
+              : "bg-amber-100 text-amber-700";
+          const canApprove = !!req.product_id && !!req.platform && req.platform !== "All";
+
+          return (
+            <div
+              key={req.id}
+              className="border border-gray-200 rounded-lg px-3 py-3 flex flex-col md:flex-row md:items-center gap-3"
+            >
+              <div className="flex-1 min-w-[160px]">
+                <p className="text-sm font-semibold text-gray-800">{req.product_name}</p>
+                <p className="text-xs text-gray-500">
+                  {req.wo_number || "No WO"} · {req.quantity} units · requested{" "}
+                  {new Date(req.requested_at).toLocaleDateString()}
+                </p>
+                {!product && (
+                  <p className="text-xs text-amber-600 mt-0.5">
+                    Not matched to an inventory product
+                  </p>
+                )}
+              </div>
+
+              <div className="w-full md:w-56 text-xs text-gray-600">
+                {product ? `${product.product_code} · ${product.product_name}` : "—"}
+              </div>
+
+              <div className="w-full md:w-40">
+                <span
+                  className={`inline-block px-2 py-1.5 text-xs font-semibold rounded-lg w-full text-center ${platformStyle}`}
+                >
+                  {req.platform || "Unspecified"}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => handleApprove(req)}
+                  disabled={busyId === req.id || !canApprove}
+                  title={!canApprove ? "Missing product or platform on this request" : undefined}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors cursor-pointer"
+                >
+                  <Check size={13} />
+                  {busyId === req.id ? "…" : "Approve"}
+                </button>
+                <button
+                  onClick={() => handleReject(req)}
+                  disabled={busyId === req.id}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-colors cursor-pointer"
+                >
+                  <XCircle size={13} />
+                  Reject
+                </button>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -364,9 +544,11 @@ function Inventory() {
   const [itemToArchive, setItemToArchive] = useState(null);
 
   // Cross-module alert: raw material shortages reported by Production.
-  // A shortage here is an early warning that restocking the finished
-  // products below may stall even after a new work order is logged.
   const [lowMaterials, setLowMaterials] = useState([]);
+
+  // Cross-module notification: finished-goods allocation requests from
+  // Production, awaiting Inventory's approval before stock is touched.
+  const [pendingRequests, setPendingRequests] = useState([]);
 
   const fetchInventory = useCallback(async () => {
     setLoading(true);
@@ -395,10 +577,22 @@ function Inventory() {
     else console.error("raw_materials alert fetch error:", error);
   }, []);
 
+  const fetchPendingRequests = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("allocation_requests")
+      .select("*")
+      .eq("status", "pending")
+      .order("requested_at", { ascending: true });
+
+    if (!error) setPendingRequests(data || []);
+    else console.error("allocation_requests fetch error:", error);
+  }, []);
+
   useEffect(() => {
     fetchInventory();
     fetchMaterialAlerts();
-  }, [fetchInventory, fetchMaterialAlerts]);
+    fetchPendingRequests();
+  }, [fetchInventory, fetchMaterialAlerts, fetchPendingRequests]);
 
   const handleView = (item) => {
     setSelectedItem(item);
@@ -537,6 +731,7 @@ function Inventory() {
             onClick={() => {
               fetchInventory();
               fetchMaterialAlerts();
+              fetchPendingRequests();
             }}
             disabled={loading}
             className="px-4 py-2 bg-red-700 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors disabled:opacity-50 cursor-pointer"
@@ -545,6 +740,16 @@ function Inventory() {
           </button>
         </div>
       </div>
+
+      {/* Allocation-request notification: Production requests, Inventory approves */}
+      <AllocationRequestsPanel
+        requests={pendingRequests}
+        inventory={inventory}
+        onResolved={() => {
+          fetchPendingRequests();
+          fetchInventory();
+        }}
+      />
 
       {/* Cross-module alert: Production tells Inventory which raw
           materials are running out, since that affects whether these
@@ -593,7 +798,7 @@ function Inventory() {
           {search && (
             <button
               onClick={() => setSearch("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none cursor-pointer"
             >
               ×
             </button>
@@ -1026,14 +1231,14 @@ function Inventory() {
                   setShowArchiveModal(false);
                   setItemToArchive(null);
                 }}
-                className="px-4 py-2 text-sm text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                className="px-4 py-2 text-sm text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmArchive}
                 disabled={saving}
-                className="px-5 py-2 text-sm font-semibold text-white bg-red-700 rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors"
+                className="px-5 py-2 text-sm font-semibold text-white bg-red-700 rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors cursor-pointer"
               >
                 {saving ? "Archiving…" : "Archive"}
               </button>

@@ -1,188 +1,43 @@
 import { useState, useEffect, useCallback } from "react";
-import { X, ArrowRightCircle, CheckCircle2, Warehouse } from "lucide-react";
+import { ArrowRightCircle, Clock3, CheckCircle2, XCircle, Warehouse } from "lucide-react";
 import { supabase } from "../api/supabase";
 
 const PLATFORM_STYLES = {
   Shopee: "bg-orange-100 text-orange-600 border border-orange-300",
   Lazada: "bg-blue-100 text-blue-600 border border-blue-300",
   TikTok: "bg-gray-800 text-white",
+  All: "bg-emerald-100 text-emerald-700 border border-emerald-300",
 };
 
-function AllocateModal({ item, products, onClose, onAllocated }) {
-  const [platform, setPlatform] = useState("Shopee");
-  const [productId, setProductId] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  // Pre-select a matching product by name, if one exists
-  useEffect(() => {
-    const match = products.find(
-      (p) => p.product_name.toLowerCase() === item.product_name.toLowerCase()
-    );
-    if (match) setProductId(match.id);
-  }, [item, products]);
-
-  const handleAllocate = async () => {
-    setError("");
-    if (!productId) {
-      setError("Select which inventory product this output belongs to.");
-      return;
-    }
-    setSaving(true);
-
-    const product = products.find((p) => p.id === productId);
-    const field =
-      platform === "Shopee" ? "shopee_stock" : platform === "Lazada" ? "lazada_stock" : "tiktok_stock";
-    const newFieldValue = (product[field] || 0) + item.quantity;
-    const newTotal =
-      (platform === "Shopee" ? newFieldValue : product.shopee_stock || 0) +
-      (platform === "Lazada" ? newFieldValue : product.lazada_stock || 0) +
-      (platform === "TikTok" ? newFieldValue : product.tiktok_stock || 0);
-
-    const { error: invError } = await supabase
-      .from("inventory")
-      .update({ [field]: newFieldValue, stock: newTotal, updated_at: new Date().toISOString() })
-      .eq("id", productId);
-
-    if (invError) {
-      setError(invError.message);
-      setSaving(false);
-      return;
-    }
-
-    const { error: outputError } = await supabase
-      .from("production_output")
-      .update({
-        allocated: true,
-        allocated_at: new Date().toISOString(),
-        allocated_platform: platform,
-        allocated_inventory_id: productId,
-      })
-      .eq("id", item.id);
-
-    setSaving(false);
-    if (outputError) {
-      setError(outputError.message);
-      return;
-    }
-
-    onAllocated();
-    onClose();
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h2 className="text-base font-bold text-gray-800">Allocate to Inventory</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 cursor-pointer">
-            <X size={20} />
-          </button>
-        </div>
-
-        <div className="px-6 py-4 space-y-4">
-          <div className="bg-gray-50 rounded-lg px-3 py-2 text-sm">
-            <p className="font-semibold text-gray-700">{item.product_name}</p>
-            <p className="text-xs text-gray-500">
-              Batch {item.batch_number} · {item.quantity} units
-            </p>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">
-              Inventory Product *
-            </label>
-            <select
-              value={productId}
-              onChange={(e) => setProductId(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
-            >
-              <option value="">Select a product…</option>
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.product_code} · {p.product_name}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-gray-400 mt-1">
-              No matching product? Add it in Products first, then come back here.
-            </p>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">
-              Platform *
-            </label>
-            <div className="flex gap-2">
-              {["Shopee", "Lazada", "TikTok"].map((p) => (
-                <button
-                  key={p}
-                  onClick={() => setPlatform(p)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
-                    platform === p ? PLATFORM_STYLES[p] : "bg-gray-100 text-gray-500 hover:bg-gray-200"
-                  }`}
-                >
-                  {p}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {error && (
-            <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2 border border-red-200">
-              {error}
-            </p>
-          )}
-        </div>
-
-        <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleAllocate}
-            disabled={saving}
-            className="px-5 py-2 text-sm font-semibold text-white bg-red-700 rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors"
-          >
-            {saving ? "Allocating…" : `Add ${item.quantity} to ${platform} stock`}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function Production_fg() {
-  const [output, setOutput] = useState([]);
-  const [products, setProducts] = useState([]);
+  const [workOrders, setWorkOrders] = useState([]);
+  const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("pending");
-  const [allocateItem, setAllocateItem] = useState(null);
+  const [activeTab, setActiveTab] = useState("ready");
+  const [requestingId, setRequestingId] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
     setErrorMsg("");
 
-    const [outputRes, productsRes] = await Promise.all([
+    const [woRes, reqRes] = await Promise.all([
       supabase
-        .from("production_output")
+        .from("work_orders")
         .select("*")
-        .order("production_date", { ascending: false })
-        .limit(300),
+        .eq("status", "Completed")
+        .order("completed_at", { ascending: false }),
       supabase
-        .from("inventory")
-        .select("id, product_code, product_name, shopee_stock, lazada_stock, tiktok_stock")
-        .order("product_name", { ascending: true }),
+        .from("allocation_requests")
+        .select("*")
+        .order("requested_at", { ascending: false }),
     ]);
 
-    if (outputRes.error) setErrorMsg(outputRes.error.message);
-    else setOutput(outputRes.data || []);
+    if (woRes.error) setErrorMsg(woRes.error.message);
+    else setWorkOrders(woRes.data || []);
 
-    if (!productsRes.error) setProducts(productsRes.data || []);
+    if (!reqRes.error) setRequests(reqRes.data || []);
+    else setErrorMsg((prev) => prev || reqRes.error.message);
 
     setLoading(false);
   }, []);
@@ -191,17 +46,60 @@ function Production_fg() {
     fetchAll();
   }, [fetchAll]);
 
-  const pending = output.filter((o) => !o.allocated);
-  const allocated = output.filter((o) => o.allocated);
-  const displayed = activeTab === "pending" ? pending : allocated;
-  const pendingQty = pending.reduce((sum, o) => sum + Number(o.quantity), 0);
+  // For each completed work order, find its most recent allocation request (if any)
+  const latestRequestFor = (woId) => {
+    const forWo = requests.filter((r) => r.work_order_id === woId);
+    if (forWo.length === 0) return null;
+    return forWo.reduce((a, b) =>
+      new Date(a.requested_at) > new Date(b.requested_at) ? a : b
+    );
+  };
+
+  const rows = workOrders.map((wo) => ({
+    wo,
+    request: latestRequestFor(wo.id),
+  }));
+
+  const ready = rows.filter((r) => !r.request || r.request.status === "rejected");
+  const pending = rows.filter((r) => r.request?.status === "pending");
+  const allocated = rows.filter((r) => r.request?.status === "approved");
+
+  const displayed =
+    activeTab === "ready" ? ready : activeTab === "pending" ? pending : allocated;
+
+  const handleRequestAllocation = async (wo) => {
+    setRequestingId(wo.id);
+    setErrorMsg("");
+
+    const { error } = await supabase.from("allocation_requests").insert([
+      {
+        work_order_id: wo.id,
+        wo_number: wo.wo_number,
+        product_id: wo.product_id || null,
+        product_name: wo.product_name,
+        quantity: wo.quantity,
+        platform: wo.platform,
+        status: "pending",
+      },
+    ]);
+
+    setRequestingId(null);
+
+    if (error) {
+      setErrorMsg(error.message);
+      return;
+    }
+
+    fetchAll();
+  };
 
   return (
     <div className="p-6 space-y-4">
       <div className="bg-white rounded-lg shadow p-6">
         <h1 className="text-2xl font-bold text-gray-800">Production - Finished Goods</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Finished batches waiting to be pushed into sellable Products stock
+          Completed work orders, ready to request allocation into sellable stock. Inventory
+          reviews and approves each request before stock is updated.
         </p>
       </div>
 
@@ -211,44 +109,53 @@ function Production_fg() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-            Pending allocation
-          </p>
-          <p className="text-3xl font-bold mt-1 text-amber-600">{pendingQty.toLocaleString()}</p>
-          <p className="text-xs mt-1 text-gray-400">{pending.length} batch(es)</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Ready to request</p>
+          <p className="text-3xl font-bold mt-1 text-gray-800">{ready.length}</p>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-            Allocated to date
-          </p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Awaiting approval</p>
+          <p className="text-3xl font-bold mt-1 text-amber-600">{pending.length}</p>
+          <p className="text-xs mt-1 text-gray-400">Sent to Inventory</p>
+        </div>
+        <div className="bg-white rounded-lg shadow p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Allocated</p>
           <p className="text-3xl font-bold mt-1 text-emerald-700">{allocated.length}</p>
-          <p className="text-xs mt-1 text-gray-400">batches pushed to Products</p>
         </div>
       </div>
 
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex gap-2 mb-6 border-b border-gray-200">
           <button
-            onClick={() => setActiveTab("pending")}
-            className={`px-4 py-2 font-semibold text-sm border-b-2 transition ${
-              activeTab === "pending"
+            onClick={() => setActiveTab("ready")}
+            className={`px-4 py-2 font-semibold text-sm border-b-2 transition cursor-pointer ${
+              activeTab === "ready"
                 ? "border-red-600 text-red-600"
-                : "border-transparent text-gray-500 hover:text-red-500 cursor-pointer"
+                : "border-transparent text-gray-500 hover:text-red-500"
             }`}
           >
-            Pending Allocation ({pending.length})
+            Ready to Request ({ready.length})
+          </button>
+          <button
+            onClick={() => setActiveTab("pending")}
+            className={`px-4 py-2 font-semibold text-sm border-b-2 transition cursor-pointer ${
+              activeTab === "pending"
+                ? "border-red-600 text-red-600"
+                : "border-transparent text-gray-500 hover:text-red-500"
+            }`}
+          >
+            Awaiting Approval ({pending.length})
           </button>
           <button
             onClick={() => setActiveTab("allocated")}
-            className={`px-4 py-2 font-semibold text-sm border-b-2 transition ${
+            className={`px-4 py-2 font-semibold text-sm border-b-2 transition cursor-pointer ${
               activeTab === "allocated"
                 ? "border-red-600 text-red-600"
-                : "border-transparent text-gray-500 hover:text-red-500 cursor-pointer"
+                : "border-transparent text-gray-500 hover:text-red-500"
             }`}
           >
-            Allocation History ({allocated.length})
+            Allocated ({allocated.length})
           </button>
         </div>
 
@@ -258,7 +165,11 @@ function Production_fg() {
           <div className="text-center text-gray-400 py-12">
             <Warehouse className="mx-auto mb-2" size={32} />
             <p className="font-medium text-gray-500">
-              {activeTab === "pending" ? "Nothing waiting to be allocated" : "No allocations yet"}
+              {activeTab === "ready"
+                ? "Nothing waiting — complete a work order to see it here"
+                : activeTab === "pending"
+                ? "No requests awaiting approval"
+                : "Nothing allocated yet"}
             </p>
           </div>
         ) : (
@@ -266,45 +177,67 @@ function Production_fg() {
             <table className="w-full text-sm text-left">
               <thead>
                 <tr className="border-b border-gray-200 text-gray-500 uppercase text-xs">
+                  <th className="py-2 pr-4">WO #</th>
                   <th className="py-2 pr-4">Product</th>
-                  <th className="py-2 pr-4">Batch #</th>
                   <th className="py-2 pr-4">Qty</th>
-                  <th className="py-2 pr-4">Produced</th>
-                  {activeTab === "allocated" && <th className="py-2 pr-4">Platform</th>}
+                  <th className="py-2 pr-4">Platform</th>
+                  <th className="py-2 pr-4">Completed</th>
                   <th className="py-2 pr-4"></th>
                 </tr>
               </thead>
               <tbody>
-                {displayed.map((o) => (
-                  <tr key={o.id} className="border-b border-gray-100 hover:bg-red-50/40">
-                    <td className="py-2 pr-4 font-medium text-gray-700">{o.product_name}</td>
-                    <td className="py-2 pr-4 font-mono text-xs text-gray-500">{o.batch_number}</td>
-                    <td className="py-2 pr-4">{o.quantity}</td>
-                    <td className="py-2 pr-4 text-gray-500">
-                      {new Date(o.production_date).toLocaleDateString()}
+                {displayed.map(({ wo, request }) => (
+                  <tr key={wo.id} className="border-b border-gray-100 hover:bg-red-50/40">
+                    <td className="py-2 pr-4 font-medium text-gray-700">{wo.wo_number}</td>
+                    <td className="py-2 pr-4">{wo.product_name}</td>
+                    <td className="py-2 pr-4">{wo.quantity}</td>
+                    <td className="py-2 pr-4">
+                      <span
+                        className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                          PLATFORM_STYLES[
+                            request?.status === "approved"
+                              ? request.resolved_platform || request.platform
+                              : wo.platform
+                          ] || "bg-gray-100 text-gray-500"
+                        }`}
+                      >
+                        {request?.status === "approved"
+                          ? request.resolved_platform || request.platform
+                          : wo.platform}
+                      </span>
                     </td>
-                    {activeTab === "allocated" && (
-                      <td className="py-2 pr-4">
-                        <span
-                          className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                            PLATFORM_STYLES[o.allocated_platform] || "bg-gray-100 text-gray-500"
-                          }`}
-                        >
-                          {o.allocated_platform || "—"}
-                        </span>
-                      </td>
-                    )}
+                    <td className="py-2 pr-4 text-gray-500">
+                      {wo.completed_at ? new Date(wo.completed_at).toLocaleDateString() : "—"}
+                    </td>
                     <td className="py-2 pr-4 text-right">
-                      {activeTab === "pending" ? (
-                        <button
-                          onClick={() => setAllocateItem(o)}
-                          className="inline-flex items-center gap-1 text-red-600 hover:underline text-xs font-semibold"
-                        >
-                          Allocate <ArrowRightCircle size={14} />
-                        </button>
-                      ) : (
+                      {activeTab === "ready" && (
+                        <div className="flex items-center justify-end gap-2">
+                          {request?.status === "rejected" && (
+                            <span className="inline-flex items-center gap-1 text-red-500 text-xs font-semibold">
+                              <XCircle size={13} /> Rejected — re-request?
+                            </span>
+                          )}
+                          <button
+                            onClick={() => handleRequestAllocation(wo)}
+                            disabled={requestingId === wo.id}
+                            className="inline-flex items-center gap-1 text-red-600 hover:underline text-xs font-semibold cursor-pointer disabled:opacity-50"
+                          >
+                            {requestingId === wo.id ? "Requesting…" : "Request Allocation"}
+                            <ArrowRightCircle size={14} />
+                          </button>
+                        </div>
+                      )}
+                      {activeTab === "pending" && (
+                        <span className="inline-flex items-center gap-1 text-amber-600 text-xs font-semibold">
+                          <Clock3 size={14} /> Awaiting Inventory
+                        </span>
+                      )}
+                      {activeTab === "allocated" && (
                         <span className="inline-flex items-center gap-1 text-emerald-600 text-xs font-semibold">
-                          <CheckCircle2 size={14} /> Done
+                          <CheckCircle2 size={14} />
+                          Approved{" "}
+                          {request?.resolved_at &&
+                            `· ${new Date(request.resolved_at).toLocaleDateString()}`}
                         </span>
                       )}
                     </td>
@@ -315,15 +248,6 @@ function Production_fg() {
           </div>
         )}
       </div>
-
-      {allocateItem && (
-        <AllocateModal
-          item={allocateItem}
-          products={products}
-          onClose={() => setAllocateItem(null)}
-          onAllocated={fetchAll}
-        />
-      )}
     </div>
   );
 }

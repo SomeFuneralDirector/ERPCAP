@@ -576,7 +576,6 @@ function Production_rm() {
               ) : filtered.length === 0 ? (
                 <tr>
                   <td colSpan={TOTAL_COLS - 1} className="px-4 py-12 text-center text-gray-400">
-                    <p className="text-4xl mb-2">🧵</p>
                     <p className="font-medium text-gray-500">No raw materials found</p>
                   </td>
                 </tr>
