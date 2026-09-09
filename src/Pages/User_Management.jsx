@@ -54,21 +54,21 @@ function User_Management() {
   }
 
   async function handleToggleActive(user) {
-    setSavingId(user.id)
-    const { error } = await supabase
-      .from('profiles')
-      .update({ active: !user.active })
-      .eq('id', user.id)
+  setSavingId(user.id)
+  const { error } = await supabase
+    .from('profiles')
+    .update({ active: !user.active })
+    .eq('id', user.id)
 
-    if (error) {
-      setError(error.message)
-    } else {
-      setUsers(prev =>
-        prev.map(u => (u.id === user.id ? { ...u, active: !u.active } : u))
-      )
-    }
-    setSavingId(null)
+  if (error) {
+    setError(error.message)
+  } else {
+    setUsers(prev =>
+      prev.map(u => (u.id === user.id ? { ...u, active: !u.active } : u))
+    )
   }
+  setSavingId(null)
+}
 
   function openAddModal() {
     setEditingUser(null)
@@ -309,8 +309,7 @@ function User_Management() {
                   return (
                     <tr
                       key={user.id}
-                      className={`border-b border-gray-100 hover:bg-red-50/40 ${
-                        isDeactivated ? 'opacity-50' : ''
+                      className={`border-b border-gray-100 hover:bg-red-50/40"
                       }`}
                     >
                       <td className="py-2 pr-4 font-medium text-gray-700">
