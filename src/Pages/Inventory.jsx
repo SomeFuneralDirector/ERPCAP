@@ -1,10 +1,9 @@
 //Inventory PRODUCTS TO!!!
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Search,
   Plus,
   X,
-  Upload,
   Eye,
   Pencil,
   Archive,
@@ -14,6 +13,32 @@ import {
   XCircle,
 } from "lucide-react";
 import { supabase } from "../api/supabase";
+
+/* ── Design tokens ──────────────────────────────────────────────────────────
+   Single palette used across the module. Platform/category colors are kept
+   as small swatches or text accents (identity cues), never as full-bleed
+   fills, so the page reads as one product rather than three tinted zones. */
+const C = {
+  accent: "#B3211B",
+  accentHover: "#8E1A15",
+  accentSoft: "#FBEAE9",
+  accentSoftBorder: "#F3C9C7",
+  text: "#1C1C1F",
+  textMuted: "#6B6B70",
+  textFaint: "#9A9AA0",
+  border: "#E4E4E7",
+  borderStrong: "#D4D4D8",
+  success: "#15803D",
+  successSoft: "#EEF6EF",
+  warning: "#A15C07",
+  warningSoft: "#FBF3E7",
+  warningBorder: "#F1DDB8",
+  shopee: "#EE4D2D",
+  lazada: "#1E2A5E",
+  tiktok: "#101113",
+  men: "#1D4E89",
+  women: "#8B2942",
+};
 
 const isLowStock = (item) => {
   const total = (item.shopee_stock || 0) + (item.lazada_stock || 0) + (item.tiktok_stock || 0);
@@ -29,6 +54,63 @@ const EMPTY_FORM = {
   tiktok_stock: "",
   reorder_point: "5",
 };
+
+/* ── Shared field primitives ─────────────────────────────────────────────── */
+
+function Field({ label, required, hint, children }) {
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-600 mb-1">
+        {label}
+        {required && <span style={{ color: C.accent }}> *</span>}
+      </label>
+      {children}
+      {hint && <p className="text-xs text-gray-400 mt-1">{hint}</p>}
+    </div>
+  );
+}
+
+const inputBase =
+  "w-full border rounded-md px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 transition-colors";
+
+function TextInput(props) {
+  return (
+    <input
+      {...props}
+      className={`${inputBase} border-gray-300 focus:ring-[${C.accent}]/20 focus:border-[${C.accent}]`}
+      style={{ ...props.style }}
+      onFocus={(e) => (e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`, e.target.style.borderColor = C.accent)}
+      onBlur={(e) => (e.target.style.boxShadow = "none", e.target.style.borderColor = "#D1D5DB", props.onBlur?.(e))}
+    />
+  );
+}
+
+function PrimaryButton({ children, className = "", ...props }) {
+  return (
+    <button
+      {...props}
+      className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium text-white transition-colors disabled:opacity-50 cursor-pointer ${className}`}
+      style={{ backgroundColor: C.accent }}
+      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = C.accentHover)}
+      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = C.accent)}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SecondaryButton({ children, className = "", ...props }) {
+  return (
+    <button
+      {...props}
+      className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-50 cursor-pointer ${className}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/* ── AddProductModal ────────────────────────────────────────────────────── */
 
 function AddProductModal({ onClose, onSaved, editItem = null }) {
   const [form, setForm] = useState(EMPTY_FORM);
@@ -72,22 +154,17 @@ function AddProductModal({ onClose, onSaved, editItem = null }) {
       shopee_stock: shopee,
       lazada_stock: lazada,
       tiktok_stock: tiktok,
-      stock: total, // Auto-calculate total
+      stock: total,
       reorder_point: form.reorder_point === "" ? 5 : Math.max(0, parseInt(form.reorder_point) || 0),
       updated_at: new Date().toISOString(),
     };
 
     let error = null;
     if (isEdit && editItem.id) {
-      const { error: updateError } = await supabase
-        .from("inventory")
-        .update(payload)
-        .eq("id", editItem.id);
+      const { error: updateError } = await supabase.from("inventory").update(payload).eq("id", editItem.id);
       error = updateError;
     } else {
-      const { error: insertError } = await supabase
-        .from("inventory")
-        .insert([payload]);
+      const { error: insertError } = await supabase.from("inventory").insert([payload]);
       error = insertError;
     }
 
@@ -102,289 +179,217 @@ function AddProductModal({ onClose, onSaved, editItem = null }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h2 className="text-base font-bold text-gray-800">
-            {isEdit ? "Edit Product" : "Add New Product"}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-lg shadow-xl border border-gray-200 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+          <h2 className="text-sm font-semibold text-gray-900">
+            {isEdit ? "Edit product" : "Add product"}
           </h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
-          >
-            <X size={20} />
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors cursor-pointer">
+            <X size={18} />
           </button>
         </div>
 
-        <div className="px-6 py-4 space-y-4">
+        <div className="px-5 py-4 space-y-4">
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">
-                Product Code *
-              </label>
-              <input
+            <Field label="Product code" required>
+              <TextInput
                 type="text"
                 placeholder="e.g. F036"
                 value={form.product_code}
                 onChange={(e) => set("product_code", e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
               />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">
-                Category *
-              </label>
+            </Field>
+            <Field label="Category" required>
               <select
                 value={form.category}
                 onChange={(e) => set("category", e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300 cursor-pointer"
+                className={`${inputBase} border-gray-300 cursor-pointer`}
               >
                 <option value="Women">Women</option>
                 <option value="Men">Men</option>
               </select>
-            </div>
+            </Field>
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">
-              Product Name *
-            </label>
-            <input
+          <Field label="Product name" required>
+            <TextInput
               type="text"
               placeholder="e.g. Dior Sauvage dupe 85ml"
               value={form.product_name}
               onChange={(e) => set("product_name", e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
             />
-          </div>
+          </Field>
 
           <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-[#EE4D2D] mb-1 uppercase tracking-wide">
-                Shopee Stock
-              </label>
-              <input
+            <Field label={<span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: C.shopee }} />Shopee</span>}>
+              <TextInput
                 type="number"
                 min="0"
                 placeholder="0"
                 value={form.shopee_stock}
                 onChange={(e) => set("shopee_stock", e.target.value)}
-                className="w-full border border-red-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
               />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-violet-700 mb-1 uppercase tracking-wide">
-                Lazada Stock
-              </label>
-              <input
+            </Field>
+            <Field label={<span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: C.lazada }} />Lazada</span>}>
+              <TextInput
                 type="number"
                 min="0"
                 placeholder="0"
                 value={form.lazada_stock}
                 onChange={(e) => set("lazada_stock", e.target.value)}
-                className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
               />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wide">
-                TikTok Stock
-              </label>
-              <input
+            </Field>
+            <Field label={<span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: C.tiktok }} />TikTok</span>}>
+              <TextInput
                 type="number"
                 min="0"
                 placeholder="0"
                 value={form.tiktok_stock}
                 onChange={(e) => set("tiktok_stock", e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
               />
-            </div>
+            </Field>
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-amber-700 mb-1 uppercase tracking-wide">
-              Low Stock Alert Threshold
-            </label>
-            <input
+          <Field
+            label="Low stock threshold"
+            hint="Flagged as low stock, and shown on Production's dashboard, at or below this combined total. Defaults to 5."
+          >
+            <TextInput
               type="number"
               min="0"
               placeholder="5"
               value={form.reorder_point}
               onChange={(e) => set("reorder_point", e.target.value)}
-              className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
             />
-            <p className="text-xs text-gray-400 mt-1">
-              Flagged as low stock — and surfaced to Production — at or below this total across all
-              platforms. Defaults to 5.
-            </p>
-          </div>
+          </Field>
 
           {error && (
-            <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2 border border-red-200">
+            <p className="text-xs rounded-md px-3 py-2 border" style={{ color: C.accent, backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder }}>
               {error}
             </p>
           )}
         </div>
 
-        <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors cursor-pointer"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={saving}
-            className="px-5 py-2 text-sm font-semibold text-white bg-red-700 rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors cursor-pointer"
-          >
-            {saving ? "Saving…" : isEdit ? "Update Product" : "Add Product"}
-          </button>
+        <div className="px-5 py-4 border-t border-gray-200 flex justify-end gap-2">
+          <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
+          <PrimaryButton onClick={handleSubmit} disabled={saving}>
+            {saving ? "Saving…" : isEdit ? "Update product" : "Add product"}
+          </PrimaryButton>
         </div>
       </div>
     </div>
   );
 }
 
-// ── ViewProductModal ──────────────────────────────────────────────────────────────
+/* ── ViewProductModal ───────────────────────────────────────────────────── */
 
 function ViewProductModal({ item, onClose }) {
   if (!item) return null;
-
   const totalStock = (item.shopee_stock || 0) + (item.lazada_stock || 0) + (item.tiktok_stock || 0);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h2 className="text-base font-bold text-gray-800">Product Details</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
-          >
-            <X size={20} />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-lg shadow-xl border border-gray-200 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+          <h2 className="text-sm font-semibold text-gray-900">Product details</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors cursor-pointer">
+            <X size={18} />
           </button>
         </div>
 
-        <div className="px-6 py-4 space-y-4">
+        <div className="px-5 py-4 space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                Product Code
-              </label>
-              <p className="text-sm font-mono text-gray-800">{item.product_code}</p>
+              <p className="text-xs text-gray-500">Product code</p>
+              <p className="text-sm font-mono text-gray-800 mt-0.5">{item.product_code}</p>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                Category
-              </label>
-              <p className="text-sm text-gray-800">{item.category}</p>
+              <p className="text-xs text-gray-500">Category</p>
+              <p className="text-sm text-gray-800 mt-0.5">{item.category}</p>
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide">
-              Product Name
-            </label>
-            <p className="text-sm text-gray-800">{item.product_name}</p>
+            <p className="text-xs text-gray-500">Product name</p>
+            <p className="text-sm text-gray-800 mt-0.5">{item.product_name}</p>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 pt-2 border-t border-gray-100">
+          <div className="grid grid-cols-2 gap-4 pt-3 border-t border-gray-100">
             <div>
-              <label className="block text-xs font-semibold text-amber-700 uppercase tracking-wide">
-                Total Stock
-              </label>
-              <p className="text-sm font-bold text-amber-700">{totalStock}</p>
+              <p className="text-xs text-gray-500">Total stock</p>
+              <p className="text-sm font-semibold mt-0.5" style={{ color: C.text }}>{totalStock}</p>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                Low Stock Threshold
-              </label>
-              <p className="text-sm text-gray-800">{item.reorder_point ?? 5}</p>
+              <p className="text-xs text-gray-500">Low stock threshold</p>
+              <p className="text-sm text-gray-800 mt-0.5">{item.reorder_point ?? 5}</p>
             </div>
           </div>
 
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-[#EE4D2D] uppercase tracking-wide">
-                Shopee Stock
-              </label>
-              <p className="text-sm text-red-600">{item.shopee_stock || 0}</p>
+              <p className="text-xs text-gray-500 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: C.shopee }} />
+                Shopee
+              </p>
+              <p className="text-sm text-gray-800 mt-0.5">{item.shopee_stock || 0}</p>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-violet-700 uppercase tracking-wide">
-                Lazada Stock
-              </label>
-              <p className="text-sm text-indigo-600">{item.lazada_stock || 0}</p>
+              <p className="text-xs text-gray-500 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: C.lazada }} />
+                Lazada
+              </p>
+              <p className="text-sm text-gray-800 mt-0.5">{item.lazada_stock || 0}</p>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wide">
-                TikTok Stock
-              </label>
-              <p className="text-sm text-gray-600">{item.tiktok_stock || 0}</p>
+              <p className="text-xs text-gray-500 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: C.tiktok }} />
+                TikTok
+              </p>
+              <p className="text-sm text-gray-800 mt-0.5">{item.tiktok_stock || 0}</p>
             </div>
           </div>
 
           {item.updated_at && (
-            <div className="pt-2 border-t border-gray-100">
-              <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide">
-                Last Updated
-              </label>
-              <p className="text-xs text-gray-500">
-                {new Date(item.updated_at).toLocaleString()}
-              </p>
+            <div className="pt-3 border-t border-gray-100">
+              <p className="text-xs text-gray-400">Last updated {new Date(item.updated_at).toLocaleString()}</p>
             </div>
           )}
         </div>
 
-        <div className="px-6 py-4 border-t border-gray-100 flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors cursor-pointer"
-          >
-            Close
-          </button>
+        <div className="px-5 py-4 border-t border-gray-200 flex justify-end">
+          <SecondaryButton onClick={onClose}>Close</SecondaryButton>
         </div>
       </div>
     </div>
   );
 }
 
-// ── AllocationRequestsPanel ─────────────────────────────────────────────
-// Notification card: Production requests allocation, Inventory approves/
-// rejects here. This is the ONLY place that actually writes stock changes
-// caused by production output — keeps Inventory as the source of truth.
+/* ── AllocationRequestsPanel ─────────────────────────────────────────────
+   Notification: Production requests allocation, Inventory approves/rejects
+   here. This is the only place that writes stock changes caused by
+   production output, keeping Inventory as the source of truth. */
 function AllocationRequestsPanel({ requests, inventory, onResolved }) {
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState("");
 
   const handleApprove = async (req) => {
     setError("");
-
     const productId = req.product_id;
     const platform = req.platform;
 
     if (!productId) {
-      setError(
-        `"${req.product_name}" isn't linked to an inventory product. Ask Production to re-submit this request with the correct product.`
-      );
+      setError(`"${req.product_name}" isn't linked to an inventory product. Ask Production to resubmit with the correct product.`);
       return;
     }
     if (!platform || platform === "All") {
-      setError(
-        `${req.wo_number || req.product_name} doesn't specify a single platform. Ask Production to re-submit this request with one platform.`
-      );
+      setError(`${req.wo_number || req.product_name} doesn't specify a single platform. Ask Production to resubmit with one platform.`);
       return;
     }
 
     setBusyId(req.id);
-
     const product = inventory.find((p) => p.id === productId);
-    const field =
-      platform === "Shopee"
-        ? "shopee_stock"
-        : platform === "Lazada"
-        ? "lazada_stock"
-        : "tiktok_stock";
+    const field = platform === "Shopee" ? "shopee_stock" : platform === "Lazada" ? "lazada_stock" : "tiktok_stock";
     const newFieldValue = (product?.[field] || 0) + req.quantity;
     const newTotal =
       (platform === "Shopee" ? newFieldValue : product?.shopee_stock || 0) +
@@ -404,12 +409,7 @@ function AllocationRequestsPanel({ requests, inventory, onResolved }) {
 
     const { error: reqError } = await supabase
       .from("allocation_requests")
-      .update({
-        status: "approved",
-        resolved_at: new Date().toISOString(),
-        resolved_product_id: productId,
-        resolved_platform: platform,
-      })
+      .update({ status: "approved", resolved_at: new Date().toISOString(), resolved_product_id: productId, resolved_platform: platform })
       .eq("id", req.id);
 
     setBusyId(null);
@@ -417,86 +417,66 @@ function AllocationRequestsPanel({ requests, inventory, onResolved }) {
       setError(reqError.message);
       return;
     }
-
     onResolved();
   };
 
   const handleReject = async (req) => {
     setError("");
     setBusyId(req.id);
-
     const { error: reqError } = await supabase
       .from("allocation_requests")
       .update({ status: "rejected", resolved_at: new Date().toISOString() })
       .eq("id", req.id);
-
     setBusyId(null);
     if (reqError) {
       setError(reqError.message);
       return;
     }
-
     onResolved();
   };
 
   if (requests.length === 0) return null;
 
+  const platformDot = (platform) =>
+    platform === "Shopee" ? C.shopee : platform === "Lazada" ? C.lazada : platform === "TikTok" ? C.tiktok : C.textFaint;
+
   return (
-    <div className="bg-white rounded-lg shadow border border-red-200 p-4">
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200 border-l-4 p-4" style={{ borderLeftColor: C.accent }}>
       <div className="flex items-center gap-2 mb-3">
-        <Bell size={16} className="text-red-600" />
-        <p className="text-sm font-bold text-gray-700">
-          {requests.length} allocation request{requests.length !== 1 ? "s" : ""} awaiting your approval
+        <Bell size={15} style={{ color: C.accent }} />
+        <p className="text-sm font-semibold text-gray-800">
+          {requests.length} allocation request{requests.length !== 1 ? "s" : ""} awaiting approval
         </p>
       </div>
 
       {error && (
-        <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2 border border-red-200 mb-3">
+        <p className="text-xs rounded-md px-3 py-2 border mb-3" style={{ color: C.accent, backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder }}>
           {error}
         </p>
       )}
 
-      <div className="space-y-3">
+      <div className="space-y-2">
         {requests.map((req) => {
           const product = inventory.find((p) => p.id === req.product_id);
-          const platformStyle =
-            req.platform === "Shopee"
-              ? "bg-red-100 text-red-700"
-              : req.platform === "Lazada"
-              ? "bg-indigo-100 text-indigo-700"
-              : req.platform === "TikTok"
-              ? "bg-gray-200 text-gray-700"
-              : "bg-amber-100 text-amber-700";
           const canApprove = !!req.product_id && !!req.platform && req.platform !== "All";
 
           return (
-            <div
-              key={req.id}
-              className="border border-gray-200 rounded-lg px-3 py-3 flex flex-col md:flex-row md:items-center gap-3"
-            >
+            <div key={req.id} className="border border-gray-200 rounded-md px-3 py-2.5 flex flex-col md:flex-row md:items-center gap-3">
               <div className="flex-1 min-w-[160px]">
-                <p className="text-sm font-semibold text-gray-800">{req.product_name}</p>
+                <p className="text-sm font-medium text-gray-800">{req.product_name}</p>
                 <p className="text-xs text-gray-500">
-                  {req.wo_number || "No WO"} · {req.quantity} units · requested{" "}
-                  {new Date(req.requested_at).toLocaleDateString()}
+                  {req.wo_number || "No WO"} · {req.quantity} units · requested {new Date(req.requested_at).toLocaleDateString()}
                 </p>
-                {!product && (
-                  <p className="text-xs text-amber-600 mt-0.5">
-                    Not matched to an inventory product
-                  </p>
-                )}
+                {!product && <p className="text-xs mt-0.5" style={{ color: C.warning }}>Not matched to an inventory product</p>}
               </div>
 
               <div className="w-full md:w-56 text-xs text-gray-600">
                 {product ? `${product.product_code} · ${product.product_name}` : "—"}
               </div>
 
-              <div className="w-full md:w-40">
-                <span
-                  className={`inline-block px-2 py-1.5 text-xs font-semibold rounded-lg w-full text-center ${platformStyle}`}
-                >
-                  {req.platform || "Unspecified"}
-                </span>
+              <div className="w-full md:w-32 flex items-center gap-1.5 text-xs font-medium text-gray-700">
+                <span className="w-2 h-2 rounded-sm inline-block shrink-0" style={{ backgroundColor: platformDot(req.platform) }} />
+                {req.platform || "Unspecified"}
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
@@ -504,7 +484,8 @@ function AllocationRequestsPanel({ requests, inventory, onResolved }) {
                   onClick={() => handleApprove(req)}
                   disabled={busyId === req.id || !canApprove}
                   title={!canApprove ? "Missing product or platform on this request" : undefined}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white rounded-md disabled:opacity-40 transition-colors cursor-pointer"
+                  style={{ backgroundColor: C.success }}
                 >
                   <Check size={13} />
                   {busyId === req.id ? "…" : "Approve"}
@@ -512,7 +493,7 @@ function AllocationRequestsPanel({ requests, inventory, onResolved }) {
                 <button
                   onClick={() => handleReject(req)}
                   disabled={busyId === req.id}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200 disabled:opacity-40 transition-colors cursor-pointer"
                 >
                   <XCircle size={13} />
                   Reject
@@ -526,14 +507,27 @@ function AllocationRequestsPanel({ requests, inventory, onResolved }) {
   );
 }
 
-// ── Inventory ──────────────────────────────────────────────────────────────
+/* ── SummaryBar ─────────────────────────────────────────────────────────── */
+
+function SummaryStat({ label, value, dot }) {
+  return (
+    <div className="flex-1 min-w-[110px] px-4 py-3">
+      <p className="text-xs text-gray-500 flex items-center gap-1.5">
+        {dot && <span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: dot }} />}
+        {label}
+      </p>
+      <p className="text-lg font-semibold text-gray-900 mt-0.5">{value}</p>
+    </div>
+  );
+}
+
+/* ── Inventory ──────────────────────────────────────────────────────────── */
 
 function Inventory() {
   const [inventory, setInventory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState("All");
-  const [lastUpdated, setLastUpdated] = useState(null);
   const [editingStock, setEditingStock] = useState(null);
   const [saving, setSaving] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -543,11 +537,7 @@ function Inventory() {
   const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [itemToArchive, setItemToArchive] = useState(null);
 
-  // Cross-module alert: raw material shortages reported by Production.
   const [lowMaterials, setLowMaterials] = useState([]);
-
-  // Cross-module notification: finished-goods allocation requests from
-  // Production, awaiting Inventory's approval before stock is touched.
   const [pendingRequests, setPendingRequests] = useState([]);
 
   const fetchInventory = useCallback(async () => {
@@ -558,10 +548,7 @@ function Inventory() {
       .order("category", { ascending: true })
       .order("product_name", { ascending: true });
 
-    if (!error && data) {
-      setInventory(data);
-      setLastUpdated(new Date());
-    }
+    if (!error && data) setInventory(data);
     setLoading(false);
   }, []);
 
@@ -572,7 +559,6 @@ function Inventory() {
       .neq("status", "In Stock")
       .order("current_stock", { ascending: true })
       .limit(6);
-
     if (!error) setLowMaterials(data || []);
     else console.error("raw_materials alert fetch error:", error);
   }, []);
@@ -583,7 +569,6 @@ function Inventory() {
       .select("*")
       .eq("status", "pending")
       .order("requested_at", { ascending: true });
-
     if (!error) setPendingRequests(data || []);
     else console.error("allocation_requests fetch error:", error);
   }, []);
@@ -598,12 +583,10 @@ function Inventory() {
     setSelectedItem(item);
     setShowViewModal(true);
   };
-
   const handleEdit = (item) => {
     setEditItem(item);
     setShowAddModal(true);
   };
-
   const handleArchive = (item) => {
     setItemToArchive(item);
     setShowArchiveModal(true);
@@ -611,13 +594,8 @@ function Inventory() {
 
   const confirmArchive = async () => {
     if (!itemToArchive) return;
-
     setSaving(true);
-    const { error } = await supabase
-      .from("inventory")
-      .delete()
-      .eq("id", itemToArchive.id);
-
+    const { error } = await supabase.from("inventory").delete().eq("id", itemToArchive.id);
     if (!error) {
       setInventory((prev) => prev.filter((i) => i.id !== itemToArchive.id));
       setShowArchiveModal(false);
@@ -627,8 +605,7 @@ function Inventory() {
   };
 
   const filtered = inventory.filter((item) => {
-    const matchCat =
-      filterCategory === "All" || item.category === filterCategory;
+    const matchCat = filterCategory === "All" || item.category === filterCategory;
     const matchSearch =
       !search ||
       item.product_name.toLowerCase().includes(search.toLowerCase()) ||
@@ -644,608 +621,462 @@ function Inventory() {
     }),
     { shopee: 0, lazada: 0, tiktok: 0 }
   );
-
-  // Calculate total as sum of all platforms
   const totalStock = totals.shopee + totals.lazada + totals.tiktok;
+  const lowCount = filtered.filter(isLowStock).length;
 
   const saveStock = async (id, field, value) => {
     const newValue = parseInt(value);
     if (isNaN(newValue) || newValue < 0) return;
 
     setSaving(true);
-    const updateData = {
-      [field]: newValue,
-      updated_at: new Date().toISOString()
-    };
+    const updateData = { [field]: newValue, updated_at: new Date().toISOString() };
 
-    // If updating a platform stock, recalculate total
-    if (field === 'shopee_stock' || field === 'lazada_stock' || field === 'tiktok_stock') {
-      const item = inventory.find(i => i.id === id);
+    if (field === "shopee_stock" || field === "lazada_stock" || field === "tiktok_stock") {
+      const item = inventory.find((i) => i.id === id);
       if (item) {
-        const shopee = field === 'shopee_stock' ? newValue : (item.shopee_stock || 0);
-        const lazada = field === 'lazada_stock' ? newValue : (item.lazada_stock || 0);
-        const tiktok = field === 'tiktok_stock' ? newValue : (item.tiktok_stock || 0);
+        const shopee = field === "shopee_stock" ? newValue : item.shopee_stock || 0;
+        const lazada = field === "lazada_stock" ? newValue : item.lazada_stock || 0;
+        const tiktok = field === "tiktok_stock" ? newValue : item.tiktok_stock || 0;
         updateData.stock = shopee + lazada + tiktok;
       }
     }
 
-    const { error } = await supabase
-      .from("inventory")
-      .update(updateData)
-      .eq("id", id);
-
+    const { error } = await supabase.from("inventory").update(updateData).eq("id", id);
     if (!error) {
-      setInventory((prev) =>
-        prev.map((i) => {
-          if (i.id === id) {
-            const updated = { ...i, ...updateData };
-            return updated;
-          }
-          return i;
-        })
-      );
+      setInventory((prev) => prev.map((i) => (i.id === id ? { ...i, ...updateData } : i)));
     }
     setSaving(false);
   };
 
   const handleStockEdit = (item, field) => {
-    const value = field === 'stock' ? item.stock : item[field];
-    setEditingStock({
-      id: item.id,
-      field: field,
-      value: String(value ?? 0),
-    });
+    const value = field === "stock" ? item.stock : item[field];
+    setEditingStock({ id: item.id, field, value: String(value ?? 0) });
   };
 
   const handleKeyDown = (e, id) => {
-    if (e.key === "Enter") {
-      if (editingStock) {
-        saveStock(id, editingStock.field, editingStock.value);
-        setEditingStock(null);
-      }
+    if (e.key === "Enter" && editingStock) {
+      saveStock(id, editingStock.field, editingStock.value);
+      setEditingStock(null);
     }
     if (e.key === "Escape") setEditingStock(null);
   };
 
   const TOTAL_COLS = 8;
 
+  const StockCell = ({ item, field, accentColor }) => {
+    const isEditing = editingStock?.id === item.id && editingStock.field === field;
+    const value = field === "stock" ? (item.shopee_stock || 0) + (item.lazada_stock || 0) + (item.tiktok_stock || 0) : item[field] || 0;
+
+    if (isEditing) {
+      return (
+        <input
+          type="number"
+          min="0"
+          value={editingStock.value}
+          onChange={(e) => setEditingStock({ ...editingStock, value: e.target.value })}
+          onBlur={() => {
+            saveStock(item.id, editingStock.field, editingStock.value);
+            setEditingStock(null);
+          }}
+          onKeyDown={(e) => handleKeyDown(e, item.id)}
+          autoFocus
+          className="w-16 text-center text-xs border rounded px-1 py-0.5 focus:outline-none focus:ring-2"
+          style={{ borderColor: accentColor, boxShadow: `0 0 0 2px ${accentColor}22` }}
+        />
+      );
+    }
+
+    return (
+      <button
+        onClick={() => handleStockEdit(item, field)}
+        title="Click to edit"
+        className="text-xs font-medium px-2 py-0.5 rounded cursor-pointer hover:bg-gray-100 transition-colors"
+      >
+        {value}
+      </button>
+    );
+  };
+
   return (
-    <div className="p-6 space-y-4">
-      {/* Header */}
-      <div className="bg-white rounded-lg shadow p-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">Inventory - Products</h1>
+    <div className="min-h-screen" style={{ backgroundColor: "#F6F6F7" }}>
+      <div className="p-6 space-y-4 max-w-[1400px] mx-auto">
+        {/* Header */}
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div>
+            <h1 className="text-lg font-semibold text-gray-900">Inventory — Products</h1>
+            <p className="text-xs text-gray-500 mt-0.5">Stock levels across Shopee, Lazada and TikTok</p>
+          </div>
+          <div className="flex gap-2 self-start md:self-auto">
+            <PrimaryButton
+              onClick={() => {
+                setEditItem(null);
+                setShowAddModal(true);
+              }}
+            >
+              <Plus size={15} />
+              Add product
+            </PrimaryButton>
+            <SecondaryButton
+              onClick={() => {
+                fetchInventory();
+                fetchMaterialAlerts();
+                fetchPendingRequests();
+              }}
+              disabled={loading}
+            >
+              {loading ? "Loading…" : "Refresh"}
+            </SecondaryButton>
+          </div>
         </div>
-        <div className="flex gap-2 self-start md:self-auto">
-          <button
-            onClick={() => {
-              setEditItem(null);
-              setShowAddModal(true);
-            }}
-            className="flex items-center gap-1.5 px-4 py-2 bg-red-700 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors cursor-pointer"
-          >
-            <Plus size={15} />
-            Add Product
-          </button>
-          <button
-            onClick={() => {
-              fetchInventory();
-              fetchMaterialAlerts();
-              fetchPendingRequests();
-            }}
-            disabled={loading}
-            className="px-4 py-2 bg-red-700 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors disabled:opacity-50 cursor-pointer"
-          >
-            {loading ? "↻ Loading…" : "↻ Refresh"}
-          </button>
-        </div>
-      </div>
 
-      {/* Allocation-request notification: Production requests, Inventory approves */}
-      <AllocationRequestsPanel
-        requests={pendingRequests}
-        inventory={inventory}
-        onResolved={() => {
-          fetchPendingRequests();
-          fetchInventory();
-        }}
-      />
-
-      {/* Cross-module alert: Production tells Inventory which raw
-          materials are running out, since that affects whether these
-          finished products can actually be restocked. */}
-      {lowMaterials.length > 0 && (
-        <div className="bg-white rounded-lg shadow border border-amber-200 p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Boxes size={16} className="text-amber-600" />
-            <p className="text-sm font-bold text-gray-700">
-              Production is low on {lowMaterials.length} raw material{lowMaterials.length !== 1 ? "s" : ""}
+        {/* Summary strip */}
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm flex flex-wrap divide-x divide-gray-100">
+          <SummaryStat label="Products" value={filtered.length} />
+          <SummaryStat label="Total stock" value={totalStock.toLocaleString()} />
+          <SummaryStat label="Shopee" value={totals.shopee.toLocaleString()} dot={C.shopee} />
+          <SummaryStat label="Lazada" value={totals.lazada.toLocaleString()} dot={C.lazada} />
+          <SummaryStat label="TikTok" value={totals.tiktok.toLocaleString()} dot={C.tiktok} />
+          <div className="flex-1 min-w-[110px] px-4 py-3">
+            <p className="text-xs text-gray-500">Low stock</p>
+            <p className="text-lg font-semibold mt-0.5" style={{ color: lowCount > 0 ? C.accent : C.text }}>
+              {lowCount}
             </p>
           </div>
-          <p className="text-xs text-gray-500 mb-2">
-            Restocking finished goods that depend on these may be delayed:
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {lowMaterials.map((m) => (
-              <span
-                key={m.id}
-                className={`px-2 py-1 rounded-full text-xs font-medium ${
-                  m.status === "Out of Stock"
-                    ? "bg-red-100 text-red-700"
-                    : "bg-amber-100 text-amber-700"
-                }`}
+        </div>
+
+        {/* Allocation-request notification: Production requests, Inventory approves */}
+        <AllocationRequestsPanel
+          requests={pendingRequests}
+          inventory={inventory}
+          onResolved={() => {
+            fetchPendingRequests();
+            fetchInventory();
+          }}
+        />
+
+        {/* Cross-module alert: raw materials running low, affects restocking */}
+        {lowMaterials.length > 0 && (
+          <div className="bg-white rounded-lg border shadow-sm p-4" style={{ borderColor: C.warningBorder }}>
+            <div className="flex items-center gap-2 mb-2">
+              <Boxes size={15} style={{ color: C.warning }} />
+              <p className="text-sm font-semibold text-gray-800">
+                Production is low on {lowMaterials.length} raw material{lowMaterials.length !== 1 ? "s" : ""}
+              </p>
+            </div>
+            <p className="text-xs text-gray-500 mb-2">Restocking finished goods that depend on these may be delayed:</p>
+            <div className="flex flex-wrap gap-2">
+              {lowMaterials.map((m) => (
+                <span
+                  key={m.id}
+                  className="px-2 py-1 rounded-md text-xs font-medium border"
+                  style={
+                    m.status === "Out of Stock"
+                      ? { color: C.accent, backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder }
+                      : { color: C.warning, backgroundColor: C.warningSoft, borderColor: C.warningBorder }
+                  }
+                >
+                  {m.material_name} · {m.current_stock} {m.unit}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Filters */}
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm px-4 py-3 flex flex-col md:flex-row gap-3 items-center">
+          <div className="relative flex-1">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+              <Search size={16} />
+            </span>
+            <input
+              type="text"
+              placeholder="Search product name or code…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-9 pr-8 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2"
+              style={{ "--tw-ring-color": `${C.accent}33` }}
+              onFocus={(e) => (e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`, e.target.style.borderColor = C.accent)}
+              onBlur={(e) => (e.target.style.boxShadow = "none", e.target.style.borderColor = "#D1D5DB")}
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none cursor-pointer"
               >
-                {m.material_name} · {m.current_stock} {m.unit}
-              </span>
-            ))}
+                ×
+              </button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            {["All", "Men", "Women"].map((cat) => {
+              const active = filterCategory === cat;
+              const activeColor = cat === "Men" ? C.men : cat === "Women" ? C.women : C.accent;
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setFilterCategory(cat)}
+                  className="px-4 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer border"
+                  style={
+                    active
+                      ? { backgroundColor: activeColor, borderColor: activeColor, color: "#fff" }
+                      : { backgroundColor: "#fff", borderColor: "#D1D5DB", color: "#4B5563" }
+                  }
+                >
+                  {cat}
+                </button>
+              );
+            })}
           </div>
         </div>
-      )}
 
-      {/* Filters */}
-      <div className="bg-white rounded-lg shadow px-4 py-3 flex flex-col md:flex-row gap-3 items-center">
-        <div className="relative flex-1">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-            <Search size={18} />
-          </span>
-          <input
-            type="text"
-            placeholder="Search product name or code…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-8 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
-          />
-          {search && (
-            <button
-              onClick={() => setSearch("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none cursor-pointer"
-            >
-              ×
-            </button>
-          )}
-        </div>
-        <div className="flex gap-2">
-          {["All", "Men", "Women"].map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setFilterCategory(cat)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
-                filterCategory === cat
-                  ? cat === "Men"
-                    ? "bg-blue-600 text-white"
-                    : cat === "Women"
-                    ? "bg-pink-500 text-white"
-                    : "bg-red-600 text-white"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
-        <p className="text-sm text-gray-400 whitespace-nowrap">
-          {filtered.length} products
-        </p>
-      </div>
-
-      {/* Table */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm border-collapse border border-gray-300">
-            <thead>
-              <tr>
-                <th className="bg-gray-100 border border-gray-300 w-8" rowSpan={2} />
-                <th
-                  className="bg-gray-100 border border-gray-300 px-3 py-2 text-left text-xs font-bold text-gray-700"
-                  rowSpan={2}
-                >
-                  CODE
-                </th>
-                <th
-                  className="bg-gray-100 border border-gray-300 px-3 py-2 text-left text-xs font-bold text-gray-700 min-w-[200px]"
-                  rowSpan={2}
-                >
-                  PRODUCT NAME
-                </th>
-                <th className="bg-amber-400 text-amber-900 border border-amber-500 px-3 py-1.5 text-center text-xs font-bold">
-                  TOTAL STOCK
-                </th>
-                <th className="bg-[#EE4D2D] text-white border border-red-600 px-3 py-1.5 text-center text-xs font-bold">
-                  SHOPEE
-                </th>
-                <th className="bg-violet-700 text-white border border-indigo-800 px-3 py-1.5 text-center text-xs font-bold">
-                  LAZADA
-                </th>
-                <th className="bg-gray-800 text-white border border-gray-900 px-3 py-1.5 text-center text-xs font-bold">
-                  TIKTOK
-                </th>
-                <th
-                  className="bg-emerald-800 text-white border border-emerald-700 px-3 py-1.5 text-center text-xs font-bold"
-                  rowSpan={1}
-                >
-                  ACTION
-                </th>
-              </tr>
-              <tr>
-                <th className="bg-amber-100 border border-amber-200 px-3 py-1 text-center text-xs font-semibold text-amber-800">
-                  QTY
-                </th>
-                <th className="bg-red-100 border border-red-200 px-3 py-1 text-center text-xs font-semibold text-red-700">
-                  QTY
-                </th>
-                <th className="bg-indigo-100 border border-indigo-200 px-3 py-1 text-center text-xs font-semibold text-indigo-700">
-                  QTY
-                </th>
-                <th className="bg-gray-100 border border-gray-200 px-3 py-1 text-center text-xs font-semibold text-gray-700">
-                  QTY
-                </th>
-                <th className="bg-emerald-100 border border-emerald-200 px-3 py-1 text-center text-xs font-semibold text-emerald-800">
-                  VIEW · EDIT · ARCHIVE
-                </th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {loading ? (
-                [...Array(10)].map((_, i) => (
-                  <tr key={i} className="border-b border-gray-100">
-                    {[...Array(TOTAL_COLS)].map((_, j) => (
-                      <td key={j} className="px-3 py-2">
-                        <div className="h-4 bg-gray-100 rounded animate-pulse" />
-                      </td>
-                    ))}
-                  </tr>
-                ))
-              ) : filtered.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={TOTAL_COLS}
-                    className="px-4 py-12 text-center text-gray-400"
-                  >
-                    <p className="text-4xl mb-2">📦</p>
-                    <p className="font-medium text-gray-500">
-                      No products found
-                    </p>
-                  </td>
+        {/* Table */}
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="bg-gray-900 text-white">
+                  <th className="px-2 py-2.5 w-8" rowSpan={2} />
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide" rowSpan={2}>
+                    CODE
+                  </th>
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide min-w-[220px]" rowSpan={2}>
+                    PRODUCT NAME
+                  </th>
+                  <th className="px-3 py-2 text-center text-xs font-semibold tracking-wide">TOTAL</th>
+                  <th className="px-3 py-2 text-center text-xs font-semibold tracking-wide">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: C.shopee }} />
+                      SHOPEE
+                    </span>
+                  </th>
+                  <th className="px-3 py-2 text-center text-xs font-semibold tracking-wide">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: C.lazada }} />
+                      LAZADA
+                    </span>
+                  </th>
+                  <th className="px-3 py-2 text-center text-xs font-semibold tracking-wide">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-sm inline-block bg-white" />
+                      TIKTOK
+                    </span>
+                  </th>
+                  <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide" rowSpan={1}>
+                    ACTION
+                  </th>
                 </tr>
-              ) : (
-                (() => {
-                  const rows = [];
-                  let rowNum = 1;
-                  let lastCat = null;
+                <tr className="bg-gray-800 text-gray-300">
+                  <th className="px-3 py-1 text-center text-[11px] font-medium">QTY</th>
+                  <th className="px-3 py-1 text-center text-[11px] font-medium">QTY</th>
+                  <th className="px-3 py-1 text-center text-[11px] font-medium">QTY</th>
+                  <th className="px-3 py-1 text-center text-[11px] font-medium">QTY</th>
+                  <th className="px-3 py-1 text-center text-[11px] font-medium">VIEW · EDIT · ARCHIVE</th>
+                </tr>
+              </thead>
 
-                  for (const item of filtered) {
-                    const totalStock = (item.shopee_stock || 0) + (item.lazada_stock || 0) + (item.tiktok_stock || 0);
-                    const threshold = item.reorder_point ?? 5;
-                    const low = totalStock <= threshold;
+              <tbody>
+                {loading ? (
+                  [...Array(10)].map((_, i) => (
+                    <tr key={i} className="border-b border-gray-100">
+                      {[...Array(TOTAL_COLS)].map((_, j) => (
+                        <td key={j} className="px-3 py-2.5">
+                          <div className="h-4 bg-gray-100 rounded animate-pulse" />
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                ) : filtered.length === 0 ? (
+                  <tr>
+                    <td colSpan={TOTAL_COLS} className="px-4 py-14 text-center text-gray-400">
+                      <p className="text-sm font-medium text-gray-500">No products found</p>
+                      <p className="text-xs text-gray-400 mt-1">Try a different search term or category.</p>
+                    </td>
+                  </tr>
+                ) : (
+                  (() => {
+                    const rows = [];
+                    let rowNum = 1;
+                    let lastCat = null;
 
-                    if (item.category !== lastCat) {
+                    for (const item of filtered) {
+                      const total = (item.shopee_stock || 0) + (item.lazada_stock || 0) + (item.tiktok_stock || 0);
+                      const threshold = item.reorder_point ?? 5;
+                      const low = total <= threshold;
+                      const catColor = item.category === "Men" ? C.men : C.women;
+
+                      if (item.category !== lastCat) {
+                        rows.push(
+                          <tr key={`cat-${item.category}`}>
+                            <td
+                              colSpan={TOTAL_COLS}
+                              className="px-3 py-1.5 text-xs font-semibold border-l-4"
+                              style={{ backgroundColor: "#FAFAFA", borderLeftColor: catColor, color: catColor }}
+                            >
+                              {item.category}
+                            </td>
+                          </tr>
+                        );
+                        lastCat = item.category;
+                      }
+
+                      const rowBg = low ? {} : rowNum % 2 === 0 ? { backgroundColor: "#FAFAFA" } : {};
+
                       rows.push(
-                        <tr key={`cat-${item.category}`}>
-                          <td
-                            colSpan={TOTAL_COLS}
-                            className={`px-3 py-1.5 text-xs font-bold text-white border ${
-                              item.category === "Men"
-                                ? "bg-blue-600 border-blue-700"
-                                : "bg-pink-500 border-pink-600"
-                            }`}
-                          >
-                            {item.category.toUpperCase()}
+                        <tr
+                          key={item.id}
+                          className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
+                          style={low ? { backgroundColor: C.accentSoft } : rowBg}
+                        >
+                          <td className="px-2 py-2 text-center text-xs text-gray-400 w-8">{rowNum++}</td>
+
+                          <td className="px-3 py-2 text-xs font-mono text-gray-500 whitespace-nowrap">{item.product_code}</td>
+
+                          <td className="px-3 py-2 text-xs text-gray-800">
+                            <div className="flex items-center gap-2">
+                              {item.product_name}
+                              {low && (
+                                <span
+                                  title={`At or below threshold of ${threshold} — shown on Production's dashboard`}
+                                  className="px-1.5 py-0.5 text-[11px] rounded font-medium shrink-0"
+                                  style={{ color: C.accent, backgroundColor: "#fff", border: `1px solid ${C.accentSoftBorder}` }}
+                                >
+                                  Low stock
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          <td className="px-3 py-2 text-center">
+                            <StockCell item={item} field="stock" accentColor={C.accent} />
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <StockCell item={item} field="shopee_stock" accentColor={C.shopee} />
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <StockCell item={item} field="lazada_stock" accentColor={C.lazada} />
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <StockCell item={item} field="tiktok_stock" accentColor={C.tiktok} />
+                          </td>
+
+                          <td className="px-1.5 py-1.5 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                onClick={() => handleView(item)}
+                                title="View"
+                                className="p-1.5 rounded-md hover:bg-gray-100 transition-colors cursor-pointer"
+                              >
+                                <Eye size={16} className="text-gray-500" />
+                              </button>
+                              <button
+                                onClick={() => handleEdit(item)}
+                                title="Edit"
+                                className="p-1.5 rounded-md hover:bg-gray-100 transition-colors cursor-pointer"
+                              >
+                                <Pencil size={16} className="text-gray-500" />
+                              </button>
+                              <button
+                                onClick={() => handleArchive(item)}
+                                title="Archive"
+                                className="p-1.5 rounded-md hover:bg-gray-100 transition-colors cursor-pointer"
+                              >
+                                <Archive size={16} style={{ color: C.accent }} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
-                      lastCat = item.category;
                     }
+                    return rows;
+                  })()
+                )}
 
-                    const rowBg = low
-                      ? "bg-red-50"
-                      : rowNum % 2 === 0
-                      ? "bg-gray-50 hover:bg-gray-100"
-                      : "bg-white hover:bg-gray-50";
-
-                    rows.push(
-                      <tr
-                        key={item.id}
-                        className={`${rowBg} border-b border-gray-200 transition-colors`}
-                      >
-                        <td className="px-2 py-1.5 text-center text-xs text-gray-400 bg-gray-50 border-r border-gray-200 w-8">
-                          {rowNum++}
-                        </td>
-
-                        <td className="px-3 py-1.5 text-xs font-mono text-gray-500 border-r border-gray-200 whitespace-nowrap">
-                          {item.product_code}
-                        </td>
-
-                        <td className="px-3 py-1.5 text-xs text-gray-800 border-r border-gray-200">
-                          <div className="flex items-center gap-2">
-                            {item.product_name}
-                            {low && (
-                              <span
-                                title={`At or below threshold of ${threshold} — visible on Production's dashboard`}
-                                className="px-1.5 py-0.5 bg-red-100 text-red-600 text-xs rounded font-medium shrink-0"
-                              >
-                                Low
-                              </span>
-                            )}
-                          </div>
-                        </td>
-
-                        <td className="px-3 py-1.5 text-center border-r border-amber-200">
-                          {editingStock?.id === item.id && editingStock.field === 'stock' ? (
-                            <input
-                              type="number"
-                              min="0"
-                              value={editingStock.value}
-                              onChange={(e) =>
-                                setEditingStock({
-                                  ...editingStock,
-                                  value: e.target.value,
-                                })
-                              }
-                              onBlur={() => {
-                                if (editingStock) {
-                                  saveStock(item.id, editingStock.field, editingStock.value);
-                                  setEditingStock(null);
-                                }
-                              }}
-                              onKeyDown={(e) => handleKeyDown(e, item.id)}
-                              autoFocus
-                              className="w-16 text-center text-xs border border-amber-400 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-amber-400"
-                            />
-                          ) : (
-                            <button
-                              onClick={() => handleStockEdit(item, 'stock')}
-                              title="Click to edit total stock"
-                              className={`text-xs font-bold px-2 py-0.5 rounded cursor-pointer hover:ring-2 hover:ring-amber-400 transition-all ${
-                                low ? "text-red-700 bg-red-100" : "text-black"
-                              }`}
-                            >
-                              {totalStock}
-                            </button>
-                          )}
-                        </td>
-
-                        <td className="px-3 py-1.5 text-center text-xs font-semibold border-r border-red-100">
-                          {editingStock?.id === item.id && editingStock.field === 'shopee_stock' ? (
-                            <input
-                              type="number"
-                              min="0"
-                              value={editingStock.value}
-                              onChange={(e) =>
-                                setEditingStock({
-                                  ...editingStock,
-                                  value: e.target.value,
-                                })
-                              }
-                              onBlur={() => {
-                                if (editingStock) {
-                                  saveStock(item.id, editingStock.field, editingStock.value);
-                                  setEditingStock(null);
-                                }
-                              }}
-                              onKeyDown={(e) => handleKeyDown(e, item.id)}
-                              autoFocus
-                              className="w-16 text-center text-xs border border-red-400 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-red-400"
-                            />
-                          ) : (
-                            <button
-                              onClick={() => handleStockEdit(item, 'shopee_stock')}
-                              title="Click to edit Shopee stock"
-                              className="text-xs font-semibold px-2 py-0.5 rounded cursor-pointer hover:ring-2 hover:ring-red-400 transition-all"
-                            >
-                              {item.shopee_stock || 0}
-                            </button>
-                          )}
-                        </td>
-
-                        <td className="px-3 py-1.5 text-center text-xs font-semibold border-r border-indigo-100">
-                          {editingStock?.id === item.id && editingStock.field === 'lazada_stock' ? (
-                            <input
-                              type="number"
-                              min="0"
-                              value={editingStock.value}
-                              onChange={(e) =>
-                                setEditingStock({
-                                  ...editingStock,
-                                  value: e.target.value,
-                                })
-                              }
-                              onBlur={() => {
-                                if (editingStock) {
-                                  saveStock(item.id, editingStock.field, editingStock.value);
-                                  setEditingStock(null);
-                                }
-                              }}
-                              onKeyDown={(e) => handleKeyDown(e, item.id)}
-                              autoFocus
-                              className="w-16 text-center text-xs border border-indigo-400 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-                            />
-                          ) : (
-                            <button
-                              onClick={() => handleStockEdit(item, 'lazada_stock')}
-                              title="Click to edit Lazada stock"
-                              className="text-xs font-semibold px-2 py-0.5 rounded cursor-pointer hover:ring-2 hover:ring-indigo-400 transition-all"
-                            >
-                              {item.lazada_stock || 0}
-                            </button>
-                          )}
-                        </td>
-
-                        <td className="px-3 py-1.5 text-center text-xs font-semibold border-r border-gray-200">
-                          {editingStock?.id === item.id && editingStock.field === 'tiktok_stock' ? (
-                            <input
-                              type="number"
-                              min="0"
-                              value={editingStock.value}
-                              onChange={(e) =>
-                                setEditingStock({
-                                  ...editingStock,
-                                  value: e.target.value,
-                                })
-                              }
-                              onBlur={() => {
-                                if (editingStock) {
-                                  saveStock(item.id, editingStock.field, editingStock.value);
-                                  setEditingStock(null);
-                                }
-                              }}
-                              onKeyDown={(e) => handleKeyDown(e, item.id)}
-                              autoFocus
-                              className="w-16 text-center text-xs border border-gray-400 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-gray-400"
-                            />
-                          ) : (
-                            <button
-                              onClick={() => handleStockEdit(item, 'tiktok_stock')}
-                              title="Click to edit TikTok stock"
-                              className="text-xs font-semibold px-2 py-0.5 rounded cursor-pointer hover:ring-2 hover:ring-gray-400 transition-all"
-                            >
-                              {item.tiktok_stock || 0}
-                            </button>
-                          )}
-                        </td>
-
-                        <td className="px-1.5 py-1 text-center border border-gray-300">
-                          <div className="flex items-center justify-center gap-5">
-                            <button
-                              onClick={() => handleView(item)}
-                              title="View"
-                              className="p-0.5 rounded hover:bg-blue-100 transition-colors cursor-pointer"
-                            >
-                              <Eye size={20} className="text-blue-600" />
-                            </button>
-                            <button
-                              onClick={() => handleEdit(item)}
-                              title="Edit"
-                              className="p-0.5 rounded hover:bg-amber-100 transition-colors cursor-pointer"
-                            >
-                              <Pencil size={20} className="text-amber-600" />
-                            </button>
-                            <button
-                              onClick={() => handleArchive(item)}
-                              title="Archive"
-                              className="p-0.5 rounded hover:bg-pink-100 transition-colors cursor-pointer"
-                            >
-                              <Archive size={20} className="text-pink-600" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  }
-                  return rows;
-                })()
-              )}
-
-              {!loading && filtered.length > 0 && (
-                <tr className="bg-amber-400 border-t-2 border-amber-500 font-bold">
-                  <td className="px-2 py-2 text-center text-xs text-amber-900 border-r border-amber-500">
-                    —
-                  </td>
-                  <td className="border-r border-amber-500" />
-                  <td className="px-3 py-2 text-xs text-amber-900 border-r border-amber-500">
-                    TOTAL ({filtered.length} products)
-                  </td>
-                  <td className="px-3 py-2 text-center text-xs font-bold text-amber-900 border-r border-amber-500">
-                    {totalStock.toLocaleString()}
-                  </td>
-                  <td className="px-3 py-2 text-center text-xs font-bold text-red-900 border-r border-amber-500">
-                    {totals.shopee.toLocaleString()}
-                  </td>
-                  <td className="px-3 py-2 text-center text-xs font-bold text-indigo-900 border-r border-amber-500">
-                    {totals.lazada.toLocaleString()}
-                  </td>
-                  <td className="px-3 py-2 text-center text-xs font-bold text-gray-900 border-r border-amber-500">
-                    {totals.tiktok.toLocaleString()}
-                  </td>
-                  <td className="px-3 py-2 text-center text-xs font-bold text-gray-900">
-                    —
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Legend */}
-      <div className="flex gap-4 flex-wrap text-xs text-gray-500 pb-2">
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded bg-red-100 border border-red-300 inline-block" />
-          Low stock (at or below each product's threshold, default 5) — also shown on Production's dashboard
-        </span>
-      </div>
-
-      {/* Modals */}
-      {showAddModal && (
-        <AddProductModal
-          onClose={() => {
-            setShowAddModal(false);
-            setEditItem(null);
-          }}
-          onSaved={fetchInventory}
-          editItem={editItem}
-        />
-      )}
-
-      {showViewModal && selectedItem && (
-        <ViewProductModal
-          item={selectedItem}
-          onClose={() => {
-            setShowViewModal(false);
-            setSelectedItem(null);
-          }}
-        />
-      )}
-
-      {showArchiveModal && itemToArchive && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <h2 className="text-base font-bold text-gray-800">
-                Archive Product
-              </h2>
-              <button
-                onClick={() => {
-                  setShowArchiveModal(false);
-                  setItemToArchive(null);
-                }}
-                className="text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="px-6 py-4">
-              <p className="text-sm text-gray-600">
-                Are you sure you want to archive{" "}
-                <span className="font-semibold">
-                  {itemToArchive.product_name}
-                </span>
-                ? This action cannot be undone.
-              </p>
-            </div>
-
-            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
-              <button
-                onClick={() => {
-                  setShowArchiveModal(false);
-                  setItemToArchive(null);
-                }}
-                className="px-4 py-2 text-sm text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmArchive}
-                disabled={saving}
-                className="px-5 py-2 text-sm font-semibold text-white bg-red-700 rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors cursor-pointer"
-              >
-                {saving ? "Archiving…" : "Archive"}
-              </button>
-            </div>
+                {!loading && filtered.length > 0 && (
+                  <tr className="border-t-2 font-semibold" style={{ borderTopColor: C.accent, backgroundColor: "#FAFAFA" }}>
+                    <td className="px-2 py-2.5 text-center text-xs text-gray-400">—</td>
+                    <td />
+                    <td className="px-3 py-2.5 text-xs text-gray-700">TOTAL ({filtered.length})</td>
+                    <td className="px-3 py-2.5 text-center text-xs text-gray-900">{totalStock.toLocaleString()}</td>
+                    <td className="px-3 py-2.5 text-center text-xs" style={{ color: C.shopee }}>{totals.shopee.toLocaleString()}</td>
+                    <td className="px-3 py-2.5 text-center text-xs" style={{ color: C.lazada }}>{totals.lazada.toLocaleString()}</td>
+                    <td className="px-3 py-2.5 text-center text-xs text-gray-900">{totals.tiktok.toLocaleString()}</td>
+                    <td className="px-3 py-2.5 text-center text-xs text-gray-400">—</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
-      )}
+
+        {/* Legend */}
+        <div className="flex gap-4 flex-wrap text-xs text-gray-500 pb-2">
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded-sm inline-block border" style={{ backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder }} />
+            Low stock — at or below each product's threshold (default 5), also shown on Production's dashboard
+          </span>
+        </div>
+
+        {/* Modals */}
+        {showAddModal && (
+          <AddProductModal
+            onClose={() => {
+              setShowAddModal(false);
+              setEditItem(null);
+            }}
+            onSaved={fetchInventory}
+            editItem={editItem}
+          />
+        )}
+
+        {showViewModal && selectedItem && (
+          <ViewProductModal
+            item={selectedItem}
+            onClose={() => {
+              setShowViewModal(false);
+              setSelectedItem(null);
+            }}
+          />
+        )}
+
+        {showArchiveModal && itemToArchive && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+            <div className="bg-white rounded-lg shadow-xl border border-gray-200 w-full max-w-md">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+                <h2 className="text-sm font-semibold text-gray-900">Archive product</h2>
+                <button
+                  onClick={() => {
+                    setShowArchiveModal(false);
+                    setItemToArchive(null);
+                  }}
+                  className="text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="px-5 py-4">
+                <p className="text-sm text-gray-600">
+                  Archive <span className="font-medium text-gray-800">{itemToArchive.product_name}</span>? This can't be undone.
+                </p>
+              </div>
+
+              <div className="px-5 py-4 border-t border-gray-200 flex justify-end gap-2">
+                <SecondaryButton
+                  onClick={() => {
+                    setShowArchiveModal(false);
+                    setItemToArchive(null);
+                  }}
+                >
+                  Cancel
+                </SecondaryButton>
+                <PrimaryButton onClick={confirmArchive} disabled={saving}>
+                  {saving ? "Archiving…" : "Archive"}
+                </PrimaryButton>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
