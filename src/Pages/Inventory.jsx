@@ -703,9 +703,9 @@ function Inventory() {
         {/* Header */}
         <div className="bg-white rounded-lg border border-gray-200 shadow-sm px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
-            <h1 className="text-lg font-semibold text-gray-900">Inventory — Products</h1>
-            <p className="text-xs text-gray-500 mt-0.5">Stock levels across Shopee, Lazada and TikTok</p>
-          </div>
+            <h1 className="text-lg font-semibold text-gray-900">Inventory - Products</h1>
+            </div>
+           
           <div className="flex gap-2 self-start md:self-auto">
             <PrimaryButton
               onClick={() => {
@@ -819,7 +819,7 @@ function Inventory() {
                   style={
                     active
                       ? { backgroundColor: activeColor, borderColor: activeColor, color: "#fff" }
-                      : { backgroundColor: "#fff", borderColor: "#D1D5DB", color: "#4B5563" }
+                      : { backgroundColor: "#fff", borderColor: "#D1D5DB", color: "#142947" }
                   }
                 >
                   {cat}
@@ -834,7 +834,7 @@ function Inventory() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm border-collapse">
               <thead>
-                <tr className="bg-gray-900 text-white">
+                <tr className="bg-red-900 text-white">
                   <th className="px-2 py-2.5 w-8" rowSpan={2} />
                   <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide" rowSpan={2}>
                     CODE
@@ -865,7 +865,7 @@ function Inventory() {
                     ACTION
                   </th>
                 </tr>
-                <tr className="bg-gray-800 text-gray-300">
+                <tr className="bg-red-800 text-gray-300">
                   <th className="px-3 py-1 text-center text-[11px] font-medium">QTY</th>
                   <th className="px-3 py-1 text-center text-[11px] font-medium">QTY</th>
                   <th className="px-3 py-1 text-center text-[11px] font-medium">QTY</th>
@@ -964,21 +964,21 @@ function Inventory() {
                               <button
                                 onClick={() => handleView(item)}
                                 title="View"
-                                className="p-1.5 rounded-md hover:bg-gray-100 transition-colors cursor-pointer"
+                                className="p-1.5 rounded-md hover:bg-red-200 transition-colors cursor-pointer"
                               >
                                 <Eye size={16} className="text-gray-500" />
                               </button>
                               <button
                                 onClick={() => handleEdit(item)}
                                 title="Edit"
-                                className="p-1.5 rounded-md hover:bg-gray-100 transition-colors cursor-pointer"
+                                className="p-1.5 rounded-md hover:bg-red-200 transition-colors cursor-pointer"
                               >
                                 <Pencil size={16} className="text-gray-500" />
                               </button>
                               <button
                                 onClick={() => handleArchive(item)}
                                 title="Archive"
-                                className="p-1.5 rounded-md hover:bg-gray-100 transition-colors cursor-pointer"
+                                className="p-1.5 rounded-md hover:bg-red-200 transition-colors cursor-pointer"
                               >
                                 <Archive size={16} style={{ color: C.accent }} />
                               </button>
