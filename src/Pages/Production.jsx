@@ -7,6 +7,8 @@ import {
   Bar,
   LineChart,
   Line,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -18,23 +20,32 @@ import {
 } from "recharts";
 import { supabase } from "../api/supabase";
 
+/* ---------------------------------------------------------------------
+ * Design tokens (ISONFAM ERP) — shared conventions with Sales_db.jsx.
+ * Red is reserved for the primary action and true alerts (low/out of
+ * stock); status and platform colors use their own semantic palette
+ * so red keeps its meaning as "needs attention".
+ * ------------------------------------------------------------------- */
+const ACCENT = "#9A1B1B";
+const ACCENT_HOVER = "#7F1616";
+
 const PLATFORM_BADGE = {
-  shopee: "bg-orange-100 text-orange-700",
-  lazada: "bg-purple-100 text-purple-700",
-  tiktok: "bg-gray-200 text-gray-800",
+  shopee: "bg-orange-50 text-orange-700",
+  lazada: "bg-indigo-50 text-indigo-700",
+  tiktok: "bg-gray-100 text-gray-800",
 };
 
 const PLATFORM_HEX = {
-  shopee: "#EE4D2D",
-  lazada: "#7C3AED",
-  tiktok: "#1f2937",
+  shopee: "#E1571F",
+  lazada: "#5B4B93",
+  tiktok: "#111827",
 };
 
 const WO_STATUS_HEX = {
-  Pending: "#f59e0b",
-  "In Progress": "#dc2626",
-  Completed: "#9ca3af",
-  Cancelled: "#d1d5db",
+  Pending: "#D97706",
+  "In Progress": "#2563EB",
+  Completed: "#059669",
+  Cancelled: "#9CA3AF",
 };
 
 const DATE_RANGE_OPTIONS = [
@@ -45,6 +56,15 @@ const DATE_RANGE_OPTIONS = [
 ];
 
 const FINISHED_GOODS_PAGE_SIZE = 6;
+
+const CARD = "bg-white rounded-md border border-gray-200 shadow-sm";
+const SEGMENT_WRAP = "flex gap-0.5 bg-gray-100 rounded-md p-0.5";
+const SEGMENT_BTN = (active) =>
+  `px-2.5 py-1 text-xs font-medium rounded transition-colors cursor-pointer ${
+    active ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
+  }`;
+const PRIMARY_BTN =
+  "px-3.5 py-2 rounded-md text-sm font-medium text-white transition-colors disabled:opacity-50 cursor-pointer";
 
 // Build a YYYY-MM-DD key from a Date's LOCAL calendar fields.
 // Never use toISOString() for this: it converts to UTC first, which
@@ -67,22 +87,22 @@ function ChartTooltip({ active, payload }) {
   if (!active || !payload?.length) return null;
   const d = payload[0];
   return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs">
+    <div className="bg-white border border-gray-200 rounded-md shadow-md px-3 py-2 text-xs">
       <p className="font-semibold text-gray-700 capitalize">{d.name}</p>
       <p className="text-gray-600">{d.value}</p>
     </div>
   );
 }
 
-function Skeleton({ className = "h-8 w-16" }) {
+function Skeleton({ className = "h-7 w-16" }) {
   return <div className={`${className} bg-gray-100 rounded animate-pulse mt-1`} />;
 }
 
-function StatCard({ label, value, sub, color = "text-gray-800", loading }) {
+function StatCard({ label, value, sub, color = "text-gray-900", loading }) {
   return (
-    <div className="bg-white rounded-lg shadow p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">{label}</p>
-      {loading ? <Skeleton /> : <p className={`text-3xl font-bold mt-1 ${color}`}>{value}</p>}
+    <div className={`${CARD} p-4`}>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{label}</p>
+      {loading ? <Skeleton /> : <p className={`text-2xl font-semibold mt-1 ${color}`}>{value}</p>}
       {sub && <p className="text-xs mt-1 text-gray-400">{sub}</p>}
     </div>
   );
@@ -279,17 +299,20 @@ function Production() {
       .map(([status, count]) => ({ name: status, value: count, color: WO_STATUS_HEX[status] }));
   }, [workOrders]);
 
-  // Output by day, last 7 days (local date keys, not UTC)
-  const outputChartData = useMemo(() => {
+  // Output trend, last 30 days (local date keys, not UTC). Replaces the
+  // old 7-day bar chart with a line/area trend, mirroring the Sales
+  // dashboard's "Sales trend" chart so production and sales read the
+  // same way at a glance.
+  const outputTrendData = useMemo(() => {
     const days = [];
     const today = new Date();
-    for (let i = 6; i >= 0; i--) {
+    for (let i = 29; i >= 0; i--) {
       const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
       const key = localDateKey(d);
       const qty = output
         .filter((o) => o.production_date === key)
         .reduce((sum, o) => sum + Number(o.quantity), 0);
-      days.push({ label: d.toLocaleDateString(undefined, { weekday: "short" }), qty });
+      days.push({ label: d.toLocaleDateString(undefined, { month: "short", day: "numeric" }), qty });
     }
     return days;
   }, [output]);
@@ -335,7 +358,7 @@ function Production() {
           name: m.material_name,
           qty: m.current_stock,
           unit: m.unit,
-          color: m.status === "Out of Stock" ? "#dc2626" : "#f59e0b",
+          color: m.status === "Out of Stock" ? "#B42318" : "#D97706",
         })),
     [lowMaterials]
   );
@@ -366,14 +389,17 @@ function Production() {
   if (errorMsg && workOrders.length === 0) {
     return (
       <div className="p-6">
-        <div className="bg-white rounded-lg shadow p-6 border border-red-200">
-          <h1 className="text-2xl font-bold text-gray-800 mb-2">Production - Dashboard</h1>
-          <p className="text-sm text-red-600 mb-4">{errorMsg}</p>
+        <div className={`${CARD} p-6 border-red-200`}>
+          <h1 className="text-lg font-semibold text-gray-900 mb-2">Production — Dashboard</h1>
+          <p className="text-sm text-red-700 mb-4">{errorMsg}</p>
           <button
             onClick={fetchAll}
-            className="px-4 py-2 bg-red-700 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors"
+            className={PRIMARY_BTN}
+            style={{ background: ACCENT }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = ACCENT_HOVER)}
+            onMouseLeave={(e) => (e.currentTarget.style.background = ACCENT)}
           >
-            ↻ Retry
+            Retry
           </button>
         </div>
       </div>
@@ -382,21 +408,24 @@ function Production() {
 
   return (
     <div className="p-6 space-y-4">
-      <div className="bg-white rounded-lg shadow p-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <div className={`${CARD} p-5 flex flex-col md:flex-row md:items-center justify-between gap-3`}>
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Production - Dashboard</h1>
+          <h1 className="text-lg font-semibold text-gray-900">Production — Dashboard</h1>
         </div>
         <button
           onClick={fetchAll}
           disabled={loading}
-          className="px-4 py-2 bg-red-700 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors disabled:opacity-50 cursor-pointer self-start md:self-auto"
+          className={`${PRIMARY_BTN} self-start md:self-auto`}
+          style={{ background: ACCENT }}
+          onMouseEnter={(e) => !loading && (e.currentTarget.style.background = ACCENT_HOVER)}
+          onMouseLeave={(e) => (e.currentTarget.style.background = ACCENT)}
         >
-          {loading ? "↻ Loading…" : "↻ Refresh"}
+          {loading ? "Loading…" : "Refresh"}
         </button>
       </div>
 
       {softErrors.length > 0 && (
-        <div className="bg-white border border-amber-300 text-amber-700 rounded-lg shadow p-3 text-xs space-y-0.5">
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-md p-3 text-xs space-y-0.5">
           {softErrors.map((msg) => (
             <p key={msg}>{msg}</p>
           ))}
@@ -422,7 +451,7 @@ function Production() {
           label="Pending allocation"
           value={pendingOutputQty.toLocaleString()}
           sub={`${pendingOutput.length} batch(es) to Finished Goods`}
-          color="text-amber-600"
+          color="text-amber-700"
           loading={loading}
         />
         <StatCard
@@ -450,20 +479,16 @@ function Production() {
 
       {/* Ready to Ship by platform + Work order status */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 bg-white rounded-lg shadow p-6">
+        <div className={`lg:col-span-2 ${CARD} p-5`}>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
-            <h2 className="text-sm font-bold text-gray-700">Ready to Ship by platform</h2>
+            <h2 className="text-sm font-semibold text-gray-800">Ready to Ship by platform</h2>
             <div className="flex gap-2 flex-wrap">
-              <div className="flex gap-1">
+              <div className={SEGMENT_WRAP}>
                 {["all", "shopee", "lazada", "tiktok"].map((p) => (
                   <button
                     key={p}
                     onClick={() => setRtsPlatform(p)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-medium capitalize transition-colors cursor-pointer ${
-                      rtsPlatform === p
-                        ? "bg-red-600 text-white"
-                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                    }`}
+                    className={`${SEGMENT_BTN(rtsPlatform === p)} capitalize`}
                   >
                     {p === "all" ? "All" : p}
                   </button>
@@ -472,7 +497,7 @@ function Production() {
               <select
                 value={rtsDateRange}
                 onChange={(e) => setRtsDateRange(e.target.value)}
-                className="px-2.5 py-1 border border-gray-200 rounded-lg text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-red-300 bg-white cursor-pointer"
+                className="px-2.5 py-1 border border-gray-200 rounded-md text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-300 bg-white cursor-pointer"
               >
                 {DATE_RANGE_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -514,16 +539,16 @@ function Production() {
                     >
                       {p.name}
                     </span>
-                    <span className="text-sm font-bold text-gray-700">{p.value} orders</span>
+                    <span className="text-sm font-semibold text-gray-700">{p.value} orders</span>
                   </div>
                 ))}
                 <div className="pt-3 border-t border-gray-100 flex items-center justify-between">
                   <span className="text-xs font-semibold text-gray-500">Shipped today</span>
-                  <span className="text-sm font-bold text-emerald-700">{shippedTodayCount}</span>
+                  <span className="text-sm font-semibold text-emerald-700">{shippedTodayCount}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold text-gray-500">Filtered value</span>
-                  <span className="text-sm font-bold text-indigo-700">
+                  <span className="text-sm font-semibold text-indigo-700">
                     PHP {filteredReadyValue.toLocaleString("en-PH", { minimumFractionDigits: 2 })}
                   </span>
                 </div>
@@ -532,8 +557,8 @@ function Production() {
           )}
         </div>
 
-        <div className="lg:col-span-1 bg-white rounded-lg shadow p-6">
-          <h2 className="text-sm font-bold text-gray-700 mb-1">Work order status</h2>
+        <div className={`lg:col-span-1 ${CARD} p-5`}>
+          <h2 className="text-sm font-semibold text-gray-800 mb-1">Work order status</h2>
           {loading ? (
             <Skeleton className="h-40 w-full" />
           ) : woStatusChartData.length === 0 ? (
@@ -573,40 +598,61 @@ function Production() {
         </div>
       </div>
 
-      {/* Output last 7 days + Materials needing reorder */}
+      {/* Output trend (30 days) + Materials needing reorder */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 bg-white rounded-lg shadow p-6">
-          <h2 className="text-sm font-bold text-gray-700 mb-4">Output, last 7 days</h2>
+        <div className={`lg:col-span-2 ${CARD} p-5`}>
+          <h2 className="text-sm font-semibold text-gray-800 mb-4">Production output trend, last 30 days</h2>
           {loading ? (
             <Skeleton className="h-56 w-full" />
           ) : (
             <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={outputChartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} allowDecimals={false} />
+              <AreaChart data={outputTrendData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="outputFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={ACCENT} stopOpacity={0.22} />
+                    <stop offset="100%" stopColor={ACCENT} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f1" vertical={false} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 10, fill: "#6b7280" }}
+                  axisLine={false}
+                  tickLine={false}
+                  interval={4}
+                />
+                <YAxis tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <Tooltip
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
                     return (
-                      <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs">
+                      <div className="bg-white border border-gray-200 rounded-md shadow-md px-3 py-2 text-xs">
                         <p className="font-semibold text-gray-700">{label}</p>
-                        <p className="text-gray-600">{payload[0].value} units produced</p>
+                        <p style={{ color: ACCENT }}>{payload[0].value} units produced</p>
                       </div>
                     );
                   }}
                 />
-                <Bar dataKey="qty" fill="#b91c1c" radius={[6, 6, 0, 0]} barSize={28} />
-              </BarChart>
+                <Area
+                  type="monotone"
+                  dataKey="qty"
+                  name="Units produced"
+                  stroke={ACCENT}
+                  strokeWidth={2}
+                  fill="url(#outputFill)"
+                  dot={false}
+                  activeDot={{ r: 4 }}
+                />
+              </AreaChart>
             </ResponsiveContainer>
           )}
         </div>
 
-        <div className="lg:col-span-1 bg-white rounded-lg shadow p-6">
-          <h2 className="text-sm font-bold text-gray-700 mb-4">
+        <div className={`lg:col-span-1 ${CARD} p-5`}>
+          <h2 className="text-sm font-semibold text-gray-800 mb-4">
             Materials needing reorder
             {!loading && (
-              <span className="ml-2 px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded font-medium">
+              <span className="ml-2 px-2 py-0.5 bg-amber-50 text-amber-700 text-xs rounded font-medium">
                 {lowMaterials.length}
               </span>
             )}
@@ -623,8 +669,8 @@ function Production() {
                 margin={{ top: 0, right: 30, left: 8, bottom: 0 }}
                 barCategoryGap={8}
               >
-                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 10, fill: "#000000" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f1" horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 10, fill: "#6b7280" }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <YAxis
                   type="category"
                   dataKey="name"
@@ -638,7 +684,7 @@ function Production() {
                     if (!active || !payload?.length) return null;
                     const d = payload[0].payload;
                     return (
-                      <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs">
+                      <div className="bg-white border border-gray-200 rounded-md shadow-md px-3 py-2 text-xs">
                         <p className="font-semibold text-gray-700">{d.name}</p>
                         <p className="text-gray-600">
                           {d.qty} {d.unit} left
@@ -660,21 +706,21 @@ function Production() {
 
       {/* Material usage trend + Top produced products */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-sm font-bold text-gray-700 mb-4">Material usage, last 7 days</h2>
+        <div className={`${CARD} p-5`}>
+          <h2 className="text-sm font-semibold text-gray-800 mb-4">Material usage, last 7 days</h2>
           {loading ? (
             <Skeleton className="h-48 w-full" />
           ) : (
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={usageChartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f1" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <Tooltip
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
                     return (
-                      <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs">
+                      <div className="bg-white border border-gray-200 rounded-md shadow-md px-3 py-2 text-xs">
                         <p className="font-semibold text-gray-700">{label}</p>
                         <p className="text-gray-600">{payload[0].value} units used</p>
                       </div>
@@ -684,9 +730,9 @@ function Production() {
                 <Line
                   type="monotone"
                   dataKey="qty"
-                  stroke="#f59e0b"
-                  strokeWidth={2.5}
-                  dot={{ r: 3, fill: "#f59e0b" }}
+                  stroke="#D97706"
+                  strokeWidth={2}
+                  dot={{ r: 3, fill: "#D97706" }}
                   activeDot={{ r: 5 }}
                 />
               </LineChart>
@@ -694,8 +740,8 @@ function Production() {
           )}
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-sm font-bold text-gray-700 mb-4">Top produced products, last 30 days</h2>
+        <div className={`${CARD} p-5`}>
+          <h2 className="text-sm font-semibold text-gray-800 mb-4">Top produced products, last 30 days</h2>
           {loading ? (
             <Skeleton className="h-48 w-full" />
           ) : topProductsChartData.length === 0 ? (
@@ -708,8 +754,8 @@ function Production() {
                 margin={{ top: 0, right: 40, left: 8, bottom: 0 }}
                 barCategoryGap={10}
               >
-                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 11, fill: "#000000" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f1" horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <YAxis
                   type="category"
                   dataKey="name"
@@ -719,7 +765,7 @@ function Production() {
                   tickLine={false}
                 />
                 <Tooltip content={<ChartTooltip />} />
-                <Bar dataKey="qty" fill="#059669" radius={[0, 6, 6, 0]} barSize={20}>
+                <Bar dataKey="qty" fill="#059669" radius={[0, 4, 4, 0]} barSize={20}>
                   <LabelList dataKey="qty" position="right" style={{ fontSize: 11, fill: "#374151", fontWeight: 600 }} />
                 </Bar>
               </BarChart>
@@ -733,13 +779,13 @@ function Production() {
           threshold the Products page displays. Paginated since this list
           can grow past what's comfortable to scan in one grid. */}
       {!loading && finishedGoodsLow.length > 0 && (
-        <div className="bg-white rounded-lg shadow border border-red-200 p-6">
+        <div className={`${CARD} border-red-200 p-5`}>
           <div className="flex items-center gap-2 mb-4">
-            <PackageMinus size={18} className="text-red-600" />
-            <h2 className="text-sm font-bold text-gray-700">
+            <PackageMinus size={18} className="text-red-700" />
+            <h2 className="text-sm font-semibold text-gray-800">
               Finished goods running low, from Inventory
             </h2>
-            <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs rounded font-medium">
+            <span className="px-2 py-0.5 bg-red-50 text-red-700 text-xs rounded font-medium">
               {finishedGoodsLow.length}
             </span>
           </div>
@@ -747,7 +793,7 @@ function Production() {
             {finishedGoodsLowPage.map((p) => (
               <div
                 key={p.id}
-                className="flex items-center justify-between rounded-lg border border-red-200 bg-red-50/40 px-3 py-2"
+                className="flex items-center justify-between rounded-md border border-red-200 bg-red-50/40 px-3 py-2"
               >
                 <div className="min-w-0">
                   <p className="text-xs font-medium text-gray-700 truncate">{p.product_name}</p>
@@ -755,7 +801,7 @@ function Production() {
                     {p.product_code} {p.category ? `, ${p.category}` : ""}
                   </p>
                 </div>
-                <span className="ml-3 shrink-0 px-1.5 py-0.5 text-xs rounded font-medium bg-red-100 text-red-700">
+                <span className="ml-3 shrink-0 px-1.5 py-0.5 text-xs rounded font-medium bg-red-50 text-red-700">
                   {p.totalStock} / {p.threshold} left
                 </span>
               </div>
@@ -767,7 +813,7 @@ function Production() {
               <button
                 onClick={() => setFinishedGoodsPage((p) => Math.max(0, p - 1))}
                 disabled={finishedGoodsPage === 0}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                className="px-3 py-1.5 rounded-md text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
               >
                 Prev
               </button>
@@ -777,7 +823,8 @@ function Production() {
               <button
                 onClick={() => setFinishedGoodsPage((p) => Math.min(finishedGoodsPageCount - 1, p + 1))}
                 disabled={finishedGoodsPage >= finishedGoodsPageCount - 1}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                className={`px-3 py-1.5 rounded-md text-xs font-medium text-white disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors`}
+                style={{ background: finishedGoodsPage >= finishedGoodsPageCount - 1 ? undefined : ACCENT }}
               >
                 Next
               </button>
@@ -790,8 +837,8 @@ function Production() {
         </div>
       )}
 
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-sm font-bold text-gray-700 mb-4">Recent activity</h2>
+      <div className={`${CARD} p-5`}>
+        <h2 className="text-sm font-semibold text-gray-800 mb-4">Recent activity</h2>
         {loading ? (
           <div className="space-y-3">
             {[1, 2, 3].map((i) => (

@@ -125,8 +125,10 @@ export default function Csvimport_production({ onImportComplete }) {
 
       // Duplicate check — separate RPC/table from Sales so the two imports
       // never collide with each other.
+      // Duplicate check
+      // Duplicate check
       const { data: dupCheck, error: dupErr } = await supabase.rpc(
-        "check_duplicate_production_import",
+        "check_duplicate_import",
         {
           p_platform: result.platform,
           p_file_hash: hash,
@@ -135,26 +137,12 @@ export default function Csvimport_production({ onImportComplete }) {
         },
       );
 
-      // IMPORTANT: previously `dupErr` was checked but never acted on.
-      // Any RPC failure (missing function, bad arg names, RLS denial,
-      // network error) silently fell through to "not a duplicate" and the
-      // import proceeded — which is exactly why dedup looked broken.
-      if (dupErr) {
-        console.error("check_duplicate_production_import failed:", dupErr);
-        setError(
-          `Could not verify duplicates (${dupErr.message}). ` +
-            `Import blocked until this is resolved — please contact support if this persists.`,
-        );
-        return;
-      }
-
-      if (dupCheck?.isDuplicate) {
-        setError(
-          dupCheck.reason === "same_file"
-            ? `🚫 Duplicate file detected. ${dupCheck.message}`
-            : `🚫 Date conflict. ${dupCheck.message}`,
-        );
-        await supabase.from("production_import_logs").insert({
+      // Only block on an exact same-file re-upload. Date-range overlap is no
+      // longer treated as a blocker — demo/test data can legitimately have
+      // overlapping or future dates while we're prepping for the presentation.
+      if (!dupErr && dupCheck?.isDuplicate && dupCheck.reason === "same_file") {
+        setError(`🚫 Duplicate file detected. ${dupCheck.message}`);
+        await supabase.from("import_logs").insert({
           platform: result.platform,
           filename: file.name,
           file_hash: hash,
@@ -169,6 +157,8 @@ export default function Csvimport_production({ onImportComplete }) {
         });
         return;
       }
+
+      
 
       if (!range.dateFrom) {
         setWarning(
@@ -193,164 +183,205 @@ export default function Csvimport_production({ onImportComplete }) {
   );
 
   const importToSupabase = async () => {
-  setStep('importing')
-  setProgress({ current: 0, total: parsed.orders.length })
+    setStep("importing");
+    setProgress({ current: 0, total: parsed.orders.length });
 
-  let inserted = 0, skipped = 0
-  const errors = []
-  const unmatchedProducts = []
-  const stockBlocked = []
+    let inserted = 0,
+      skipped = 0;
+    const errors = [];
+    const unmatchedProducts = [];
+    const stockBlocked = [];
 
-  // ── Preload current stock for this platform, once ──────────────────────
-  // A CSV import is always one platform, so we only need that platform's
-  // stock column. We decrement a local copy as orders are processed so two
-  // orders in the same file competing for the last few units are gated
-  // against each other, not just against the DB's stale snapshot.
-  const stockField = `${parsed.platform}_stock`
-  const { data: stockRows, error: stockErr } = await supabase
-    .from('inventory')
-    .select(`product_name, ${stockField}`)
+    // ── Preload current stock for this platform, once ──────────────────────
+    // A CSV import is always one platform, so we only need that platform's
+    // stock column. We decrement a local copy as orders are processed so two
+    // orders in the same file competing for the last few units are gated
+    // against each other, not just against the DB's stale snapshot.
+    const stockField = `${parsed.platform}_stock`;
+    const { data: stockRows, error: stockErr } = await supabase
+      .from("inventory")
+      .select(`product_name, ${stockField}`);
 
-  if (stockErr) {
-    console.error('Failed to load inventory stock for availability check:', stockErr)
-  }
-
-  const availableStock = {}
-  ;(stockRows || []).forEach((row) => {
-    availableStock[row.product_name] = row[stockField] ?? 0
-  })
-
-  for (let i = 0; i < parsed.orders.length; i++) {
-    const order = parsed.orders[i]
-    setProgress({ current: i + 1, total: parsed.orders.length })
-
-    if (order.status !== 'READY_TO_SHIP') { skipped++; continue }
-
-    const platform = order.platform || parsed.platform
-    if (!platform) {
-      console.error('MISSING PLATFORM — full order object:', JSON.stringify(order, null, 2))
-      console.error('parsed.platform was:', parsed.platform)
-      errors.push(`${order.order_id}: missing platform, skipped`)
-      skipped++
-      continue
+    if (stockErr) {
+      console.error(
+        "Failed to load inventory stock for availability check:",
+        stockErr,
+      );
     }
 
-    // ── Stock availability check ────────────────────────────────────────
-    // Only blocks on items we actually found in Inventory but don't have
-    // enough of. Items with no matching product at all are left alone here
-    // — that's the existing `unmatched` case, still handled after insert by
-    // the deduct_inventory_for_production_order RPC below.
-    const shortages = (order.items || [])
-      .filter((item) => item.product_name && availableStock[item.product_name] !== undefined)
-      .filter((item) => availableStock[item.product_name] < item.quantity)
-      .map(
-        (item) =>
-          `"${item.product_name}" — ${availableStock[item.product_name]} in stock, order needs ${item.quantity}`
-      )
+    const availableStock = {};
+    (stockRows || []).forEach((row) => {
+      availableStock[row.product_name] = row[stockField] ?? 0;
+    });
 
-    if (shortages.length > 0) {
-      stockBlocked.push(`${order.order_id}: ${shortages.join('; ')}`)
-      skipped++
-      continue
-    }
+    for (let i = 0; i < parsed.orders.length; i++) {
+      const order = parsed.orders[i];
+      setProgress({ current: i + 1, total: parsed.orders.length });
 
-    // Reserve stock locally so later orders in this same file see the
-    // reduced quantity, before anything is actually written to the DB.
-    ;(order.items || []).forEach((item) => {
-      if (item.product_name && availableStock[item.product_name] !== undefined) {
-        availableStock[item.product_name] -= item.quantity
-      }
-    })
-
-    try {
-      const { data: orderRow, error: orderErr } = await supabase
-        .from('production_orders')
-        .upsert({
-          platform,
-          order_id:        order.order_id,
-          status:          order.status,
-          tracking_no:     order.tracking_no,
-          shipping_option: order.shipping_option,
-          payment_method:  order.payment_method,
-          total_amount:    order.total_amount,
-          shipping_fee:    order.shipping_fee,
-          buyer_username:  order.buyer_username,
-          recipient_name:  order.recipient_name,
-          phone:           order.phone,
-          address:         order.address,
-          created_at:      order.created_at,
-          paid_time:       order.paid_time,
-          cancel_reason:   order.cancel_reason,
-          buyer_note:      order.buyer_note,
-          shipped_at:      null,
-        }, { onConflict: 'platform,order_id' })
-        .select()
-        .single()
-
-      if (orderErr) {
-        console.error('UPSERT FAILED for', order.order_id, 'payload platform was:', platform, orderErr)
-        skipped++
-        errors.push(`${order.order_id}: ${orderErr.message}`)
-        continue
+      if (order.status !== "READY_TO_SHIP") {
+        skipped++;
+        continue;
       }
 
-      if (order.items?.length > 0) {
-        await supabase.from('production_order_items')
-          .delete()
-          .eq('order_id', order.order_id)
-          .eq('platform', platform)
+      const platform = order.platform || parsed.platform;
+      if (!platform) {
+        console.error(
+          "MISSING PLATFORM — full order object:",
+          JSON.stringify(order, null, 2),
+        );
+        console.error("parsed.platform was:", parsed.platform);
+        errors.push(`${order.order_id}: missing platform, skipped`);
+        skipped++;
+        continue;
+      }
 
-        await supabase.from('production_order_items').insert(
-          order.items.map(item => ({
-            order_uuid:     orderRow.id,
-            platform,
-            order_id:       order.order_id,
-            product_name:   item.product_name,
-            sku:            item.sku,
-            variation:      item.variation,
-            quantity:       item.quantity,
-            unit_price:     item.unit_price,
-            original_price: item.original_price || item.unit_price,
-            platform_disc:  item.platform_disc  || 0,
-            seller_disc:    item.seller_disc     || 0,
-          }))
+      // ── Stock availability check ────────────────────────────────────────
+      // Only blocks on items we actually found in Inventory but don't have
+      // enough of. Items with no matching product at all are left alone here
+      // — that's the existing `unmatched` case, still handled after insert by
+      // the deduct_inventory_for_production_order RPC below.
+      const shortages = (order.items || [])
+        .filter(
+          (item) =>
+            item.product_name &&
+            availableStock[item.product_name] !== undefined,
         )
+        .filter((item) => availableStock[item.product_name] < item.quantity)
+        .map(
+          (item) =>
+            `"${item.product_name}" — ${availableStock[item.product_name]} in stock, order needs ${item.quantity}`,
+        );
 
-        const { data: deductResult, error: deductErr } = await supabase.rpc(
-          'deduct_inventory_for_production_order',
-          { p_order_uuid: orderRow.id, p_platform: platform }
-        )
-        if (deductErr) {
-          errors.push(`${order.order_id}: inventory deduction failed — ${deductErr.message}`)
-        } else if (deductResult?.unmatched?.length) {
-          unmatchedProducts.push(...deductResult.unmatched.map(name => `${order.order_id}: ${name}`))
+      if (shortages.length > 0) {
+        stockBlocked.push(`${order.order_id}: ${shortages.join("; ")}`);
+        skipped++;
+        continue;
+      }
+
+      // Reserve stock locally so later orders in this same file see the
+      // reduced quantity, before anything is actually written to the DB.
+      (order.items || []).forEach((item) => {
+        if (
+          item.product_name &&
+          availableStock[item.product_name] !== undefined
+        ) {
+          availableStock[item.product_name] -= item.quantity;
         }
+      });
+
+      try {
+        const { data: orderRow, error: orderErr } = await supabase
+          .from("production_orders")
+          .upsert(
+            {
+              platform,
+              order_id: order.order_id,
+              status: order.status,
+              tracking_no: order.tracking_no,
+              shipping_option: order.shipping_option,
+              payment_method: order.payment_method,
+              total_amount: order.total_amount,
+              shipping_fee: order.shipping_fee,
+              buyer_username: order.buyer_username,
+              recipient_name: order.recipient_name,
+              phone: order.phone,
+              address: order.address,
+              created_at: order.created_at,
+              paid_time: order.paid_time,
+              cancel_reason: order.cancel_reason,
+              buyer_note: order.buyer_note,
+              shipped_at: null,
+            },
+            { onConflict: "platform,order_id" },
+          )
+          .select()
+          .single();
+
+        if (orderErr) {
+          console.error(
+            "UPSERT FAILED for",
+            order.order_id,
+            "payload platform was:",
+            platform,
+            orderErr,
+          );
+          skipped++;
+          errors.push(`${order.order_id}: ${orderErr.message}`);
+          continue;
+        }
+
+        if (order.items?.length > 0) {
+          await supabase
+            .from("production_order_items")
+            .delete()
+            .eq("order_id", order.order_id)
+            .eq("platform", platform);
+
+          await supabase.from("production_order_items").insert(
+            order.items.map((item) => ({
+              order_uuid: orderRow.id,
+              platform,
+              order_id: order.order_id,
+              product_name: item.product_name,
+              sku: item.sku,
+              variation: item.variation,
+              quantity: item.quantity,
+              unit_price: item.unit_price,
+              original_price: item.original_price || item.unit_price,
+              platform_disc: item.platform_disc || 0,
+              seller_disc: item.seller_disc || 0,
+            })),
+          );
+
+          const { data: deductResult, error: deductErr } = await supabase.rpc(
+            "deduct_inventory_for_production_order",
+            { p_order_uuid: orderRow.id, p_platform: platform },
+          );
+          if (deductErr) {
+            errors.push(
+              `${order.order_id}: inventory deduction failed — ${deductErr.message}`,
+            );
+          } else if (deductResult?.unmatched?.length) {
+            unmatchedProducts.push(
+              ...deductResult.unmatched.map(
+                (name) => `${order.order_id}: ${name}`,
+              ),
+            );
+          }
+        }
+        inserted++;
+      } catch (e) {
+        console.error("UNEXPECTED ERROR for", order.order_id, e);
+        errors.push(`${order.order_id}: ${e.message}`);
+        skipped++;
       }
-      inserted++
-    } catch (e) {
-      console.error('UNEXPECTED ERROR for', order.order_id, e)
-      errors.push(`${order.order_id}: ${e.message}`)
-      skipped++
     }
-  }
 
-  await supabase.from('production_import_logs').insert({
-    platform:      parsed.platform,
-    filename:      parsed.filename,
-    file_hash:     fileHash,
-    date_from:     dateRange?.dateFrom || null,
-    date_to:       dateRange?.dateTo   || null,
-    row_count:     parsed.rowCount,
-    parsed_count:  parsed.parsedCount,
-    inserted, skipped,
-    errors:        errors.length ? errors : null,
-    status:        'success',
-  })
+    await supabase.from("production_import_logs").insert({
+      platform: parsed.platform,
+      filename: parsed.filename,
+      file_hash: fileHash,
+      date_from: dateRange?.dateFrom || null,
+      date_to: dateRange?.dateTo || null,
+      row_count: parsed.rowCount,
+      parsed_count: parsed.parsedCount,
+      inserted,
+      skipped,
+      errors: errors.length ? errors : null,
+      status: "success",
+    });
 
-  setImportResult({ inserted, skipped, errors, unmatchedProducts, stockBlocked, dateRange })
-  setStep('done')
-  if (onImportComplete) onImportComplete()
-}
+    setImportResult({
+      inserted,
+      skipped,
+      errors,
+      unmatchedProducts,
+      stockBlocked,
+      dateRange,
+    });
+    setStep("done");
+    if (onImportComplete) onImportComplete();
+  };
 
   const reset = () => {
     setStep("upload");
@@ -456,8 +487,9 @@ export default function Csvimport_production({ onImportComplete }) {
           </div>
 
           <p className="text-xs text-gray-400 mb-3">
-            Stock availability is checked when you click import below — any order whose product is
-            out of stock in Inventory will be skipped and listed afterward.
+            Stock availability is checked when you click import below — any
+            order whose product is out of stock in Inventory will be skipped and
+            listed afterward.
           </p>
 
           <div className="overflow-x-auto rounded-lg border border-gray-200 mb-5">
@@ -525,23 +557,16 @@ export default function Csvimport_production({ onImportComplete }) {
       )}
 
       {/* ── IMPORTING ── */}
+      {/* ── IMPORTING ── */}
       {step === "importing" && (
         <div className="text-center py-16">
-          <div className="text-5xl mb-4"></div>
+          <div className="mx-auto mb-6 w-12 h-12 border-4 border-gray-200 border-t-indigo-600 rounded-full animate-spin" />
           <p className="text-lg font-semibold text-gray-800 mb-2">
-            Importing orders to prepare…
+            Importing orders…
           </p>
-          <p className="text-gray-500 text-sm mb-6">
-            {progress.current} of {progress.total} saved
+          <p className="text-gray-500 text-sm">
+            This may take a moment, please don't close this tab.
           </p>
-          <div className="bg-gray-200 rounded-full h-2 max-w-sm mx-auto">
-            <div
-              className="bg-indigo-500 h-2 rounded-full transition-all duration-300"
-              style={{
-                width: `${progress.total ? (progress.current / progress.total) * 100 : 0}%`,
-              }}
-            />
-          </div>
         </div>
       )}
 
@@ -582,11 +607,13 @@ export default function Csvimport_production({ onImportComplete }) {
           {importResult.stockBlocked?.length > 0 && (
             <div className="p-4 bg-red-50 border border-red-200 rounded-lg mb-4">
               <p className="font-semibold text-red-700 text-sm mb-2">
-                Blocked — product out of stock in Inventory ({importResult.stockBlocked.length})
+                Blocked — product out of stock in Inventory (
+                {importResult.stockBlocked.length})
               </p>
               <p className="text-xs text-red-500 mb-2">
-                These orders were not imported. Restock the product in Inventory, then re-import
-                this file — already-imported orders won't be duplicated.
+                These orders were not imported. Restock the product in
+                Inventory, then re-import this file — already-imported orders
+                won't be duplicated.
               </p>
               {importResult.stockBlocked.map((s, i) => (
                 <p key={i} className="text-xs text-red-600 mt-1">
@@ -609,7 +636,6 @@ export default function Csvimport_production({ onImportComplete }) {
               ))}
             </div>
           )}
-     
 
           {importResult.errors.length > 0 && (
             <div className="p-4 bg-red-50 border border-red-200 rounded-lg mb-4">

@@ -1190,4 +1190,4 @@ function Inventory_db() {
   );
 }
 
-export default Inventory_db;
+export default Inventory_db;  
