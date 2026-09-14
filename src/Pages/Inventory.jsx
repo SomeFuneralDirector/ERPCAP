@@ -14,33 +14,31 @@ import {
 } from "lucide-react";
 import { supabase } from "../api/supabase";
 
-/* ---------------------------------------------------------------------
- * Design tokens (ISONFAM ERP) — shared conventions with Production.jsx.
- * Red is reserved for the primary action and true alerts (low/out of
- * stock); platform/category colors are kept as small identity swatches
- * (dots, text accents) rather than full-bleed fills, so red keeps its
- * meaning as "needs attention".
- * ------------------------------------------------------------------- */
-const ACCENT = "#9A1B1B";
-const ACCENT_HOVER = "#7F1616";
-
-const PLATFORM_HEX = {
-  shopee: "#E1571F",
-  lazada: "#5B4B93",
-  tiktok: "#111827",
+/* ── Design tokens ──────────────────────────────────────────────────────────
+   Single palette used across the module. Platform/category colors are kept
+   as small swatches or text accents (identity cues), never as full-bleed
+   fills, so the page reads as one product rather than three tinted zones. */
+const C = {
+  accent: "#B3211B",
+  accentHover: "#8E1A15",
+  accentSoft: "#FBEAE9",
+  accentSoftBorder: "#F3C9C7",
+  text: "#1C1C1F",
+  textMuted: "#6B6B70",
+  textFaint: "#9A9AA0",
+  border: "#E4E4E7",
+  borderStrong: "#D4D4D8",
+  success: "#15803D",
+  successSoft: "#EEF6EF",
+  warning: "#A15C07",
+  warningSoft: "#FBF3E7",
+  warningBorder: "#F1DDB8",
+  shopee: "#EE4D2D",
+  lazada: "#1E2A5E",
+  tiktok: "#101113",
+  men: "#1D4E89",
+  women: "#8B2942",
 };
-const CAT_HEX = { Men: "#2563EB", Women: "#BE185D" };
-
-const CARD = "bg-white rounded-md border border-gray-200 shadow-sm";
-const SEGMENT_WRAP = "flex gap-0.5 bg-gray-100 rounded-md p-0.5";
-const SEGMENT_BTN = (active) =>
-  `px-2.5 py-1 text-xs font-medium rounded transition-colors cursor-pointer ${
-    active ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
-  }`;
-const PRIMARY_BTN =
-  "px-3.5 py-2 rounded-md text-sm font-medium text-white transition-colors disabled:opacity-50 cursor-pointer";
-const SECONDARY_BTN =
-  "px-3.5 py-2 rounded-md text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-50 cursor-pointer";
 
 const isLowStock = (item) => {
   const total = (item.shopee_stock || 0) + (item.lazada_stock || 0) + (item.tiktok_stock || 0);
@@ -57,36 +55,44 @@ const EMPTY_FORM = {
   reorder_point: "5",
 };
 
-/* ── Shared primitives ───────────────────────────────────────────────── */
+/* ── Shared field primitives ─────────────────────────────────────────────── */
 
 function Field({ label, required, hint, children }) {
   return (
     <div>
-      <label className="block text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
+      <label className="block text-xs font-medium text-gray-600 mb-1">
         {label}
-        {required && <span style={{ color: ACCENT }}> *</span>}
+        {required && <span style={{ color: C.accent }}> *</span>}
       </label>
       {children}
-      {hint && <p className="text-xs text-gray-400 mt-1 normal-case">{hint}</p>}
+      {hint && <p className="text-xs text-gray-400 mt-1">{hint}</p>}
     </div>
   );
 }
 
 const inputBase =
-  "w-full border border-gray-200 rounded-md px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-200 transition-colors";
+  "w-full border rounded-md px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 transition-colors";
 
 function TextInput(props) {
-  return <input {...props} className={inputBase} />;
+  return (
+    <input
+      {...props}
+      className={`${inputBase} border-gray-300 focus:ring-[${C.accent}]/20 focus:border-[${C.accent}]`}
+      style={{ ...props.style }}
+      onFocus={(e) => (e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`, e.target.style.borderColor = C.accent)}
+      onBlur={(e) => (e.target.style.boxShadow = "none", e.target.style.borderColor = "#D1D5DB", props.onBlur?.(e))}
+    />
+  );
 }
 
 function PrimaryButton({ children, className = "", ...props }) {
   return (
     <button
       {...props}
-      className={`${PRIMARY_BTN} inline-flex items-center gap-1.5 ${className}`}
-      style={{ background: ACCENT }}
-      onMouseEnter={(e) => !props.disabled && (e.currentTarget.style.background = ACCENT_HOVER)}
-      onMouseLeave={(e) => (e.currentTarget.style.background = ACCENT)}
+      className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium text-white transition-colors disabled:opacity-50 cursor-pointer ${className}`}
+      style={{ backgroundColor: C.accent }}
+      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = C.accentHover)}
+      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = C.accent)}
     >
       {children}
     </button>
@@ -95,25 +101,12 @@ function PrimaryButton({ children, className = "", ...props }) {
 
 function SecondaryButton({ children, className = "", ...props }) {
   return (
-    <button {...props} className={`${SECONDARY_BTN} inline-flex items-center gap-1.5 ${className}`}>
+    <button
+      {...props}
+      className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-50 cursor-pointer ${className}`}
+    >
       {children}
     </button>
-  );
-}
-
-function Skeleton({ className = "h-4 w-full" }) {
-  return <div className={`${className} bg-gray-100 rounded animate-pulse`} />;
-}
-
-function StatCard({ label, value, dot, color = "text-gray-900" }) {
-  return (
-    <div className={`${CARD} p-4`}>
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 flex items-center gap-1.5">
-        {dot && <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: dot }} />}
-        {label}
-      </p>
-      <p className={`text-2xl font-semibold mt-1 ${color}`}>{value}</p>
-    </div>
   );
 }
 
@@ -186,9 +179,9 @@ function AddProductModal({ onClose, onSaved, editItem = null }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className={`${CARD} w-full max-w-lg max-h-[90vh] overflow-y-auto`}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-lg shadow-xl border border-gray-200 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
           <h2 className="text-sm font-semibold text-gray-900">
             {isEdit ? "Edit product" : "Add product"}
           </h2>
@@ -211,7 +204,7 @@ function AddProductModal({ onClose, onSaved, editItem = null }) {
               <select
                 value={form.category}
                 onChange={(e) => set("category", e.target.value)}
-                className={`${inputBase} cursor-pointer`}
+                className={`${inputBase} border-gray-300 cursor-pointer`}
               >
                 <option value="Women">Women</option>
                 <option value="Men">Men</option>
@@ -229,7 +222,7 @@ function AddProductModal({ onClose, onSaved, editItem = null }) {
           </Field>
 
           <div className="grid grid-cols-3 gap-3">
-            <Field label={<span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: PLATFORM_HEX.shopee }} />Shopee</span>}>
+            <Field label={<span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: C.shopee }} />Shopee</span>}>
               <TextInput
                 type="number"
                 min="0"
@@ -238,7 +231,7 @@ function AddProductModal({ onClose, onSaved, editItem = null }) {
                 onChange={(e) => set("shopee_stock", e.target.value)}
               />
             </Field>
-            <Field label={<span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: PLATFORM_HEX.lazada }} />Lazada</span>}>
+            <Field label={<span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: C.lazada }} />Lazada</span>}>
               <TextInput
                 type="number"
                 min="0"
@@ -247,7 +240,7 @@ function AddProductModal({ onClose, onSaved, editItem = null }) {
                 onChange={(e) => set("lazada_stock", e.target.value)}
               />
             </Field>
-            <Field label={<span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: PLATFORM_HEX.tiktok }} />TikTok</span>}>
+            <Field label={<span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: C.tiktok }} />TikTok</span>}>
               <TextInput
                 type="number"
                 min="0"
@@ -272,13 +265,13 @@ function AddProductModal({ onClose, onSaved, editItem = null }) {
           </Field>
 
           {error && (
-            <p className="text-xs rounded-md px-3 py-2 border text-red-700 bg-red-50 border-red-200">
+            <p className="text-xs rounded-md px-3 py-2 border" style={{ color: C.accent, backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder }}>
               {error}
             </p>
           )}
         </div>
 
-        <div className="px-5 py-4 border-t border-gray-100 flex justify-end gap-2">
+        <div className="px-5 py-4 border-t border-gray-200 flex justify-end gap-2">
           <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
           <PrimaryButton onClick={handleSubmit} disabled={saving}>
             {saving ? "Saving…" : isEdit ? "Update product" : "Add product"}
@@ -296,9 +289,9 @@ function ViewProductModal({ item, onClose }) {
   const totalStock = (item.shopee_stock || 0) + (item.lazada_stock || 0) + (item.tiktok_stock || 0);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className={`${CARD} w-full max-w-lg max-h-[90vh] overflow-y-auto`}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-lg shadow-xl border border-gray-200 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
           <h2 className="text-sm font-semibold text-gray-900">Product details</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors cursor-pointer">
             <X size={18} />
@@ -308,49 +301,49 @@ function ViewProductModal({ item, onClose }) {
         <div className="px-5 py-4 space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Product code</p>
+              <p className="text-xs text-gray-500">Product code</p>
               <p className="text-sm font-mono text-gray-800 mt-0.5">{item.product_code}</p>
             </div>
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Category</p>
+              <p className="text-xs text-gray-500">Category</p>
               <p className="text-sm text-gray-800 mt-0.5">{item.category}</p>
             </div>
           </div>
 
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Product name</p>
+            <p className="text-xs text-gray-500">Product name</p>
             <p className="text-sm text-gray-800 mt-0.5">{item.product_name}</p>
           </div>
 
           <div className="grid grid-cols-2 gap-4 pt-3 border-t border-gray-100">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Total stock</p>
-              <p className="text-sm font-semibold mt-0.5 text-gray-900">{totalStock}</p>
+              <p className="text-xs text-gray-500">Total stock</p>
+              <p className="text-sm font-semibold mt-0.5" style={{ color: C.text }}>{totalStock}</p>
             </div>
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Low stock threshold</p>
+              <p className="text-xs text-gray-500">Low stock threshold</p>
               <p className="text-sm text-gray-800 mt-0.5">{item.reorder_point ?? 5}</p>
             </div>
           </div>
 
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: PLATFORM_HEX.shopee }} />
+              <p className="text-xs text-gray-500 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: C.shopee }} />
                 Shopee
               </p>
               <p className="text-sm text-gray-800 mt-0.5">{item.shopee_stock || 0}</p>
             </div>
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: PLATFORM_HEX.lazada }} />
+              <p className="text-xs text-gray-500 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: C.lazada }} />
                 Lazada
               </p>
               <p className="text-sm text-gray-800 mt-0.5">{item.lazada_stock || 0}</p>
             </div>
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: PLATFORM_HEX.tiktok }} />
+              <p className="text-xs text-gray-500 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: C.tiktok }} />
                 TikTok
               </p>
               <p className="text-sm text-gray-800 mt-0.5">{item.tiktok_stock || 0}</p>
@@ -364,7 +357,7 @@ function ViewProductModal({ item, onClose }) {
           )}
         </div>
 
-        <div className="px-5 py-4 border-t border-gray-100 flex justify-end">
+        <div className="px-5 py-4 border-t border-gray-200 flex justify-end">
           <SecondaryButton onClick={onClose}>Close</SecondaryButton>
         </div>
       </div>
@@ -445,19 +438,19 @@ function AllocationRequestsPanel({ requests, inventory, onResolved }) {
   if (requests.length === 0) return null;
 
   const platformDot = (platform) =>
-    platform === "Shopee" ? PLATFORM_HEX.shopee : platform === "Lazada" ? PLATFORM_HEX.lazada : platform === "TikTok" ? PLATFORM_HEX.tiktok : "#9CA3AF";
+    platform === "Shopee" ? C.shopee : platform === "Lazada" ? C.lazada : platform === "TikTok" ? C.tiktok : C.textFaint;
 
   return (
-    <div className={`${CARD} border-l-4 p-5`} style={{ borderLeftColor: ACCENT }}>
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200 border-l-4 p-4" style={{ borderLeftColor: C.accent }}>
       <div className="flex items-center gap-2 mb-3">
-        <Bell size={15} style={{ color: ACCENT }} />
+        <Bell size={15} style={{ color: C.accent }} />
         <p className="text-sm font-semibold text-gray-800">
           {requests.length} allocation request{requests.length !== 1 ? "s" : ""} awaiting approval
         </p>
       </div>
 
       {error && (
-        <p className="text-xs rounded-md px-3 py-2 border mb-3 text-red-700 bg-red-50 border-red-200">
+        <p className="text-xs rounded-md px-3 py-2 border mb-3" style={{ color: C.accent, backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder }}>
           {error}
         </p>
       )}
@@ -474,7 +467,7 @@ function AllocationRequestsPanel({ requests, inventory, onResolved }) {
                 <p className="text-xs text-gray-500">
                   {req.wo_number || "No WO"} · {req.quantity} units · requested {new Date(req.requested_at).toLocaleDateString()}
                 </p>
-                {!product && <p className="text-xs mt-0.5 text-amber-700">Not matched to an inventory product</p>}
+                {!product && <p className="text-xs mt-0.5" style={{ color: C.warning }}>Not matched to an inventory product</p>}
               </div>
 
               <div className="w-full md:w-56 text-xs text-gray-600">
@@ -482,7 +475,7 @@ function AllocationRequestsPanel({ requests, inventory, onResolved }) {
               </div>
 
               <div className="w-full md:w-32 flex items-center gap-1.5 text-xs font-medium text-gray-700">
-                <span className="w-2 h-2 rounded-full inline-block shrink-0" style={{ backgroundColor: platformDot(req.platform) }} />
+                <span className="w-2 h-2 rounded-sm inline-block shrink-0" style={{ backgroundColor: platformDot(req.platform) }} />
                 {req.platform || "Unspecified"}
               </div>
 
@@ -491,7 +484,8 @@ function AllocationRequestsPanel({ requests, inventory, onResolved }) {
                   onClick={() => handleApprove(req)}
                   disabled={busyId === req.id || !canApprove}
                   title={!canApprove ? "Missing product or platform on this request" : undefined}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white rounded-md disabled:opacity-40 transition-colors cursor-pointer bg-emerald-600 hover:bg-emerald-700"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white rounded-md disabled:opacity-40 transition-colors cursor-pointer"
+                  style={{ backgroundColor: C.success }}
                 >
                   <Check size={13} />
                   {busyId === req.id ? "…" : "Approve"}
@@ -509,6 +503,20 @@ function AllocationRequestsPanel({ requests, inventory, onResolved }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/* ── SummaryBar ─────────────────────────────────────────────────────────── */
+
+function SummaryStat({ label, value, dot }) {
+  return (
+    <div className="flex-1 min-w-[110px] px-4 py-3">
+      <p className="text-xs text-gray-500 flex items-center gap-1.5">
+        {dot && <span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: dot }} />}
+        {label}
+      </p>
+      <p className="text-lg font-semibold text-gray-900 mt-0.5">{value}</p>
     </div>
   );
 }
@@ -690,357 +698,385 @@ function Inventory() {
   };
 
   return (
-    <div className="p-6 space-y-4">
-      {/* Header */}
-      <div className={`${CARD} p-5 flex flex-col md:flex-row md:items-center justify-between gap-3`}>
-        <div>
-          <h1 className="text-lg font-semibold text-gray-900">Inventory — Products</h1>
+    <div className="min-h-screen" style={{ backgroundColor: "#F6F6F7" }}>
+      <div className="p-6 space-y-4 max-w-[1400px] mx-auto">
+        {/* Header */}
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div>
+            <h1 className="text-lg font-semibold text-gray-900">Inventory - Products</h1>
+            </div>
+           
+          <div className="flex gap-2 self-start md:self-auto">
+            <PrimaryButton
+              onClick={() => {
+                setEditItem(null);
+                setShowAddModal(true);
+              }}
+            >
+              <Plus size={15} />
+              Add product
+            </PrimaryButton>
+            <SecondaryButton
+              onClick={() => {
+                fetchInventory();
+                fetchMaterialAlerts();
+                fetchPendingRequests();
+              }}
+              disabled={loading}
+            >
+              {loading ? "Loading…" : "Refresh"}
+            </SecondaryButton>
+          </div>
         </div>
-        <div className="flex gap-2 self-start md:self-auto">
-          <PrimaryButton
-            onClick={() => {
-              setEditItem(null);
-              setShowAddModal(true);
-            }}
-          >
-            <Plus size={15} />
-            Add product
-          </PrimaryButton>
-          <SecondaryButton
-            onClick={() => {
-              fetchInventory();
-              fetchMaterialAlerts();
-              fetchPendingRequests();
-            }}
-            disabled={loading}
-          >
-            {loading ? "Loading…" : "Refresh"}
-          </SecondaryButton>
-        </div>
-      </div>
 
-      {/* Summary strip */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-        <StatCard label="Products" value={filtered.length} />
-        <StatCard label="Total stock" value={totalStock.toLocaleString()} />
-        <StatCard label="Shopee" value={totals.shopee.toLocaleString()} dot={PLATFORM_HEX.shopee} />
-        <StatCard label="Lazada" value={totals.lazada.toLocaleString()} dot={PLATFORM_HEX.lazada} />
-        <StatCard label="TikTok" value={totals.tiktok.toLocaleString()} dot={PLATFORM_HEX.tiktok} />
-        <StatCard label="Low stock" value={lowCount} color={lowCount > 0 ? "text-red-700" : "text-gray-900"} />
-      </div>
-
-      {/* Allocation-request notification: Production requests, Inventory approves */}
-      <AllocationRequestsPanel
-        requests={pendingRequests}
-        inventory={inventory}
-        onResolved={() => {
-          fetchPendingRequests();
-          fetchInventory();
-        }}
-      />
-
-      {/* Cross-module alert: raw materials running low, affects restocking */}
-      {lowMaterials.length > 0 && (
-        <div className={`${CARD} p-5`}>
-          <div className="flex items-center gap-2 mb-2">
-            <Boxes size={15} className="text-amber-700" />
-            <p className="text-sm font-semibold text-gray-800">
-              Production is low on {lowMaterials.length} raw material{lowMaterials.length !== 1 ? "s" : ""}
+        {/* Summary strip */}
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm flex flex-wrap divide-x divide-gray-100">
+          <SummaryStat label="Products" value={filtered.length} />
+          <SummaryStat label="Total stock" value={totalStock.toLocaleString()} />
+          <SummaryStat label="Shopee" value={totals.shopee.toLocaleString()} dot={C.shopee} />
+          <SummaryStat label="Lazada" value={totals.lazada.toLocaleString()} dot={C.lazada} />
+          <SummaryStat label="TikTok" value={totals.tiktok.toLocaleString()} dot={C.tiktok} />
+          <div className="flex-1 min-w-[110px] px-4 py-3">
+            <p className="text-xs text-gray-500">Low stock</p>
+            <p className="text-lg font-semibold mt-0.5" style={{ color: lowCount > 0 ? C.accent : C.text }}>
+              {lowCount}
             </p>
           </div>
-          <p className="text-xs text-gray-400 mb-2">Restocking finished goods that depend on these may be delayed:</p>
-          <div className="flex flex-wrap gap-2">
-            {lowMaterials.map((m) => (
-              <span
-                key={m.id}
-                className={`px-2 py-1 rounded-md text-xs font-medium border ${
-                  m.status === "Out of Stock"
-                    ? "text-red-700 bg-red-50 border-red-200"
-                    : "text-amber-700 bg-amber-50 border-amber-200"
-                }`}
+        </div>
+
+        {/* Allocation-request notification: Production requests, Inventory approves */}
+        <AllocationRequestsPanel
+          requests={pendingRequests}
+          inventory={inventory}
+          onResolved={() => {
+            fetchPendingRequests();
+            fetchInventory();
+          }}
+        />
+
+        {/* Cross-module alert: raw materials running low, affects restocking */}
+        {lowMaterials.length > 0 && (
+          <div className="bg-white rounded-lg border shadow-sm p-4" style={{ borderColor: C.warningBorder }}>
+            <div className="flex items-center gap-2 mb-2">
+              <Boxes size={15} style={{ color: C.warning }} />
+              <p className="text-sm font-semibold text-gray-800">
+                Production is low on {lowMaterials.length} raw material{lowMaterials.length !== 1 ? "s" : ""}
+              </p>
+            </div>
+            <p className="text-xs text-gray-500 mb-2">Restocking finished goods that depend on these may be delayed:</p>
+            <div className="flex flex-wrap gap-2">
+              {lowMaterials.map((m) => (
+                <span
+                  key={m.id}
+                  className="px-2 py-1 rounded-md text-xs font-medium border"
+                  style={
+                    m.status === "Out of Stock"
+                      ? { color: C.accent, backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder }
+                      : { color: C.warning, backgroundColor: C.warningSoft, borderColor: C.warningBorder }
+                  }
+                >
+                  {m.material_name} · {m.current_stock} {m.unit}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Filters */}
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm px-4 py-3 flex flex-col md:flex-row gap-3 items-center">
+          <div className="relative flex-1">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+              <Search size={16} />
+            </span>
+            <input
+              type="text"
+              placeholder="Search product name or code…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-9 pr-8 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2"
+              style={{ "--tw-ring-color": `${C.accent}33` }}
+              onFocus={(e) => (e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`, e.target.style.borderColor = C.accent)}
+              onBlur={(e) => (e.target.style.boxShadow = "none", e.target.style.borderColor = "#D1D5DB")}
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none cursor-pointer"
               >
-                {m.material_name} · {m.current_stock} {m.unit}
-              </span>
-            ))}
+                ×
+              </button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            {["All", "Men", "Women"].map((cat) => {
+              const active = filterCategory === cat;
+              const activeColor = cat === "Men" ? C.men : cat === "Women" ? C.women : C.accent;
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setFilterCategory(cat)}
+                  className="px-4 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer border"
+                  style={
+                    active
+                      ? { backgroundColor: activeColor, borderColor: activeColor, color: "#fff" }
+                      : { backgroundColor: "#fff", borderColor: "#D1D5DB", color: "#142947" }
+                  }
+                >
+                  {cat}
+                </button>
+              );
+            })}
           </div>
         </div>
-      )}
 
-      {/* Filters */}
-      <div className={`${CARD} px-4 py-3 flex flex-col md:flex-row gap-3 items-center`}>
-        <div className="relative flex-1 w-full">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-            <Search size={16} />
-          </span>
-          <input
-            type="text"
-            placeholder="Search product name or code…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-8 py-2 border border-gray-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-200"
-          />
-          {search && (
-            <button
-              onClick={() => setSearch("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none cursor-pointer"
-            >
-              ×
-            </button>
-          )}
-        </div>
-        <div className={SEGMENT_WRAP}>
-          {["All", "Men", "Women"].map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setFilterCategory(cat)}
-              className={SEGMENT_BTN(filterCategory === cat)}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className={`${CARD} overflow-hidden`}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50">
-                <th className="border-b border-gray-200 w-8" />
-                <th className="border-b border-gray-200 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                  Code
-                </th>
-                <th className="border-b border-gray-200 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500 min-w-[220px]">
-                  Product name
-                </th>
-                <th className="border-b border-gray-200 px-3 py-2 text-center text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                  Total
-                </th>
-                <th className="border-b border-gray-200 px-3 py-2 text-center text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: PLATFORM_HEX.shopee }} />
-                    Shopee
-                  </span>
-                </th>
-                <th className="border-b border-gray-200 px-3 py-2 text-center text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: PLATFORM_HEX.lazada }} />
-                    Lazada
-                  </span>
-                </th>
-                <th className="border-b border-gray-200 px-3 py-2 text-center text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: PLATFORM_HEX.tiktok }} />
-                    TikTok
-                  </span>
-                </th>
-                <th className="border-b border-gray-200 px-3 py-2 text-center text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                  Action
-                </th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {loading ? (
-                [...Array(10)].map((_, i) => (
-                  <tr key={i} className="border-b border-gray-100">
-                    {[...Array(TOTAL_COLS)].map((_, j) => (
-                      <td key={j} className="px-3 py-2.5">
-                        <Skeleton className="h-4 w-full" />
-                      </td>
-                    ))}
-                  </tr>
-                ))
-              ) : filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={TOTAL_COLS} className="px-4 py-14 text-center text-gray-400">
-                    <p className="text-sm font-medium text-gray-500">No products found</p>
-                    <p className="text-xs text-gray-400 mt-1">Try a different search term or category.</p>
-                  </td>
+        {/* Table */}
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="bg-red-900 text-white">
+                  <th className="px-2 py-2.5 w-8" rowSpan={2} />
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide" rowSpan={2}>
+                    CODE
+                  </th>
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide min-w-[220px]" rowSpan={2}>
+                    PRODUCT NAME
+                  </th>
+                  <th className="px-3 py-2 text-center text-xs font-semibold tracking-wide">TOTAL</th>
+                  <th className="px-3 py-2 text-center text-xs font-semibold tracking-wide">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: C.shopee }} />
+                      SHOPEE
+                    </span>
+                  </th>
+                  <th className="px-3 py-2 text-center text-xs font-semibold tracking-wide">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: C.lazada }} />
+                      LAZADA
+                    </span>
+                  </th>
+                  <th className="px-3 py-2 text-center text-xs font-semibold tracking-wide">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-sm inline-block bg-white" />
+                      TIKTOK
+                    </span>
+                  </th>
+                  <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide" rowSpan={1}>
+                    ACTION
+                  </th>
                 </tr>
-              ) : (
-                (() => {
-                  const rows = [];
-                  let rowNum = 1;
-                  let lastCat = null;
+                <tr className="bg-red-800 text-gray-300">
+                  <th className="px-3 py-1 text-center text-[11px] font-medium">QTY</th>
+                  <th className="px-3 py-1 text-center text-[11px] font-medium">QTY</th>
+                  <th className="px-3 py-1 text-center text-[11px] font-medium">QTY</th>
+                  <th className="px-3 py-1 text-center text-[11px] font-medium">QTY</th>
+                  <th className="px-3 py-1 text-center text-[11px] font-medium">VIEW · EDIT · ARCHIVE</th>
+                </tr>
+              </thead>
 
-                  for (const item of filtered) {
-                    const total = (item.shopee_stock || 0) + (item.lazada_stock || 0) + (item.tiktok_stock || 0);
-                    const threshold = item.reorder_point ?? 5;
-                    const low = total <= threshold;
-                    const catColor = item.category === "Men" ? CAT_HEX.Men : CAT_HEX.Women;
+              <tbody>
+                {loading ? (
+                  [...Array(10)].map((_, i) => (
+                    <tr key={i} className="border-b border-gray-100">
+                      {[...Array(TOTAL_COLS)].map((_, j) => (
+                        <td key={j} className="px-3 py-2.5">
+                          <div className="h-4 bg-gray-100 rounded animate-pulse" />
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                ) : filtered.length === 0 ? (
+                  <tr>
+                    <td colSpan={TOTAL_COLS} className="px-4 py-14 text-center text-gray-400">
+                      <p className="text-sm font-medium text-gray-500">No products found</p>
+                      <p className="text-xs text-gray-400 mt-1">Try a different search term or category.</p>
+                    </td>
+                  </tr>
+                ) : (
+                  (() => {
+                    const rows = [];
+                    let rowNum = 1;
+                    let lastCat = null;
 
-                    if (item.category !== lastCat) {
+                    for (const item of filtered) {
+                      const total = (item.shopee_stock || 0) + (item.lazada_stock || 0) + (item.tiktok_stock || 0);
+                      const threshold = item.reorder_point ?? 5;
+                      const low = total <= threshold;
+                      const catColor = item.category === "Men" ? C.men : C.women;
+
+                      if (item.category !== lastCat) {
+                        rows.push(
+                          <tr key={`cat-${item.category}`}>
+                            <td
+                              colSpan={TOTAL_COLS}
+                              className="px-3 py-1.5 text-xs font-semibold border-l-4"
+                              style={{ backgroundColor: "#FAFAFA", borderLeftColor: catColor, color: catColor }}
+                            >
+                              {item.category}
+                            </td>
+                          </tr>
+                        );
+                        lastCat = item.category;
+                      }
+
+                      const rowBg = low ? {} : rowNum % 2 === 0 ? { backgroundColor: "#FAFAFA" } : {};
+
                       rows.push(
-                        <tr key={`cat-${item.category}`}>
-                          <td
-                            colSpan={TOTAL_COLS}
-                            className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide border-l-4 bg-gray-50"
-                            style={{ borderLeftColor: catColor, color: catColor }}
-                          >
-                            {item.category}
+                        <tr
+                          key={item.id}
+                          className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
+                          style={low ? { backgroundColor: C.accentSoft } : rowBg}
+                        >
+                          <td className="px-2 py-2 text-center text-xs text-gray-400 w-8">{rowNum++}</td>
+
+                          <td className="px-3 py-2 text-xs font-mono text-gray-500 whitespace-nowrap">{item.product_code}</td>
+
+                          <td className="px-3 py-2 text-xs text-gray-800">
+                            <div className="flex items-center gap-2">
+                              {item.product_name}
+                              {low && (
+                                <span
+                                  title={`At or below threshold of ${threshold} — shown on Production's dashboard`}
+                                  className="px-1.5 py-0.5 text-[11px] rounded font-medium shrink-0"
+                                  style={{ color: C.accent, backgroundColor: "#fff", border: `1px solid ${C.accentSoftBorder}` }}
+                                >
+                                  Low stock
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          <td className="px-3 py-2 text-center">
+                            <StockCell item={item} field="stock" accentColor={C.accent} />
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <StockCell item={item} field="shopee_stock" accentColor={C.shopee} />
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <StockCell item={item} field="lazada_stock" accentColor={C.lazada} />
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <StockCell item={item} field="tiktok_stock" accentColor={C.tiktok} />
+                          </td>
+
+                          <td className="px-1.5 py-1.5 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                onClick={() => handleView(item)}
+                                title="View"
+                                className="p-1.5 rounded-md hover:bg-red-200 transition-colors cursor-pointer"
+                              >
+                                <Eye size={16} className="text-gray-500" />
+                              </button>
+                              <button
+                                onClick={() => handleEdit(item)}
+                                title="Edit"
+                                className="p-1.5 rounded-md hover:bg-red-200 transition-colors cursor-pointer"
+                              >
+                                <Pencil size={16} className="text-gray-500" />
+                              </button>
+                              <button
+                                onClick={() => handleArchive(item)}
+                                title="Archive"
+                                className="p-1.5 rounded-md hover:bg-red-200 transition-colors cursor-pointer"
+                              >
+                                <Archive size={16} style={{ color: C.accent }} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
-                      lastCat = item.category;
                     }
+                    return rows;
+                  })()
+                )}
 
-                    const rowBg = low ? "bg-red-50/40" : rowNum % 2 === 0 ? "bg-gray-50/60" : "bg-white";
-
-                    rows.push(
-                      <tr
-                        key={item.id}
-                        className={`${rowBg} border-b border-gray-100 hover:bg-gray-50 transition-colors`}
-                      >
-                        <td className="px-2 py-2 text-center text-xs text-gray-400 w-8">{rowNum++}</td>
-
-                        <td className="px-3 py-2 text-xs font-mono text-gray-500 whitespace-nowrap">{item.product_code}</td>
-
-                        <td className="px-3 py-2 text-xs text-gray-800">
-                          <div className="flex items-center gap-2">
-                            {item.product_name}
-                            {low && (
-                              <span
-                                title={`At or below threshold of ${threshold} — shown on Production's dashboard`}
-                                className="px-1.5 py-0.5 text-[11px] rounded font-medium shrink-0 text-red-700 bg-red-50"
-                              >
-                                Low stock
-                              </span>
-                            )}
-                          </div>
-                        </td>
-
-                        <td className="px-3 py-2 text-center">
-                          <StockCell item={item} field="stock" accentColor={ACCENT} />
-                        </td>
-                        <td className="px-3 py-2 text-center">
-                          <StockCell item={item} field="shopee_stock" accentColor={PLATFORM_HEX.shopee} />
-                        </td>
-                        <td className="px-3 py-2 text-center">
-                          <StockCell item={item} field="lazada_stock" accentColor={PLATFORM_HEX.lazada} />
-                        </td>
-                        <td className="px-3 py-2 text-center">
-                          <StockCell item={item} field="tiktok_stock" accentColor={PLATFORM_HEX.tiktok} />
-                        </td>
-
-                        <td className="px-1.5 py-1.5 text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            <button
-                              onClick={() => handleView(item)}
-                              title="View"
-                              className="p-1.5 rounded-md hover:bg-gray-100 transition-colors cursor-pointer"
-                            >
-                              <Eye size={16} className="text-gray-500" />
-                            </button>
-                            <button
-                              onClick={() => handleEdit(item)}
-                              title="Edit"
-                              className="p-1.5 rounded-md hover:bg-gray-100 transition-colors cursor-pointer"
-                            >
-                              <Pencil size={16} className="text-gray-500" />
-                            </button>
-                            <button
-                              onClick={() => handleArchive(item)}
-                              title="Archive"
-                              className="p-1.5 rounded-md hover:bg-red-50 transition-colors cursor-pointer"
-                            >
-                              <Archive size={16} style={{ color: ACCENT }} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  }
-                  return rows;
-                })()
-              )}
-
-              {!loading && filtered.length > 0 && (
-                <tr className="bg-gray-50 border-t-2 border-gray-200 font-semibold">
-                  <td className="px-2 py-2.5 text-center text-xs text-gray-400">—</td>
-                  <td />
-                  <td className="px-3 py-2.5 text-xs text-gray-700">TOTAL ({filtered.length})</td>
-                  <td className="px-3 py-2.5 text-center text-xs text-gray-900">{totalStock.toLocaleString()}</td>
-                  <td className="px-3 py-2.5 text-center text-xs" style={{ color: PLATFORM_HEX.shopee }}>{totals.shopee.toLocaleString()}</td>
-                  <td className="px-3 py-2.5 text-center text-xs" style={{ color: PLATFORM_HEX.lazada }}>{totals.lazada.toLocaleString()}</td>
-                  <td className="px-3 py-2.5 text-center text-xs text-gray-900">{totals.tiktok.toLocaleString()}</td>
-                  <td className="px-3 py-2.5 text-center text-xs text-gray-400">—</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Legend */}
-      <div className="flex gap-4 flex-wrap text-xs text-gray-400 pb-2">
-        <span className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />
-          Low stock — at or below each product's threshold (default 5), also shown on Production's dashboard
-        </span>
-      </div>
-
-      {/* Modals */}
-      {showAddModal && (
-        <AddProductModal
-          onClose={() => {
-            setShowAddModal(false);
-            setEditItem(null);
-          }}
-          onSaved={fetchInventory}
-          editItem={editItem}
-        />
-      )}
-
-      {showViewModal && selectedItem && (
-        <ViewProductModal
-          item={selectedItem}
-          onClose={() => {
-            setShowViewModal(false);
-            setSelectedItem(null);
-          }}
-        />
-      )}
-
-      {showArchiveModal && itemToArchive && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className={`${CARD} w-full max-w-md`}>
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <h2 className="text-sm font-semibold text-gray-900">Archive product</h2>
-              <button
-                onClick={() => {
-                  setShowArchiveModal(false);
-                  setItemToArchive(null);
-                }}
-                className="text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="px-5 py-4">
-              <p className="text-sm text-gray-600">
-                Archive <span className="font-medium text-gray-800">{itemToArchive.product_name}</span>? This can't be undone.
-              </p>
-            </div>
-
-            <div className="px-5 py-4 border-t border-gray-100 flex justify-end gap-2">
-              <SecondaryButton
-                onClick={() => {
-                  setShowArchiveModal(false);
-                  setItemToArchive(null);
-                }}
-              >
-                Cancel
-              </SecondaryButton>
-              <PrimaryButton onClick={confirmArchive} disabled={saving}>
-                {saving ? "Archiving…" : "Archive"}
-              </PrimaryButton>
-            </div>
+                {!loading && filtered.length > 0 && (
+                  <tr className="border-t-2 font-semibold" style={{ borderTopColor: C.accent, backgroundColor: "#FAFAFA" }}>
+                    <td className="px-2 py-2.5 text-center text-xs text-gray-400">—</td>
+                    <td />
+                    <td className="px-3 py-2.5 text-xs text-gray-700">TOTAL ({filtered.length})</td>
+                    <td className="px-3 py-2.5 text-center text-xs text-gray-900">{totalStock.toLocaleString()}</td>
+                    <td className="px-3 py-2.5 text-center text-xs" style={{ color: C.shopee }}>{totals.shopee.toLocaleString()}</td>
+                    <td className="px-3 py-2.5 text-center text-xs" style={{ color: C.lazada }}>{totals.lazada.toLocaleString()}</td>
+                    <td className="px-3 py-2.5 text-center text-xs text-gray-900">{totals.tiktok.toLocaleString()}</td>
+                    <td className="px-3 py-2.5 text-center text-xs text-gray-400">—</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
-      )}
+
+        {/* Legend */}
+        <div className="flex gap-4 flex-wrap text-xs text-gray-500 pb-2">
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded-sm inline-block border" style={{ backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder }} />
+            Low stock — at or below each product's threshold (default 5), also shown on Production's dashboard
+          </span>
+        </div>
+
+        {/* Modals */}
+        {showAddModal && (
+          <AddProductModal
+            onClose={() => {
+              setShowAddModal(false);
+              setEditItem(null);
+            }}
+            onSaved={fetchInventory}
+            editItem={editItem}
+          />
+        )}
+
+        {showViewModal && selectedItem && (
+          <ViewProductModal
+            item={selectedItem}
+            onClose={() => {
+              setShowViewModal(false);
+              setSelectedItem(null);
+            }}
+          />
+        )}
+
+        {showArchiveModal && itemToArchive && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+            <div className="bg-white rounded-lg shadow-xl border border-gray-200 w-full max-w-md">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+                <h2 className="text-sm font-semibold text-gray-900">Archive product</h2>
+                <button
+                  onClick={() => {
+                    setShowArchiveModal(false);
+                    setItemToArchive(null);
+                  }}
+                  className="text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="px-5 py-4">
+                <p className="text-sm text-gray-600">
+                  Archive <span className="font-medium text-gray-800">{itemToArchive.product_name}</span>? This can't be undone.
+                </p>
+              </div>
+
+              <div className="px-5 py-4 border-t border-gray-200 flex justify-end gap-2">
+                <SecondaryButton
+                  onClick={() => {
+                    setShowArchiveModal(false);
+                    setItemToArchive(null);
+                  }}
+                >
+                  Cancel
+                </SecondaryButton>
+                <PrimaryButton onClick={confirmArchive} disabled={saving}>
+                  {saving ? "Archiving…" : "Archive"}
+                </PrimaryButton>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
