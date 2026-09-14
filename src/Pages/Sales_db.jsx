@@ -26,9 +26,9 @@ const ACCENT_HOVER = "#7F1616";
 const ALERT = "#B42318"; // reserved for out-of-stock / error states
 
 const PLATFORM_COLORS = {
-  Shopee: "#E1571F",
-  Lazada: "#5B4B93",
-  TikTok: "#111827",
+  Shopee: "#EE4D2D",
+  Lazada: "#0F146D",
+  TikTok: "#101113",
 };
 
 const CARD = "bg-white rounded-md border border-gray-200 shadow-sm";
@@ -428,7 +428,7 @@ function Sales_db({ onGoToImport }) {
     <div className="p-6 space-y-4">
       <div className={`${CARD} p-5 flex flex-col md:flex-row md:items-center justify-between gap-3`}>
         <div>
-          <h1 className="text-lg font-semibold text-gray-900">Sales — Dashboard</h1>
+          <h1 className="text-lg font-semibold text-gray-900">Sales - Dashboard</h1>
           {lastSynced && !loading && (
             <p className="text-xs text-gray-400 mt-0.5">Synced {timeAgo(lastSynced)}</p>
           )}

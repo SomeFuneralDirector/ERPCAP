@@ -30,24 +30,18 @@ const C = {
   warningBorder: "#F1DDB8",
 };
 
-// ─── Colours ──────────────────────────────────────────────────
-// Kept as small identity accents (dots, bars, pies), never as full-bleed
-// fills — see Products/Raw Materials pages for the same convention.
-
 const CAT_COLORS = {
   Men: "#1D4E89",
-  Women: "#8B2942",
+  Women: "#8b2976",
   Unisex: "#475569",
 };
 
 const PLATFORM_COLORS = {
   Shopee: "#EE4D2D",
-  Lazada: "#1E2A5E",
+  Lazada: "#0F146D",
   TikTok: "#101113",
 };
 
-// Raw-material categories are free text, so colours are assigned
-// on the fly from this palette (cycled, stable per category name).
 const MATERIAL_PALETTE = [
   "#0E7490", "#92400E", "#4B5563", "#166534", "#9F1239",
   "#1E3A8A", "#854D0E", "#0F766E", "#57534E", "#334155",
@@ -58,6 +52,12 @@ const STATUS_COLORS = {
   "Low Stock": C.warning,
   "Out of Stock": C.accent,
 };
+
+const SEGMENT_WRAP = "flex gap-0.5 bg-gray-100 rounded-md p-0.5";
+const SEGMENT_BTN = (active) =>
+  `px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer ${
+    active ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
+  }`;
 
 // ─── Helpers ──────────────────────────────────────────────────
 
@@ -76,8 +76,27 @@ function safeDate(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+/** Local midnight / end-of-day boundaries for YYYY-MM-DD date filters. */
+function localDateBoundary(value, endOfDay = false) {
+  if (!value) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setHours(
+    endOfDay ? 23 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 999 : 0
+  );
+  return date.getTime();
+}
+
 function totalStock(row) {
-  return nonNegative(row.shopee_stock) + nonNegative(row.lazada_stock) + nonNegative(row.tiktok_stock);
+  return (
+    nonNegative(row.shopee_stock) +
+    nonNegative(row.lazada_stock) +
+    nonNegative(row.tiktok_stock)
+  );
 }
 
 function formatLogTime(iso) {
@@ -97,9 +116,17 @@ function formatLogTime(iso) {
 }
 
 function colorForCategory(name) {
-  // Hash the category name so its colour remains stable when sorting changes.
   const hash = [...String(name || "")].reduce((sum, char) => sum + char.charCodeAt(0), 0);
   return MATERIAL_PALETTE[hash % MATERIAL_PALETTE.length];
+}
+
+function topPlatform(r) {
+  const s = nonNegative(r.shopee_stock);
+  const l = nonNegative(r.lazada_stock);
+  const t = nonNegative(r.tiktok_stock);
+  if (s >= l && s >= t) return "Shopee";
+  if (l >= s && l >= t) return "Lazada";
+  return "TikTok";
 }
 
 // ─── Primitives ─────────────────────────────────────────────
@@ -130,7 +157,6 @@ function PrimaryButton({ children, className = "", ...props }) {
   );
 }
 
-// ─── Custom tooltips
 function UnitsTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   return (
@@ -144,8 +170,6 @@ function UnitsTooltip({ active, payload, label }) {
     </div>
   );
 }
-
-// ─── Section heading with a tiny divider, used to separate Products / Raw materials
 
 function SectionHeading({ title, subtitle }) {
   return (
@@ -163,21 +187,20 @@ function Inventory_db() {
   const [rawInventory, setRawInventory] = useState([]);
   const [rawMaterials, setRawMaterials] = useState([]);
   const [soldByPlatform, setSoldByPlatform] = useState({ shopee: 0, lazada: 0, tiktok: 0 });
-  const [totals, setTotals] = useState(null);
-  const [cats, setCats] = useState([]);
-  const [lowStock, setLowStock] = useState([]);
-  const [outOfStockCount, setOutOfStockCount] = useState(0);
   const [activity, setActivity] = useState([]);
-  const [topMovers, setTopMovers] = useState([]);
-  const [slowMovers, setSlowMovers] = useState([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [materialsErrorMsg, setMaterialsErrorMsg] = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
 
-  // Drill-down state: which slice/bar was clicked
-  const [breakdown, setBreakdown] = useState(null); // { type, label, products }
+  // Filters (same UX as Sales dashboard)
+  const [platformFilter, setPlatformFilter] = useState("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
+  // Drill-down state
+  const [breakdown, setBreakdown] = useState(null);
 
   const fetchAll = useCallback(async (isInitial = false) => {
     if (isInitial) {
@@ -188,13 +211,12 @@ function Inventory_db() {
     setErrorMsg("");
     setMaterialsErrorMsg("");
 
-    // ── 1. Fetch inventory + completed-order line items + raw materials ──
     const [invRes, ordersRes, materialsRes] = await Promise.all([
       supabase
         .from("inventory")
         .select(
           "id, stock, shopee_stock, lazada_stock, tiktok_stock, " +
-          "category, product_name, product_code, reorder_point, updated_at"
+            "category, product_name, product_code, reorder_point, updated_at"
         ),
       supabase.from("orders").select("order_id").eq("status", "COMPLETED"),
       supabase
@@ -214,7 +236,6 @@ function Inventory_db() {
     }
 
     if (ordersRes.error) {
-      // Sold-by-platform is supplementary; don't block the page on it.
       console.error("Error fetching orders for platform chart:", ordersRes.error);
       setSoldByPlatform({ shopee: 0, lazada: 0, tiktok: 0 });
     } else {
@@ -242,8 +263,6 @@ function Inventory_db() {
       setSoldByPlatform(soldTotals);
     }
 
-    // Raw materials — supplementary too, so a failure here shouldn't block
-    // the products half of the dashboard from rendering.
     if (materialsRes.error) {
       console.error("Error fetching raw materials:", materialsRes.error);
       setMaterialsErrorMsg(materialsRes.error.message || "Couldn't load raw materials data.");
@@ -252,101 +271,10 @@ function Inventory_db() {
       setRawMaterials(materialsRes.data || []);
     }
 
-    if (inv && inv.length > 0) {
-      setRawInventory(inv);
+    setRawInventory(inv || []);
+    setLastUpdated(new Date());
 
-      // Platform totals
-      const totalsData = inv.reduce(
-        (acc, r) => ({
-          shopee: acc.shopee + nonNegative(r.shopee_stock),
-          lazada: acc.lazada + nonNegative(r.lazada_stock),
-          tiktok: acc.tiktok + nonNegative(r.tiktok_stock),
-        }),
-        { shopee: 0, lazada: 0, tiktok: 0 }
-      );
-      totalsData.total = totalsData.shopee + totalsData.lazada + totalsData.tiktok;
-      setTotals(totalsData);
-
-      // Stock by category
-      const catMap = {};
-      inv.forEach((r) => {
-        const c = r.category || "Uncategorized";
-        catMap[c] = (catMap[c] || 0) + totalStock(r);
-      });
-      setCats(
-        Object.entries(catMap).map(([name, qty]) => ({
-          name,
-          qty: nonNegative(qty),
-          color: CAT_COLORS[name] ?? "#6b7280",
-        }))
-      );
-
-      // Out of stock count
-      setOutOfStockCount(inv.filter((r) => totalStock(r) === 0).length);
-
-      // Low stock alerts: stock <= reorder_point
-      const low = inv
-        .filter((r) => totalStock(r) <= nonNegative(r.reorder_point ?? 10))
-        .sort((a, b) => totalStock(a) - totalStock(b))
-        .slice(0, 8)
-        .map((r) => ({
-          name: r.product_name || "Unknown",
-          code: r.product_code || "N/A",
-          qty: totalStock(r),
-          reorder: nonNegative(r.reorder_point ?? 10),
-        }));
-      setLowStock(low);
-
-      // Top movers - products with highest total stock
-      const topPlatform = (r) => {
-        const s = nonNegative(r.shopee_stock);
-        const l = nonNegative(r.lazada_stock);
-        const t = nonNegative(r.tiktok_stock);
-        if (s >= l && s >= t) return "Shopee";
-        if (l >= s && l >= t) return "Lazada";
-        return "TikTok";
-      };
-
-      const top = [...inv]
-        .filter((r) => totalStock(r) > 0)
-        .sort((a, b) => totalStock(b) - totalStock(a))
-        .slice(0, 6)
-        .map((r) => ({
-          name: r.product_name || "Unknown",
-          platform: topPlatform(r),
-          qty: totalStock(r),
-        }));
-      setTopMovers(top);
-
-      // Slow movers - low stock, not updated recently
-      const now = Date.now();
-      const slow = [...inv]
-        .filter((r) => {
-          const t = totalStock(r);
-          return t < 5 && t > 0;
-        })
-        .sort((a, b) => (safeDate(a.updated_at)?.getTime() ?? Infinity) - (safeDate(b.updated_at)?.getTime() ?? Infinity))
-        .slice(0, 5)
-        .map((r) => ({
-          name: r.product_name || "Unknown",
-          days: Math.max(0, Math.floor((now - (safeDate(r.updated_at)?.getTime() ?? now)) / 86_400_000)),
-        }))
-        .filter((r) => r.days > 0);
-      setSlowMovers(slow);
-
-      setLastUpdated(new Date());
-    } else {
-      // No rows — reset to empty state instead of leaving stale data
-      setRawInventory([]);
-      setTotals({ shopee: 0, lazada: 0, tiktok: 0, total: 0 });
-      setCats([]);
-      setOutOfStockCount(0);
-      setLowStock([]);
-      setTopMovers([]);
-      setSlowMovers([]);
-    }
-
-    // ── 2. Recent activity (inventory_logs) ───────────────
+    // Activity logs
     const { data: logs, error: logsError } = await supabase
       .from("inventory_logs")
       .select("detail, created_at")
@@ -403,33 +331,165 @@ function Inventory_db() {
     return () => supabase.removeChannel(channel);
   }, [fetchAll]);
 
-  // ── Derived chart data — products ──────────────────────────
+  // ── Filtered inventory (platform + date on updated_at) ─────
+
+  const filteredInventory = useMemo(() => {
+    const fromTime = localDateBoundary(dateFrom);
+    const toTime = localDateBoundary(dateTo, true);
+
+    return rawInventory.filter((r) => {
+      // Platform: product has stock on that shop
+      if (platformFilter === "Shopee" && nonNegative(r.shopee_stock) <= 0) return false;
+      if (platformFilter === "Lazada" && nonNegative(r.lazada_stock) <= 0) return false;
+      if (platformFilter === "TikTok" && nonNegative(r.tiktok_stock) <= 0) return false;
+
+      // Date range on updated_at
+      if (fromTime !== null || toTime !== null) {
+        const t = safeDate(r.updated_at)?.getTime();
+        if (t == null) return false;
+        if (fromTime !== null && t < fromTime) return false;
+        if (toTime !== null && t > toTime) return false;
+      }
+
+      return true;
+    });
+  }, [rawInventory, platformFilter, dateFrom, dateTo]);
+
+  const filteredMaterials = useMemo(() => {
+    const fromTime = localDateBoundary(dateFrom);
+    const toTime = localDateBoundary(dateTo, true);
+    if (fromTime === null && toTime === null) return rawMaterials;
+
+    return rawMaterials.filter((m) => {
+      const t = safeDate(m.updated_at)?.getTime();
+      if (t == null) return false;
+      if (fromTime !== null && t < fromTime) return false;
+      if (toTime !== null && t > toTime) return false;
+      return true;
+    });
+  }, [rawMaterials, dateFrom, dateTo]);
+
+  // ── Derived chart data — products (from filtered inventory) ─
+
+  const totals = useMemo(() => {
+    const data = filteredInventory.reduce(
+      (acc, r) => ({
+        shopee: acc.shopee + nonNegative(r.shopee_stock),
+        lazada: acc.lazada + nonNegative(r.lazada_stock),
+        tiktok: acc.tiktok + nonNegative(r.tiktok_stock),
+      }),
+      { shopee: 0, lazada: 0, tiktok: 0 }
+    );
+    data.total = data.shopee + data.lazada + data.tiktok;
+    return data;
+  }, [filteredInventory]);
+
+  const cats = useMemo(() => {
+    const catMap = {};
+    filteredInventory.forEach((r) => {
+      const c = r.category || "Uncategorized";
+      catMap[c] = (catMap[c] || 0) + totalStock(r);
+    });
+    return Object.entries(catMap).map(([name, qty]) => ({
+      name,
+      qty: nonNegative(qty),
+      color: CAT_COLORS[name] ?? "#6b7280",
+    }));
+  }, [filteredInventory]);
+
+  const outOfStockCount = useMemo(
+    () => filteredInventory.filter((r) => totalStock(r) === 0).length,
+    [filteredInventory]
+  );
+
+  const lowStock = useMemo(() => {
+    return filteredInventory
+      .filter((r) => totalStock(r) <= nonNegative(r.reorder_point ?? 10))
+      .sort((a, b) => totalStock(a) - totalStock(b))
+      .slice(0, 8)
+      .map((r) => ({
+        name: r.product_name || "Unknown",
+        code: r.product_code || "N/A",
+        qty: totalStock(r),
+        reorder: nonNegative(r.reorder_point ?? 10),
+      }));
+  }, [filteredInventory]);
+
+  const topMovers = useMemo(() => {
+    return [...filteredInventory]
+      .filter((r) => totalStock(r) > 0)
+      .sort((a, b) => totalStock(b) - totalStock(a))
+      .slice(0, 6)
+      .map((r) => ({
+        name: r.product_name || "Unknown",
+        platform: topPlatform(r),
+        qty: totalStock(r),
+      }));
+  }, [filteredInventory]);
+
+  const slowMovers = useMemo(() => {
+    const now = Date.now();
+    return [...filteredInventory]
+      .filter((r) => {
+        const t = totalStock(r);
+        return t < 5 && t > 0;
+      })
+      .sort(
+        (a, b) =>
+          (safeDate(a.updated_at)?.getTime() ?? Infinity) -
+          (safeDate(b.updated_at)?.getTime() ?? Infinity)
+      )
+      .slice(0, 5)
+      .map((r) => ({
+        name: r.product_name || "Unknown",
+        days: Math.max(
+          0,
+          Math.floor((now - (safeDate(r.updated_at)?.getTime() ?? now)) / 86_400_000)
+        ),
+      }))
+      .filter((r) => r.days > 0);
+  }, [filteredInventory]);
 
   const platformData = useMemo(() => {
-    if (!totals) return [];
+    // When a platform is selected, still show all three for context, but values reflect filtered set
     return [
-      { platform: "Shopee", qty: totals.shopee, sold: soldByPlatform.shopee, color: PLATFORM_COLORS.Shopee },
-      { platform: "Lazada", qty: totals.lazada, sold: soldByPlatform.lazada, color: PLATFORM_COLORS.Lazada },
-      { platform: "TikTok", qty: totals.tiktok, sold: soldByPlatform.tiktok, color: PLATFORM_COLORS.TikTok },
+      {
+        platform: "Shopee",
+        qty: totals.shopee,
+        sold: soldByPlatform.shopee,
+        color: PLATFORM_COLORS.Shopee,
+      },
+      {
+        platform: "Lazada",
+        qty: totals.lazada,
+        sold: soldByPlatform.lazada,
+        color: PLATFORM_COLORS.Lazada,
+      },
+      {
+        platform: "TikTok",
+        qty: totals.tiktok,
+        sold: soldByPlatform.tiktok,
+        color: PLATFORM_COLORS.TikTok,
+      },
     ];
   }, [totals, soldByPlatform]);
 
   // ── Derived chart data — raw materials ─────────────────────
 
   const materialStats = useMemo(() => {
-    const total = rawMaterials.length;
-    const value = rawMaterials.reduce(
+    const total = filteredMaterials.length;
+    const value = filteredMaterials.reduce(
       (sum, m) => sum + nonNegative(m.current_stock) * nonNegative(m.unit_cost),
       0
     );
-    const lowStockCount = rawMaterials.filter((m) => m.status === "Low Stock").length;
-    const outOfStockCount = rawMaterials.filter((m) => m.status === "Out of Stock").length;
-    return { total, value, lowStockCount, outOfStockCount };
-  }, [rawMaterials]);
+    const lowStockCount = filteredMaterials.filter((m) => m.status === "Low Stock").length;
+    const outCount = filteredMaterials.filter((m) => m.status === "Out of Stock").length;
+    return { total, value, lowStockCount, outOfStockCount: outCount };
+  }, [filteredMaterials]);
 
   const materialCategoryData = useMemo(() => {
     const map = {};
-    rawMaterials.forEach((m) => {
+    filteredMaterials.forEach((m) => {
       const c = m.category || "Uncategorized";
       if (!map[c]) map[c] = { name: c, count: 0, value: 0 };
       map[c].count += 1;
@@ -438,35 +498,36 @@ function Inventory_db() {
     return Object.values(map)
       .sort((a, b) => b.value - a.value)
       .map((c) => ({ ...c, color: colorForCategory(c.name) }));
-  }, [rawMaterials]);
+  }, [filteredMaterials]);
 
   const materialStatusData = useMemo(() => {
     const map = { "In Stock": 0, "Low Stock": 0, "Out of Stock": 0 };
-    rawMaterials.forEach((m) => {
+    filteredMaterials.forEach((m) => {
       const s = m.status || "In Stock";
       map[s] = (map[s] || 0) + 1;
     });
     return Object.entries(map)
       .filter(([, count]) => count > 0)
       .map(([status, count]) => ({ status, count, color: STATUS_COLORS[status] }));
-  }, [rawMaterials]);
+  }, [filteredMaterials]);
 
   const materialLowStock = useMemo(() => {
-    return [...rawMaterials]
+    return [...filteredMaterials]
       .filter((m) => m.status === "Low Stock" || m.status === "Out of Stock")
       .sort((a, b) => {
-        if (a.status === b.status) return nonNegative(a.current_stock) - nonNegative(b.current_stock);
+        if (a.status === b.status)
+          return nonNegative(a.current_stock) - nonNegative(b.current_stock);
         return a.status === "Out of Stock" ? -1 : 1;
       })
       .slice(0, 8);
-  }, [rawMaterials]);
+  }, [filteredMaterials]);
 
-  // ── Drill-down handlers — products ─────────────────────────
+  // ── Drill-down handlers ────────────────────────────────────
 
   function handleCategoryClick(entry) {
     const category = entry?.name;
     if (!category) return;
-    const products = rawInventory
+    const products = filteredInventory
       .filter((r) => (r.category || "Uncategorized") === category)
       .map((r) => ({
         name: r.product_name || "Unknown",
@@ -490,7 +551,7 @@ function Inventory_db() {
     const platform = entry?.platform;
     if (!platform) return;
     const key = `${platform.toLowerCase()}_stock`;
-    const products = rawInventory
+    const products = filteredInventory
       .filter((r) => nonNegative(r[key]) > 0)
       .map((r) => ({
         name: r.product_name || "Unknown",
@@ -513,7 +574,7 @@ function Inventory_db() {
   function handleTopMoverClick(entry) {
     const name = entry?.name;
     if (!name) return;
-    const row = rawInventory.find((r) => (r.product_name || "Unknown") === name);
+    const row = filteredInventory.find((r) => (r.product_name || "Unknown") === name);
     if (!row) return;
 
     setBreakdown({
@@ -533,12 +594,10 @@ function Inventory_db() {
     });
   }
 
-  // ── Drill-down handlers — raw materials ────────────────────
-
   function handleMaterialCategoryClick(entry) {
     const category = entry?.name;
     if (!category) return;
-    const materials = rawMaterials
+    const materials = filteredMaterials
       .filter((m) => (m.category || "Uncategorized") === category)
       .map((m) => ({
         name: m.material_name || "Unknown",
@@ -560,7 +619,7 @@ function Inventory_db() {
   function handleMaterialStatusClick(entry) {
     const status = entry?.status;
     if (!status) return;
-    const materials = rawMaterials
+    const materials = filteredMaterials
       .filter((m) => (m.status || "In Stock") === status)
       .map((m) => ({
         name: m.material_name || "Unknown",
@@ -584,12 +643,14 @@ function Inventory_db() {
     `₱${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
   const loading = initialLoading;
 
-  if (errorMsg && !totals) {
+  if (errorMsg && rawInventory.length === 0 && !loading) {
     return (
       <div className="min-h-screen p-6" style={{ backgroundColor: "#F6F6F7" }}>
         <Card className="p-6 max-w-[1400px] mx-auto" style={{ borderColor: C.accentSoftBorder }}>
-          <h1 className="text-lg font-semibold text-gray-900 mb-2">Dashboard</h1>
-          <p className="text-sm mb-4" style={{ color: C.accent }}>{errorMsg}</p>
+          <h1 className="text-lg font-semibold text-gray-900 mb-2">Inventory - Dashboard</h1>
+          <p className="text-sm mb-4" style={{ color: C.accent }}>
+            {errorMsg}
+          </p>
           <PrimaryButton onClick={() => fetchAll(true)}>Retry</PrimaryButton>
         </Card>
       </div>
@@ -599,37 +660,89 @@ function Inventory_db() {
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#F6F6F7" }}>
       <div className="p-6 space-y-4 max-w-[1400px] mx-auto">
-        {/* Header */}
+        {/* Header + filters */}
         <Card className="px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
-            <h1 className="text-lg font-semibold text-gray-900">Inventory — Dashboard</h1>
-            <p className="text-xs text-gray-500 mt-0.5">Stock levels, sell-through and reorder signals</p>
+            <h1 className="text-lg font-semibold text-gray-900">Inventory - Dashboard</h1>
+            {lastUpdated && !loading && (
+              <p className="text-xs text-gray-400 mt-0.5">
+                Updated {formatLogTime(lastUpdated.toISOString())}
+              </p>
+            )}
           </div>
-          <div className="flex items-center gap-3 self-start md:self-auto">
+
+          <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
+            <div className={SEGMENT_WRAP}>
+              {["all", "Shopee", "Lazada", "TikTok"].map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setPlatformFilter(p)}
+                  className={SEGMENT_BTN(platformFilter === p)}
+                >
+                  {p === "all" ? "All" : p}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
+                title="Updated from"
+              />
+              <span className="text-gray-400 text-sm">to</span>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
+                title="Updated to"
+              />
+            </div>
+
             <PrimaryButton onClick={() => fetchAll(false)} disabled={loading || refreshing}>
               {loading || refreshing ? "Loading…" : "Refresh"}
             </PrimaryButton>
           </div>
         </Card>
 
-        {errorMsg && totals && (
-          <div className="rounded-md border px-3 py-2.5 text-xs" style={{ backgroundColor: C.warningSoft, borderColor: C.warningBorder, color: C.warning }}>
+        {errorMsg && rawInventory.length > 0 && (
+          <div
+            className="rounded-md border px-3 py-2.5 text-xs"
+            style={{
+              backgroundColor: C.warningSoft,
+              borderColor: C.warningBorder,
+              color: C.warning,
+            }}
+          >
             Last refresh failed: {errorMsg}
           </div>
         )}
         {materialsErrorMsg && (
-          <div className="rounded-md border px-3 py-2.5 text-xs" style={{ backgroundColor: C.warningSoft, borderColor: C.warningBorder, color: C.warning }}>
-            Raw materials couldn't be loaded: {materialsErrorMsg}
+          <div
+            className="rounded-md border px-3 py-2.5 text-xs"
+            style={{
+              backgroundColor: C.warningSoft,
+              borderColor: C.warningBorder,
+              color: C.warning,
+            }}
+          >
+            Raw materials couldn&apos;t be loaded: {materialsErrorMsg}
           </div>
         )}
 
         {/* ══════════════════════ PRODUCTS ══════════════════════ */}
 
-        {/* Platform summary cards */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <Card className="p-4">
             <p className="text-xs text-gray-500">Total stock</p>
-            {loading ? <Skeleton /> : <p className="text-2xl font-semibold mt-1 text-gray-900">{fmt(totals?.total)}</p>}
+            {loading ? (
+              <Skeleton />
+            ) : (
+              <p className="text-2xl font-semibold mt-1 text-gray-900">{fmt(totals.total)}</p>
+            )}
             <p className="text-xs mt-1 text-gray-400">Units on hand</p>
           </Card>
 
@@ -639,10 +752,19 @@ function Inventory_db() {
             return (
               <Card key={platform} className="p-4">
                 <p className="text-xs text-gray-500 flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: color }} />
+                  <span
+                    className="w-2 h-2 rounded-sm inline-block"
+                    style={{ backgroundColor: color }}
+                  />
                   {platform}
                 </p>
-                {loading ? <Skeleton /> : <p className="text-2xl font-semibold mt-1" style={{ color }}>{fmt(totals?.[key])}</p>}
+                {loading ? (
+                  <Skeleton />
+                ) : (
+                  <p className="text-2xl font-semibold mt-1" style={{ color }}>
+                    {fmt(totals[key])}
+                  </p>
+                )}
                 <p className="text-xs mt-1 text-gray-400">Units in stock</p>
               </Card>
             );
@@ -650,19 +772,24 @@ function Inventory_db() {
 
           <Card className="p-4">
             <p className="text-xs text-gray-500">Out of stock</p>
-            {loading ? <Skeleton /> : <p className="text-2xl font-semibold mt-1" style={{ color: C.accent }}>{fmt(outOfStockCount)}</p>}
+            {loading ? (
+              <Skeleton />
+            ) : (
+              <p className="text-2xl font-semibold mt-1" style={{ color: C.accent }}>
+                {fmt(outOfStockCount)}
+              </p>
+            )}
             <p className="text-xs mt-1 text-gray-400">Products at zero</p>
           </Card>
         </div>
 
-        {/* Stock by platform (primary) + Stock by category (compact) */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           <Card className="lg:col-span-2 p-6">
             <h2 className="text-sm font-semibold text-gray-700 mb-3">Stock by platform</h2>
             {loading ? (
               <Skeleton className="h-56 w-full" />
-            ) : platformData.length === 0 ? (
-              <p className="text-xs text-gray-400">No data</p>
+            ) : platformData.every((p) => p.qty === 0) ? (
+              <p className="text-xs text-gray-400">No data for current filters.</p>
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-center">
                 <ResponsiveContainer width="100%" height={260}>
@@ -690,24 +817,33 @@ function Inventory_db() {
                     {platformData.map((p) => (
                       <li key={p.platform} className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ backgroundColor: p.color }} />
+                          <span
+                            className="w-2.5 h-2.5 rounded-sm inline-block"
+                            style={{ backgroundColor: p.color }}
+                          />
                           <span className="text-sm font-medium text-gray-700">{p.platform}</span>
                         </div>
                         <div className="text-right">
                           <p className="text-sm font-semibold text-gray-700">
-                            {p.qty} in stock{" "}
+                            {fmt(p.qty)} in stock{" "}
                             <span className="text-gray-400 font-normal">
-                              ({totals?.total > 0 ? ((p.qty / totals.total) * 100).toFixed(1) : 0}%)
+                              (
+                              {totals.total > 0
+                                ? ((p.qty / totals.total) * 100).toFixed(1)
+                                : 0}
+                              %)
                             </span>
                           </p>
-                          <p className="text-xs text-gray-400">{p.sold} sold</p>
+                          <p className="text-xs text-gray-400">{fmt(p.sold)} sold</p>
                         </div>
                       </li>
                     ))}
                   </ul>
                   <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between">
                     <span className="text-sm font-medium text-gray-500">Total stock</span>
-                    <span className="text-sm font-semibold" style={{ color: C.accent }}>{fmt(totals?.total)} units</span>
+                    <span className="text-sm font-semibold" style={{ color: C.accent }}>
+                      {fmt(totals.total)} units
+                    </span>
                   </div>
                 </div>
               </div>
@@ -745,10 +881,13 @@ function Inventory_db() {
                   {cats.map((c) => (
                     <li key={c.name} className="flex items-center justify-between text-xs">
                       <span className="flex items-center gap-1.5 text-gray-600">
-                        <span className="w-2 h-2 rounded-sm inline-block" style={{ background: c.color }} />
+                        <span
+                          className="w-2 h-2 rounded-sm inline-block"
+                          style={{ background: c.color }}
+                        />
                         {c.name}
                       </span>
-                      <span className="font-medium text-gray-700">{c.qty.toLocaleString()}</span>
+                      <span className="font-medium text-gray-700">{fmt(c.qty)}</span>
                     </li>
                   ))}
                 </ul>
@@ -757,7 +896,6 @@ function Inventory_db() {
           </Card>
         </div>
 
-        {/* Top stocked items (primary) + Low stock alerts (compact) */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           <Card className="lg:col-span-2 p-6">
             <h2 className="text-sm font-semibold text-gray-700 mb-3">Top stocked items</h2>
@@ -774,7 +912,13 @@ function Inventory_db() {
                   barCategoryGap={12}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
-                  <XAxis type="number" tick={{ fontSize: 11, fill: "#6B7280" }} axisLine={false} tickLine={false} />
+                  <XAxis
+                    type="number"
+                    tick={{ fontSize: 11, fill: "#6B7280" }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(v) => fmt(v)}
+                  />
                   <YAxis
                     type="category"
                     dataKey="name"
@@ -798,6 +942,7 @@ function Inventory_db() {
                     <LabelList
                       dataKey="qty"
                       position="right"
+                      formatter={(v) => fmt(v)}
                       style={{ fontSize: 11, fill: "#374151", fontWeight: 600 }}
                     />
                   </Bar>
@@ -812,15 +957,21 @@ function Inventory_db() {
               {!loading && (
                 <span
                   className="px-2 py-0.5 text-xs rounded-md font-medium border"
-                  style={{ color: C.accent, backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder }}
+                  style={{
+                    color: C.accent,
+                    backgroundColor: C.accentSoft,
+                    borderColor: C.accentSoftBorder,
+                  }}
                 >
-                  {lowStock.length}
+                  {fmt(lowStock.length)}
                 </span>
               )}
             </h2>
             {loading ? (
               <div className="space-y-3">
-                {[1, 2, 3].map((i) => <Skeleton key={i} className="h-10 w-full" />)}
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-10 w-full" />
+                ))}
               </div>
             ) : lowStock.length === 0 ? (
               <p className="text-xs text-gray-400">All items are sufficiently stocked.</p>
@@ -840,17 +991,28 @@ function Inventory_db() {
                           className="px-1.5 py-0.5 text-xs rounded font-medium shrink-0 border"
                           style={
                             isOut
-                              ? { color: C.accent, backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder }
-                              : { color: C.warning, backgroundColor: C.warningSoft, borderColor: C.warningBorder }
+                              ? {
+                                  color: C.accent,
+                                  backgroundColor: C.accentSoft,
+                                  borderColor: C.accentSoftBorder,
+                                }
+                              : {
+                                  color: C.warning,
+                                  backgroundColor: C.warningSoft,
+                                  borderColor: C.warningBorder,
+                                }
                           }
                         >
-                          {isOut ? "Out" : `${p.qty} left`}
+                          {isOut ? "Out" : `${fmt(p.qty)} left`}
                         </span>
                       </div>
                       <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
                         <div
                           className="h-full rounded-full"
-                          style={{ width: `${pct}%`, background: isOut ? C.accent : C.warning }}
+                          style={{
+                            width: `${pct}%`,
+                            background: isOut ? C.accent : C.warning,
+                          }}
                         />
                       </div>
                     </div>
@@ -861,13 +1023,14 @@ function Inventory_db() {
           </Card>
         </div>
 
-        {/* Recent activity + Items needing attention */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <Card className="p-6">
             <h2 className="text-sm font-semibold text-gray-700 mb-3">Recent activity</h2>
             {loading ? (
               <div className="space-y-3">
-                {[1, 2, 3].map((i) => <Skeleton key={i} className="h-8 w-full" />)}
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-8 w-full" />
+                ))}
               </div>
             ) : activity.length === 0 ? (
               <p className="text-xs text-gray-400">No recent activity.</p>
@@ -875,7 +1038,10 @@ function Inventory_db() {
               <div className="divide-y divide-gray-100">
                 {activity.map((a, i) => (
                   <div key={i} className="flex items-start gap-3 py-2">
-                    <span className="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: C.accent }} />
+                    <span
+                      className="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0"
+                      style={{ backgroundColor: C.accent }}
+                    />
                     <div>
                       <p className="text-xs text-gray-700 leading-snug">{a.text}</p>
                       <p className="text-xs text-gray-400 mt-0.5">{a.time}</p>
@@ -890,7 +1056,9 @@ function Inventory_db() {
             <h2 className="text-sm font-semibold text-gray-700 mb-3">Items needing attention</h2>
             {loading ? (
               <div className="space-y-3">
-                {[1, 2, 3].map((i) => <Skeleton key={i} className="h-8 w-full" />)}
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-8 w-full" />
+                ))}
               </div>
             ) : slowMovers.length === 0 ? (
               <p className="text-xs text-gray-400">All items are recently updated.</p>
@@ -901,14 +1069,18 @@ function Inventory_db() {
                     <div>
                       <p className="text-xs font-medium text-gray-700">{m.name}</p>
                       <p className="text-xs text-gray-400 mt-0.5">
-                        Low stock for {m.days} day{m.days !== 1 ? "s" : ""}
+                        Low stock for {fmt(m.days)} day{m.days !== 1 ? "s" : ""}
                       </p>
                     </div>
                     <span
                       className="px-2 py-0.5 text-xs rounded-md font-medium border"
-                      style={{ color: C.warning, backgroundColor: C.warningSoft, borderColor: C.warningBorder }}
+                      style={{
+                        color: C.warning,
+                        backgroundColor: C.warningSoft,
+                        borderColor: C.warningBorder,
+                      }}
                     >
-                      {m.days}d
+                      {fmt(m.days)}d
                     </span>
                   </div>
                 ))}
@@ -922,34 +1094,56 @@ function Inventory_db() {
           <SectionHeading title="Raw materials" subtitle="Production inputs" />
         </div>
 
-        {/* Materials summary cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Card className="p-4">
             <p className="text-xs text-gray-500">Total materials</p>
-            {loading ? <Skeleton /> : <p className="text-2xl font-semibold mt-1 text-gray-900">{fmt(materialStats.total)}</p>}
+            {loading ? (
+              <Skeleton />
+            ) : (
+              <p className="text-2xl font-semibold mt-1 text-gray-900">
+                {fmt(materialStats.total)}
+              </p>
+            )}
             <p className="text-xs mt-1 text-gray-400">Tracked SKUs</p>
           </Card>
 
           <Card className="p-4">
             <p className="text-xs text-gray-500">Estimated value</p>
-            {loading ? <Skeleton /> : <p className="text-2xl font-semibold mt-1" style={{ color: C.success }}>{fmtPeso(materialStats.value)}</p>}
+            {loading ? (
+              <Skeleton />
+            ) : (
+              <p className="text-2xl font-semibold mt-1" style={{ color: C.success }}>
+                {fmtPeso(materialStats.value)}
+              </p>
+            )}
             <p className="text-xs mt-1 text-gray-400">Stock × unit cost</p>
           </Card>
 
           <Card className="p-4">
             <p className="text-xs text-gray-500">Low stock</p>
-            {loading ? <Skeleton /> : <p className="text-2xl font-semibold mt-1" style={{ color: C.warning }}>{fmt(materialStats.lowStockCount)}</p>}
+            {loading ? (
+              <Skeleton />
+            ) : (
+              <p className="text-2xl font-semibold mt-1" style={{ color: C.warning }}>
+                {fmt(materialStats.lowStockCount)}
+              </p>
+            )}
             <p className="text-xs mt-1 text-gray-400">Need reordering soon</p>
           </Card>
 
           <Card className="p-4">
             <p className="text-xs text-gray-500">Out of stock</p>
-            {loading ? <Skeleton /> : <p className="text-2xl font-semibold mt-1" style={{ color: C.accent }}>{fmt(materialStats.outOfStockCount)}</p>}
+            {loading ? (
+              <Skeleton />
+            ) : (
+              <p className="text-2xl font-semibold mt-1" style={{ color: C.accent }}>
+                {fmt(materialStats.outOfStockCount)}
+              </p>
+            )}
             <p className="text-xs mt-1 text-gray-400">Blocking production</p>
           </Card>
         </div>
 
-        {/* Value by category + Stock status */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           <Card className="lg:col-span-2 p-6">
             <h2 className="text-sm font-semibold text-gray-700 mb-3">Material value by category</h2>
@@ -958,7 +1152,10 @@ function Inventory_db() {
             ) : materialCategoryData.length === 0 ? (
               <p className="text-xs text-gray-400">No raw materials recorded yet.</p>
             ) : (
-              <ResponsiveContainer width="100%" height={Math.max(200, materialCategoryData.length * 42)}>
+              <ResponsiveContainer
+                width="100%"
+                height={Math.max(200, materialCategoryData.length * 42)}
+              >
                 <BarChart
                   data={materialCategoryData}
                   layout="vertical"
@@ -966,7 +1163,13 @@ function Inventory_db() {
                   barCategoryGap={12}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
-                  <XAxis type="number" tick={{ fontSize: 11, fill: "#6B7280" }} axisLine={false} tickLine={false} />
+                  <XAxis
+                    type="number"
+                    tick={{ fontSize: 11, fill: "#6B7280" }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(v) => fmt(v)}
+                  />
                   <YAxis
                     type="category"
                     dataKey="name"
@@ -982,7 +1185,10 @@ function Inventory_db() {
                       return (
                         <div className="bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2 text-xs">
                           <p className="font-semibold text-gray-700 mb-1">{d.name}</p>
-                          <p className="text-gray-600">{fmtPeso(d.value)} · {d.count} material{d.count !== 1 ? "s" : ""}</p>
+                          <p className="text-gray-600">
+                            {fmtPeso(d.value)} · {fmt(d.count)} material
+                            {d.count !== 1 ? "s" : ""}
+                          </p>
                         </div>
                       );
                     }}
@@ -1040,8 +1246,12 @@ function Inventory_db() {
                         const d = payload[0].payload;
                         return (
                           <div className="bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2 text-xs">
-                            <p className="font-semibold" style={{ color: d.color }}>{d.status}</p>
-                            <p className="text-gray-600">{d.count} material{d.count !== 1 ? "s" : ""}</p>
+                            <p className="font-semibold" style={{ color: d.color }}>
+                              {d.status}
+                            </p>
+                            <p className="text-gray-600">
+                              {fmt(d.count)} material{d.count !== 1 ? "s" : ""}
+                            </p>
                           </div>
                         );
                       }}
@@ -1052,10 +1262,13 @@ function Inventory_db() {
                   {materialStatusData.map((s) => (
                     <li key={s.status} className="flex items-center justify-between text-xs">
                       <span className="flex items-center gap-1.5 text-gray-600">
-                        <span className="w-2 h-2 rounded-sm inline-block" style={{ background: s.color }} />
+                        <span
+                          className="w-2 h-2 rounded-sm inline-block"
+                          style={{ background: s.color }}
+                        />
                         {s.status}
                       </span>
-                      <span className="font-medium text-gray-700">{s.count}</span>
+                      <span className="font-medium text-gray-700">{fmt(s.count)}</span>
                     </li>
                   ))}
                 </ul>
@@ -1064,22 +1277,27 @@ function Inventory_db() {
           </Card>
         </div>
 
-        {/* Materials low stock alerts */}
         <Card className="p-6">
           <h2 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
             Materials needing reorder
             {!loading && (
               <span
                 className="px-2 py-0.5 text-xs rounded-md font-medium border"
-                style={{ color: C.warning, backgroundColor: C.warningSoft, borderColor: C.warningBorder }}
+                style={{
+                  color: C.warning,
+                  backgroundColor: C.warningSoft,
+                  borderColor: C.warningBorder,
+                }}
               >
-                {materialLowStock.length}
+                {fmt(materialLowStock.length)}
               </span>
             )}
           </h2>
           {loading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
+              {[1, 2, 3, 4].map((i) => (
+                <Skeleton key={i} className="h-12 w-full" />
+              ))}
             </div>
           ) : materialLowStock.length === 0 ? (
             <p className="text-xs text-gray-400">All raw materials are sufficiently stocked.</p>
@@ -1093,21 +1311,30 @@ function Inventory_db() {
                     className="flex items-center justify-between rounded-md border px-3 py-2"
                     style={
                       isOut
-                        ? { backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder }
-                        : { backgroundColor: C.warningSoft, borderColor: C.warningBorder }
+                        ? {
+                            backgroundColor: C.accentSoft,
+                            borderColor: C.accentSoftBorder,
+                          }
+                        : {
+                            backgroundColor: C.warningSoft,
+                            borderColor: C.warningBorder,
+                          }
                     }
                   >
                     <div className="min-w-0">
-                      <p className="text-xs font-medium text-gray-700 truncate">{m.material_name}</p>
+                      <p className="text-xs font-medium text-gray-700 truncate">
+                        {m.material_name}
+                      </p>
                       <p className="text-xs text-gray-400 truncate">
-                        {m.category || "Uncategorized"}{m.supplier ? ` · ${m.supplier}` : ""}
+                        {m.category || "Uncategorized"}
+                        {m.supplier ? ` · ${m.supplier}` : ""}
                       </p>
                     </div>
                     <span
                       className="ml-3 shrink-0 px-1.5 py-0.5 text-xs rounded font-medium"
                       style={{ color: isOut ? C.accent : C.warning }}
                     >
-                      {m.current_stock} {m.unit}
+                      {fmt(m.current_stock)} {m.unit}
                     </span>
                   </div>
                 );
@@ -1128,11 +1355,15 @@ function Inventory_db() {
             >
               <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-sm" style={{ background: breakdown.color }} />
+                  <span
+                    className="w-2.5 h-2.5 rounded-sm"
+                    style={{ background: breakdown.color }}
+                  />
                   <h2 className="text-sm font-semibold text-gray-900">{breakdown.label}</h2>
                   <span className="text-xs text-gray-400">
-                    ({breakdown.products.length} item{breakdown.products.length !== 1 ? "s" : ""})
-                    {breakdown.type === "platform" && `, ${breakdown.sold} sold total`}
+                    ({fmt(breakdown.products.length)} item
+                    {breakdown.products.length !== 1 ? "s" : ""})
+                    {breakdown.type === "platform" && `, ${fmt(breakdown.sold)} sold total`}
                   </span>
                 </div>
                 <button
@@ -1149,34 +1380,50 @@ function Inventory_db() {
                 ) : (
                   <div className="space-y-3">
                     {breakdown.products.map((p) => (
-                      <div key={p.code ?? p.name} className="border-b border-gray-50 pb-2 last:border-0">
+                      <div
+                        key={p.code ?? p.name}
+                        className="border-b border-gray-50 pb-2 last:border-0"
+                      >
                         <div className="flex items-center justify-between">
                           <div>
                             <p className="text-xs font-medium text-gray-700">{p.name}</p>
-                            {p.code && <p className="text-xs font-mono text-gray-400">{p.code}</p>}
+                            {p.code && (
+                              <p className="text-xs font-mono text-gray-400">{p.code}</p>
+                            )}
                           </div>
-                          <span className="text-xs font-semibold shrink-0" style={{ color: C.accent }}>
-                            {p.qty} {p.unit || "units"}
+                          <span
+                            class className="text-xs font-semibold shrink-0"
+                            style={{ color: C.accent }}
+                          >
+                            {fmt(p.qty)} {p.unit || "units"}
                           </span>
                         </div>
                         {(breakdown.type === "category" || breakdown.type === "product") && (
                           <div className="flex gap-3 mt-1">
-                            <span className="text-xs" style={{ color: PLATFORM_COLORS.Shopee }}>Shopee: {p.shopee}</span>
-                            <span className="text-xs" style={{ color: PLATFORM_COLORS.Lazada }}>Lazada: {p.lazada}</span>
-                            <span className="text-xs" style={{ color: PLATFORM_COLORS.TikTok }}>TikTok: {p.tiktok}</span>
+                            <span className="text-xs" style={{ color: PLATFORM_COLORS.Shopee }}>
+                              Shopee: {fmt(p.shopee)}
+                            </span>
+                            <span className="text-xs" style={{ color: PLATFORM_COLORS.Lazada }}>
+                              Lazada: {fmt(p.lazada)}
+                            </span>
+                            <span className="text-xs" style={{ color: PLATFORM_COLORS.TikTok }}>
+                              TikTok: {fmt(p.tiktok)}
+                            </span>
                           </div>
                         )}
-                        {(breakdown.type === "material-category" || breakdown.type === "material-status") && p.status && (
-                          <span
-                            className="inline-block mt-1 px-1.5 py-0.5 rounded-md text-xs font-medium"
-                            style={{
-                              background: `${STATUS_COLORS[p.status]}1a`,
-                              color: STATUS_COLORS[p.status],
-                            }}
-                          >
-                            {p.status}
-                          </span>
-                        )}
+                        {(breakdown.type === "material-category" ||
+                          breakdown.type === "material-status") &&
+                          p.status && (
+                            <span
+                              className="inline-block mt-1 px-1.5 py-0.5 rounded-md text-xs font-medium"
+                              style={{
+                                background: `${STATUS_COLORS[p.status]}1a`,
+                                color: STATUS_COLORS[p.status],
+                              }}
+                            >
+                              {p.status}
+                            </span>
+                          )}
                       </div>
                     ))}
                   </div>
@@ -1190,4 +1437,4 @@ function Inventory_db() {
   );
 }
 
-export default Inventory_db;  
+export default Inventory_db;

@@ -3,33 +3,33 @@ import { useState, useEffect, useCallback } from "react";
 import { Search, Plus, X, Eye, Pencil, Trash2 } from "lucide-react";
 import { supabase } from "../api/supabase";
 
-/* ---------------------------------------------------------------------
- * Design tokens (ISONFAM ERP) — shared conventions with Production.jsx.
- * Red is reserved for the primary action and true alerts (low/out of
- * stock); status colors use their own semantic palette so red keeps
- * its meaning as "needs attention".
- * ------------------------------------------------------------------- */
-const ACCENT = "#9A1B1B";
-const ACCENT_HOVER = "#7F1616";
-
-const CARD = "bg-white rounded-md border border-gray-200 shadow-sm";
-const SEGMENT_WRAP = "flex gap-0.5 bg-gray-100 rounded-md p-0.5 flex-wrap";
-const SEGMENT_BTN = (active) =>
-  `px-2.5 py-1 text-xs font-medium rounded transition-colors cursor-pointer ${
-    active ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
-  }`;
-const PRIMARY_BTN =
-  "px-3.5 py-2 rounded-md text-sm font-medium text-white transition-colors disabled:opacity-50 cursor-pointer";
-const SECONDARY_BTN =
-  "px-3.5 py-2 rounded-md text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-50 cursor-pointer";
+/* ── Design tokens ──────────────────────────────────────────────────────────
+   Shared with Inventory.jsx so both pages of the module read as one product. */
+const C = {
+  accent: "#B3211B",
+  accentHover: "#8E1A15",
+  accentSoft: "#FBEAE9",
+  accentSoftBorder: "#F3C9C7",
+  text: "#1C1C1F",
+  textMuted: "#6B6B70",
+  textFaint: "#9A9AA0",
+  border: "#E4E4E7",
+  borderStrong: "#D4D4D8",
+  success: "#15803D",
+  successSoft: "#EEF6EF",
+  successBorder: "#CDE7D2",
+  warning: "#A15C07",
+  warningSoft: "#FBF3E7",
+  warningBorder: "#F1DDB8",
+};
 
 const UNITS = ["pcs", "kg", "g", "liters", "ml", "meters", "rolls", "sheets", "boxes"];
 const STOCK_STATUSES = ["In Stock", "Low Stock", "Out of Stock"];
 
-const STATUS_STYLES = {
-  "In Stock": "bg-emerald-50 text-emerald-700",
-  "Low Stock": "bg-amber-50 text-amber-700",
-  "Out of Stock": "bg-red-50 text-red-700",
+const STATUS_STYLE = {
+  "In Stock": { color: C.success, backgroundColor: C.successSoft, borderColor: C.successBorder },
+  "Low Stock": { color: C.warning, backgroundColor: C.warningSoft, borderColor: C.warningBorder },
+  "Out of Stock": { color: C.accent, backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder },
 };
 
 const EMPTY_FORM = {
@@ -42,18 +42,44 @@ const EMPTY_FORM = {
   notes: "",
 };
 
-function Skeleton({ className = "h-4 w-full" }) {
-  return <div className={`${className} bg-gray-100 rounded animate-pulse`} />;
+/* ── Shared field primitives ─────────────────────────────────────────────── */
+
+function Field({ label, required, hint, children }) {
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-600 mb-1">
+        {label}
+        {required && <span style={{ color: C.accent }}> *</span>}
+      </label>
+      {children}
+      {hint && <p className="text-xs text-gray-400 mt-1">{hint}</p>}
+    </div>
+  );
+}
+
+const inputBase =
+  "w-full border rounded-md px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 transition-colors";
+
+function TextInput(props) {
+  return (
+    <input
+      {...props}
+      className={`${inputBase} border-gray-300`}
+      style={{ ...props.style }}
+      onFocus={(e) => (e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`, e.target.style.borderColor = C.accent)}
+      onBlur={(e) => (e.target.style.boxShadow = "none", e.target.style.borderColor = "#D1D5DB", props.onBlur?.(e))}
+    />
+  );
 }
 
 function PrimaryButton({ children, className = "", ...props }) {
   return (
     <button
       {...props}
-      className={`${PRIMARY_BTN} inline-flex items-center gap-1.5 ${className}`}
-      style={{ background: ACCENT }}
-      onMouseEnter={(e) => !props.disabled && (e.currentTarget.style.background = ACCENT_HOVER)}
-      onMouseLeave={(e) => (e.currentTarget.style.background = ACCENT)}
+      className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium text-white transition-colors disabled:opacity-50 cursor-pointer ${className}`}
+      style={{ backgroundColor: C.accent }}
+      onMouseEnter={(e) => !props.disabled && (e.currentTarget.style.backgroundColor = C.accentHover)}
+      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = C.accent)}
     >
       {children}
     </button>
@@ -62,13 +88,27 @@ function PrimaryButton({ children, className = "", ...props }) {
 
 function SecondaryButton({ children, className = "", ...props }) {
   return (
-    <button {...props} className={`${SECONDARY_BTN} inline-flex items-center gap-1.5 ${className}`}>
+    <button
+      {...props}
+      className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-50 cursor-pointer ${className}`}
+    >
       {children}
     </button>
   );
 }
 
-// ── AddMaterialModal ──────────────────────────────────────────────────────
+function SummaryStat({ label, value, color }) {
+  return (
+    <div className="flex-1 min-w-[110px] px-4 py-3">
+      <p className="text-xs text-gray-500">{label}</p>
+      <p className="text-lg font-semibold mt-0.5" style={{ color: color || C.text }}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
+/* ── AddMaterialModal ──────────────────────────────────────────────────── */
 
 function AddMaterialModal({ onClose, onSaved, editItem = null }) {
   const [form, setForm] = useState(EMPTY_FORM);
@@ -112,15 +152,10 @@ function AddMaterialModal({ onClose, onSaved, editItem = null }) {
 
     let error = null;
     if (isEdit && editItem.id) {
-      const { error: updateError } = await supabase
-        .from("raw_materials")
-        .update(payload)
-        .eq("id", editItem.id);
+      const { error: updateError } = await supabase.from("raw_materials").update(payload).eq("id", editItem.id);
       error = updateError;
     } else {
-      const { error: insertError } = await supabase
-        .from("raw_materials")
-        .insert([payload]);
+      const { error: insertError } = await supabase.from("raw_materials").insert([payload]);
       error = insertError;
     }
 
@@ -135,55 +170,41 @@ function AddMaterialModal({ onClose, onSaved, editItem = null }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className={`${CARD} w-full max-w-lg max-h-[90vh] overflow-y-auto`}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-lg shadow-xl border border-gray-200 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
           <h2 className="text-sm font-semibold text-gray-900">
-            {isEdit ? "Edit Raw Material" : "Add Raw Material"}
+            {isEdit ? "Edit material" : "Add material"}
           </h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
-          >
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors cursor-pointer">
             <X size={18} />
           </button>
         </div>
 
-        <div className="px-6 py-4 space-y-4">
-          <div>
-            <label className="block text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
-              Material Name *
-            </label>
-            <input
+        <div className="px-5 py-4 space-y-4">
+          <Field label="Material name" required>
+            <TextInput
               type="text"
-              placeholder="e.g. Oil - Bergamoth Note"
+              placeholder="e.g. Oil — Bergamot Note"
               value={form.material_name}
               onChange={(e) => set("material_name", e.target.value)}
-              className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-200"
             />
-          </div>
+          </Field>
 
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
-                Category
-              </label>
-              <input
+            <Field label="Category">
+              <TextInput
                 type="text"
                 placeholder="e.g. Essential Oil"
                 value={form.category}
                 onChange={(e) => set("category", e.target.value)}
-                className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-200"
               />
-            </div>
-            <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
-                Unit
-              </label>
+            </Field>
+            <Field label="Unit">
               <select
                 value={form.unit}
                 onChange={(e) => set("unit", e.target.value)}
-                className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-200 cursor-pointer"
+                className={`${inputBase} border-gray-300 cursor-pointer`}
               >
                 {UNITS.map((u) => (
                   <option key={u} value={u}>
@@ -191,74 +212,61 @@ function AddMaterialModal({ onClose, onSaved, editItem = null }) {
                   </option>
                 ))}
               </select>
-            </div>
+            </Field>
           </div>
 
-          <div>
-            <label className="block text-[11px] font-semibold uppercase tracking-wide text-amber-700 mb-1">
-              Current Stock
-            </label>
-            <input
+          <Field label="Current stock">
+            <TextInput
               type="number"
               min="0"
               step="any"
               placeholder="0"
               value={form.current_stock}
               onChange={(e) => set("current_stock", e.target.value)}
-              className="w-full border border-amber-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200"
             />
-          </div>
+          </Field>
 
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
-                Supplier
-              </label>
-              <input
+            <Field label="Supplier">
+              <TextInput
                 type="text"
                 value={form.supplier}
                 onChange={(e) => set("supplier", e.target.value)}
-                className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-200"
               />
-            </div>
-            <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
-                Unit Cost (₱)
-              </label>
-              <input
+            </Field>
+            <Field label="Unit cost (₱)">
+              <TextInput
                 type="number"
                 min="0"
                 step="any"
                 value={form.unit_cost}
                 onChange={(e) => set("unit_cost", e.target.value)}
-                className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-200"
               />
-            </div>
+            </Field>
           </div>
 
-          <div>
-            <label className="block text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
-              Notes
-            </label>
+          <Field label="Notes">
             <textarea
               rows={3}
               value={form.notes}
               onChange={(e) => set("notes", e.target.value)}
-              className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-200"
+              className={`${inputBase} border-gray-300`}
+              onFocus={(e) => (e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`, e.target.style.borderColor = C.accent)}
+              onBlur={(e) => (e.target.style.boxShadow = "none", e.target.style.borderColor = "#D1D5DB")}
             />
-          </div>
+          </Field>
 
           {error && (
-            <p className="text-xs text-red-700 bg-red-50 rounded-md px-3 py-2 border border-red-200">
+            <p className="text-xs rounded-md px-3 py-2 border" style={{ color: C.accent, backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder }}>
               {error}
             </p>
           )}
         </div>
 
-        <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
+        <div className="px-5 py-4 border-t border-gray-200 flex justify-end gap-2">
           <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
           <PrimaryButton onClick={handleSubmit} disabled={saving}>
-            {saving ? "Saving…" : isEdit ? "Update Material" : "Add Material"}
+            {saving ? "Saving…" : isEdit ? "Update material" : "Add material"}
           </PrimaryButton>
         </div>
       </div>
@@ -266,102 +274,77 @@ function AddMaterialModal({ onClose, onSaved, editItem = null }) {
   );
 }
 
-// ── ViewMaterialModal ─────────────────────────────────────────────────────
+/* ── ViewMaterialModal ─────────────────────────────────────────────────── */
 
 function ViewMaterialModal({ item, onClose }) {
   if (!item) return null;
   const status = item.status || "In Stock";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className={`${CARD} w-full max-w-lg max-h-[90vh] overflow-y-auto`}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h2 className="text-sm font-semibold text-gray-900">Material Details</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
-          >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-lg shadow-xl border border-gray-200 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+          <h2 className="text-sm font-semibold text-gray-900">Material details</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors cursor-pointer">
             <X size={18} />
           </button>
         </div>
 
-        <div className="px-6 py-4 space-y-4">
+        <div className="px-5 py-4 space-y-4">
           <div>
-            <label className="block text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-              Material Name
-            </label>
+            <p className="text-xs text-gray-500">Material name</p>
             <p className="text-sm text-gray-800 mt-0.5">{item.material_name}</p>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                Category
-              </label>
+              <p className="text-xs text-gray-500">Category</p>
               <p className="text-sm text-gray-800 mt-0.5">{item.category || "—"}</p>
             </div>
             <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                Status
-              </label>
+              <p className="text-xs text-gray-500">Status</p>
               <span
-                className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-semibold ${STATUS_STYLES[status]}`}
+                className="inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-semibold border"
+                style={STATUS_STYLE[status]}
               >
                 {status}
               </span>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 pt-3 border-t border-gray-100">
+          <div className="grid grid-cols-2 gap-4 pt-3 border-t border-gray-100">
             <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wide text-amber-700">
-                Current Stock
-              </label>
-              <p className="text-sm font-semibold text-amber-700 mt-0.5">
+              <p className="text-xs text-gray-500">Current stock</p>
+              <p className="text-sm font-semibold mt-0.5" style={{ color: C.text }}>
                 {item.current_stock} {item.unit}
               </p>
             </div>
+            <div>
+              <p className="text-xs text-gray-500">Unit cost</p>
+              <p className="text-sm text-gray-800 mt-0.5">{item.unit_cost != null ? `₱${item.unit_cost}` : "—"}</p>
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                Supplier
-              </label>
-              <p className="text-sm text-gray-800 mt-0.5">{item.supplier || "—"}</p>
-            </div>
-            <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                Unit Cost
-              </label>
-              <p className="text-sm text-gray-800 mt-0.5">
-                {item.unit_cost != null ? `₱${item.unit_cost}` : "—"}
-              </p>
-            </div>
+          <div>
+            <p className="text-xs text-gray-500">Supplier</p>
+            <p className="text-sm text-gray-800 mt-0.5">{item.supplier || "—"}</p>
           </div>
 
           {item.notes && (
             <div className="pt-3 border-t border-gray-100">
-              <label className="block text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                Notes
-              </label>
+              <p className="text-xs text-gray-500">Notes</p>
               <p className="text-sm text-gray-700 mt-0.5">{item.notes}</p>
             </div>
           )}
 
           {item.updated_at && (
             <div className="pt-3 border-t border-gray-100">
-              <label className="block text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-                Last Updated
-              </label>
-              <p className="text-xs text-gray-400 mt-0.5">
-                {new Date(item.updated_at).toLocaleString()}
-              </p>
+              <p className="text-xs text-gray-400">Last updated {new Date(item.updated_at).toLocaleString()}</p>
             </div>
           )}
         </div>
 
-        <div className="px-6 py-4 border-t border-gray-100 flex justify-end">
+        <div className="px-5 py-4 border-t border-gray-200 flex justify-end">
           <SecondaryButton onClick={onClose}>Close</SecondaryButton>
         </div>
       </div>
@@ -369,14 +352,13 @@ function ViewMaterialModal({ item, onClose }) {
   );
 }
 
-// ── Production_rm ─────────────────────────────────────────────────────────
+/* ── Production_rm ─────────────────────────────────────────────────────── */
 
 function Production_rm() {
   const [materials, setMaterials] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState("All");
-  const [lastUpdated, setLastUpdated] = useState(null);
   const [editingStock, setEditingStock] = useState(null);
   const [saving, setSaving] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -394,10 +376,7 @@ function Production_rm() {
       .order("category", { ascending: true })
       .order("material_name", { ascending: true });
 
-    if (!error && data) {
-      setMaterials(data);
-      setLastUpdated(new Date());
-    }
+    if (!error && data) setMaterials(data);
     setLoading(false);
   }, []);
 
@@ -409,12 +388,10 @@ function Production_rm() {
     setSelectedItem(item);
     setShowViewModal(true);
   };
-
   const handleEdit = (item) => {
     setEditItem(item);
     setShowAddModal(true);
   };
-
   const handleDeleteClick = (item) => {
     setItemToDelete(item);
     setShowDeleteModal(true);
@@ -422,13 +399,8 @@ function Production_rm() {
 
   const confirmDelete = async () => {
     if (!itemToDelete) return;
-
     setSaving(true);
-    const { error } = await supabase
-      .from("raw_materials")
-      .delete()
-      .eq("id", itemToDelete.id);
-
+    const { error } = await supabase.from("raw_materials").delete().eq("id", itemToDelete.id);
     if (!error) {
       setMaterials((prev) => prev.filter((i) => i.id !== itemToDelete.id));
       setShowDeleteModal(false);
@@ -437,9 +409,7 @@ function Production_rm() {
     setSaving(false);
   };
 
-  const categories = Array.from(
-    new Set(materials.map((m) => m.category).filter(Boolean))
-  ).sort();
+  const categories = Array.from(new Set(materials.map((m) => m.category).filter(Boolean))).sort();
 
   const filtered = materials.filter((item) => {
     const matchCat = filterCategory === "All" || item.category === filterCategory;
@@ -450,6 +420,10 @@ function Production_rm() {
     return matchCat && matchSearch;
   });
 
+  const inStockCount = filtered.filter((m) => (m.status || "In Stock") === "In Stock").length;
+  const lowStockCount = filtered.filter((m) => m.status === "Low Stock").length;
+  const outStockCount = filtered.filter((m) => m.status === "Out of Stock").length;
+
   const saveField = async (id, field, value) => {
     const newValue = field === "current_stock" ? parseFloat(value) : value;
     if (field === "current_stock" && (isNaN(newValue) || newValue < 0)) return;
@@ -458,25 +432,16 @@ function Production_rm() {
     const updateData = { [field]: newValue, updated_at: new Date().toISOString() };
 
     const { error } = await supabase.from("raw_materials").update(updateData).eq("id", id);
-
     if (!error) {
-      setMaterials((prev) =>
-        prev.map((i) => (i.id === id ? { ...i, ...updateData } : i))
-      );
+      setMaterials((prev) => prev.map((i) => (i.id === id ? { ...i, ...updateData } : i)));
     }
     setSaving(false);
   };
 
   const handleStatusChange = async (item, newStatus) => {
-    const { error } = await supabase
-      .from("raw_materials")
-      .update({ status: newStatus })
-      .eq("id", item.id);
-
+    const { error } = await supabase.from("raw_materials").update({ status: newStatus }).eq("id", item.id);
     if (!error) {
-      setMaterials((prev) =>
-        prev.map((i) => (i.id === item.id ? { ...i, status: newStatus } : i))
-      );
+      setMaterials((prev) => prev.map((i) => (i.id === item.id ? { ...i, status: newStatus } : i)));
     }
   };
 
@@ -485,345 +450,338 @@ function Production_rm() {
   };
 
   const handleKeyDown = (e, id) => {
-    if (e.key === "Enter") {
-      if (editingStock) {
-        saveField(id, "current_stock", editingStock.value);
-        setEditingStock(null);
-      }
+    if (e.key === "Enter" && editingStock) {
+      saveField(id, "current_stock", editingStock.value);
+      setEditingStock(null);
     }
     if (e.key === "Escape") setEditingStock(null);
   };
 
-  const TOTAL_COLS = 8;
-  const lowCount = filtered.filter((m) => (m.status || "In Stock") !== "In Stock").length;
+  const TOTAL_COLS = 7;
 
   return (
-    <div className="p-6 space-y-4">
-      {/* Header */}
-      <div className={`${CARD} p-5 flex flex-col md:flex-row md:items-center justify-between gap-3`}>
-        <div>
-          <h1 className="text-lg font-semibold text-gray-900">Inventory — Raw Materials</h1>
-        </div>
-        <div className="flex gap-2 self-start md:self-auto">
-          <PrimaryButton
-            onClick={() => {
-              setEditItem(null);
-              setShowAddModal(true);
-            }}
-          >
-            <Plus size={15} />
-            Add Material
-          </PrimaryButton>
-          <SecondaryButton onClick={fetchMaterials} disabled={loading}>
-            {loading ? "Loading…" : "Refresh"}
-          </SecondaryButton>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div className={`${CARD} px-4 py-3 flex flex-col md:flex-row gap-3 items-center`}>
-        <div className="relative flex-1 w-full">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-            <Search size={16} />
-          </span>
-          <input
-            type="text"
-            placeholder="Search material or supplier…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-8 py-2 border border-gray-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-200"
-          />
-          {search && (
-            <button
-              onClick={() => setSearch("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none cursor-pointer"
+    <div className="min-h-screen" style={{ backgroundColor: "#F6F6F7" }}>
+      <div className="p-6 space-y-4 max-w-[1400px] mx-auto">
+        {/* Header */}
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div>
+            <h1 className="text-lg font-semibold text-gray-900">Inventory - Raw Materials</h1>
+          </div>
+          <div className="flex gap-2 self-start md:self-auto">
+            <PrimaryButton
+              onClick={() => {
+                setEditItem(null);
+                setShowAddModal(true);
+              }}
             >
-              ×
-            </button>
-          )}
-        </div>
-        <div className={SEGMENT_WRAP}>
-          {["All", ...categories].map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setFilterCategory(cat)}
-              className={SEGMENT_BTN(filterCategory === cat)}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
-        <p className="text-xs text-gray-400 whitespace-nowrap">
-          {filtered.length} materials
-        </p>
-      </div>
-
-      {/* Table */}
-      <div className={`${CARD} overflow-hidden`}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50">
-                <th className="border-b border-gray-200 w-8" />
-                <th className="border-b border-gray-200 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500 min-w-[180px]">
-                  Material
-                </th>
-                <th className="border-b border-gray-200 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                  Supplier
-                </th>
-                <th className="border-b border-gray-200 px-3 py-2 text-center text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                  Stock
-                </th>
-                <th className="border-b border-gray-200 px-3 py-2 text-center text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                  Unit Cost
-                </th>
-                <th className="border-b border-gray-200 px-3 py-2 text-center text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                  Status
-                </th>
-                <th className="border-b border-gray-200 px-3 py-2 text-center text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                  Action
-                </th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {loading ? (
-                [...Array(8)].map((_, i) => (
-                  <tr key={i} className="border-b border-gray-100">
-                    {[...Array(TOTAL_COLS - 1)].map((_, j) => (
-                      <td key={j} className="px-3 py-2">
-                        <Skeleton className="h-4 w-full" />
-                      </td>
-                    ))}
-                  </tr>
-                ))
-              ) : filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={TOTAL_COLS - 1} className="px-4 py-12 text-center text-gray-400">
-                    <p className="font-medium text-gray-500">No raw materials found</p>
-                  </td>
-                </tr>
-              ) : (
-                (() => {
-                  const rows = [];
-                  let rowNum = 1;
-
-                  for (const item of filtered) {
-                    const status = item.status || "In Stock";
-                    const low = status === "Low Stock" || status === "Out of Stock";
-
-                    const rowBg = low
-                      ? "bg-red-50/40"
-                      : rowNum % 2 === 0
-                      ? "bg-gray-50/60 hover:bg-gray-100"
-                      : "bg-white hover:bg-gray-50";
-
-                    rows.push(
-                      <tr key={item.id} className={`${rowBg} border-b border-gray-100 transition-colors`}>
-                        <td className="px-2 py-2 text-center text-xs text-gray-400 w-8">
-                          {rowNum++}
-                        </td>
-
-                        <td className="px-3 py-2 text-xs text-gray-800">
-                          <div className="flex items-center gap-2">
-                            {item.material_name}
-                            {status === "Low Stock" && (
-                              <span className="px-1.5 py-0.5 bg-amber-50 text-amber-700 text-xs rounded font-medium shrink-0">
-                                Low
-                              </span>
-                            )}
-                            {status === "Out of Stock" && (
-                              <span className="px-1.5 py-0.5 bg-red-50 text-red-700 text-xs rounded font-medium shrink-0">
-                                Out
-                              </span>
-                            )}
-                          </div>
-                        </td>
-
-                        <td className="px-3 py-2 text-xs text-gray-500">
-                          {item.supplier || "—"}
-                        </td>
-
-                        <td className="px-3 py-2 text-center">
-                          {editingStock?.id === item.id ? (
-                            <input
-                              type="number"
-                              min="0"
-                              step="any"
-                              value={editingStock.value}
-                              onChange={(e) =>
-                                setEditingStock({ ...editingStock, value: e.target.value })
-                              }
-                              onBlur={() => {
-                                if (editingStock) {
-                                  saveField(item.id, "current_stock", editingStock.value);
-                                  setEditingStock(null);
-                                }
-                              }}
-                              onKeyDown={(e) => handleKeyDown(e, item.id)}
-                              autoFocus
-                              className="w-20 text-center text-xs border border-amber-300 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-amber-300"
-                            />
-                          ) : (
-                            <button
-                              onClick={() => handleStockEdit(item)}
-                              title="Click to edit stock"
-                              className={`text-xs font-semibold px-2 py-0.5 rounded cursor-pointer hover:ring-2 hover:ring-amber-300 transition-all ${
-                                low ? "text-red-700 bg-red-50" : "text-gray-800"
-                              }`}
-                            >
-                              {item.current_stock} {item.unit}
-                            </button>
-                          )}
-                        </td>
-
-                        <td className="px-3 py-2 text-center text-xs text-gray-600">
-                          {item.unit_cost != null ? `₱${item.unit_cost}` : "—"}
-                        </td>
-
-                        <td className="px-2 py-2 text-center">
-                          <select
-                            value={status}
-                            onChange={(e) => handleStatusChange(item, e.target.value)}
-                            className={`px-2 py-1 rounded-full text-xs font-semibold border-0 cursor-pointer focus:outline-none focus:ring-1 focus:ring-red-300 ${STATUS_STYLES[status]}`}
-                          >
-                            {STOCK_STATUSES.map((s) => (
-                              <option key={s} value={s}>
-                                {s}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-
-                        <td className="px-1.5 py-1.5 text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            <button
-                              onClick={() => handleView(item)}
-                              title="View"
-                              className="p-1.5 rounded-md hover:bg-gray-100 transition-colors cursor-pointer"
-                            >
-                              <Eye size={16} className="text-gray-500" />
-                            </button>
-                            <button
-                              onClick={() => handleEdit(item)}
-                              title="Edit"
-                              className="p-1.5 rounded-md hover:bg-gray-100 transition-colors cursor-pointer"
-                            >
-                              <Pencil size={16} className="text-gray-500" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteClick(item)}
-                              title="Delete"
-                              className="p-1.5 rounded-md hover:bg-red-50 transition-colors cursor-pointer"
-                            >
-                              <Trash2 size={16} style={{ color: ACCENT }} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  }
-                  return rows;
-                })()
-              )}
-
-              {!loading && filtered.length > 0 && (
-                <tr className="bg-gray-50 border-t-2 border-gray-200 font-semibold">
-                  <td className="px-2 py-2.5 text-center text-xs text-gray-400">—</td>
-                  <td colSpan={2} className="px-3 py-2.5 text-xs text-gray-700">
-                    TOTAL ({filtered.length} materials)
-                  </td>
-                  <td className="px-3 py-2.5 text-center text-xs text-gray-400">—</td>
-                  <td className="px-3 py-2.5 text-center text-xs text-gray-400">—</td>
-                  <td className="px-3 py-2.5 text-center text-xs text-gray-400">
-                    {lowCount > 0 && (
-                      <span className="px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded text-[11px] font-medium">
-                        {lowCount} needs attention
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5 text-center text-xs text-gray-400">—</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Legend */}
-      <div className="flex gap-4 flex-wrap text-xs text-gray-400 pb-2">
-        <span className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
-          Low Stock
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />
-          Out of Stock
-        </span>
-      </div>
-
-      {/* Modals */}
-      {showAddModal && (
-        <AddMaterialModal
-          onClose={() => {
-            setShowAddModal(false);
-            setEditItem(null);
-          }}
-          onSaved={fetchMaterials}
-          editItem={editItem}
-        />
-      )}
-
-      {showViewModal && selectedItem && (
-        <ViewMaterialModal
-          item={selectedItem}
-          onClose={() => {
-            setShowViewModal(false);
-            setSelectedItem(null);
-          }}
-        />
-      )}
-
-      {showDeleteModal && itemToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className={`${CARD} w-full max-w-md`}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <h2 className="text-sm font-semibold text-gray-900">Delete Material</h2>
-              <button
-                onClick={() => {
-                  setShowDeleteModal(false);
-                  setItemToDelete(null);
-                }}
-                className="text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="px-6 py-4">
-              <p className="text-sm text-gray-600">
-                Are you sure you want to delete{" "}
-                <span className="font-semibold">{itemToDelete.material_name}</span>? This
-                action cannot be undone.
-              </p>
-            </div>
-
-            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
-              <SecondaryButton
-                onClick={() => {
-                  setShowDeleteModal(false);
-                  setItemToDelete(null);
-                }}
-              >
-                Cancel
-              </SecondaryButton>
-              <PrimaryButton onClick={confirmDelete} disabled={saving}>
-                {saving ? "Deleting…" : "Delete"}
-              </PrimaryButton>
-            </div>
+              <Plus size={15} />
+              Add material
+            </PrimaryButton>
+            <SecondaryButton onClick={fetchMaterials} disabled={loading}>
+              {loading ? "Loading…" : "Refresh"}
+            </SecondaryButton>
           </div>
         </div>
-      )}
+
+        {/* Summary strip */}
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm flex flex-wrap divide-x divide-gray-300">
+          <SummaryStat label="Materials" value={filtered.length} />
+          <SummaryStat label="In stock" value={inStockCount} color={C.success} />
+          <SummaryStat label="Low stock" value={lowStockCount} color={lowStockCount > 0 ? C.warning : C.text} />
+          <SummaryStat label="Out of stock" value={outStockCount} color={outStockCount > 0 ? C.accent : C.text} />
+        </div>
+
+        {/* Filters */}
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm px-4 py-3 flex flex-col md:flex-row gap-3 items-center">
+          <div className="relative flex-1 w-full">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+              <Search size={16} />
+            </span>
+            <input
+              type="text"
+              placeholder="Search material or supplier…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-9 pr-8 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2"
+              onFocus={(e) => (e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`, e.target.style.borderColor = C.accent)}
+              onBlur={(e) => (e.target.style.boxShadow = "none", e.target.style.borderColor = "#D1D5DB")}
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none cursor-pointer"
+              >
+                ×
+              </button>
+            )}
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            {["All", ...categories].map((cat) => {
+              const active = filterCategory === cat;
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setFilterCategory(cat)}
+                  className="px-4 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer border"
+                  style={
+                    active
+                      ? { backgroundColor: C.accent, borderColor: C.accent, color: "#fff" }
+                      : { backgroundColor: "#fff", borderColor: "#D1D5DB", color: "#142947" }
+                  }
+                >
+                  {cat}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Table */}
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="bg-red-900 text-white">
+                  <th className="px-2 py-2.5 w-8" />
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide min-w-[200px]">MATERIAL</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide">SUPPLIER</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">STOCK</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">UNIT COST</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">STATUS</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">VIEW · EDIT · DELETE</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {loading ? (
+                  [...Array(8)].map((_, i) => (
+                    <tr key={i} className="border-b border-gray-100">
+                      {[...Array(TOTAL_COLS)].map((_, j) => (
+                        <td key={j} className="px-3 py-2.5">
+                          <div className="h-4 bg-gray-100 rounded animate-pulse" />
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                ) : filtered.length === 0 ? (
+                  <tr>
+                    <td colSpan={TOTAL_COLS} className="px-4 py-14 text-center text-gray-400">
+                      <p className="text-sm font-medium text-gray-500">No raw materials found</p>
+                      <p className="text-xs text-gray-400 mt-1">Try a different search term or category.</p>
+                    </td>
+                  </tr>
+                ) : (
+                  (() => {
+                    const rows = [];
+                    let rowNum = 1;
+
+                    for (const item of filtered) {
+                      const status = item.status || "In Stock";
+                      const low = status === "Low Stock" || status === "Out of Stock";
+                      const rowBg = low ? {} : rowNum % 2 === 0 ? { backgroundColor: "#FAFAFA" } : {};
+
+                      rows.push(
+                        <tr
+                          key={item.id}
+                          className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
+                          style={low ? { backgroundColor: C.accentSoft } : rowBg}
+                        >
+                          <td className="px-2 py-2 text-center text-xs text-gray-400 w-8">{rowNum++}</td>
+
+                          <td className="px-3 py-2 text-xs text-gray-800">
+                            <div className="flex items-center gap-2">
+                              {item.material_name}
+                              {status !== "In Stock" && (
+                                <span
+                                  className="px-1.5 py-0.5 text-[11px] rounded font-medium shrink-0 border"
+                                  style={STATUS_STYLE[status]}
+                                >
+                                  {status === "Low Stock" ? "Low" : "Out"}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          <td className="px-3 py-2 text-xs text-gray-500">{item.supplier || "—"}</td>
+
+                          <td className="px-3 py-2 text-center">
+                            {editingStock?.id === item.id ? (
+                              <input
+                                type="number"
+                                min="0"
+                                step="any"
+                                value={editingStock.value}
+                                onChange={(e) => setEditingStock({ ...editingStock, value: e.target.value })}
+                                onBlur={() => {
+                                  saveField(item.id, "current_stock", editingStock.value);
+                                  setEditingStock(null);
+                                }}
+                                onKeyDown={(e) => handleKeyDown(e, item.id)}
+                                autoFocus
+                                className="w-20 text-center text-xs border rounded px-1 py-0.5 focus:outline-none focus:ring-2"
+                                style={{ borderColor: C.accent, boxShadow: `0 0 0 2px ${C.accent}22` }}
+                              />
+                            ) : (
+                              <button
+                                onClick={() => handleStockEdit(item)}
+                                title="Click to edit"
+                                className="text-xs font-medium px-2 py-0.5 rounded cursor-pointer hover:bg-gray-100 transition-colors"
+                              >
+                                {item.current_stock} {item.unit}
+                              </button>
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-center text-xs text-gray-600">
+                            {item.unit_cost != null ? `₱${item.unit_cost}` : "—"}
+                          </td>
+
+                          <td className="px-2 py-2 text-center">
+                            <select
+                              value={status}
+                              onChange={(e) => handleStatusChange(item, e.target.value)}
+                              className="px-2 py-1 rounded-full text-xs font-semibold border cursor-pointer focus:outline-none focus:ring-1"
+                              style={STATUS_STYLE[status]}
+                            >
+                              {STOCK_STATUSES.map((s) => (
+                                <option key={s} value={s}>
+                                  {s}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+
+                          <td className="px-1.5 py-1.5 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                onClick={() => handleView(item)}
+                                title="View"
+                                className="p-1.5 rounded-md hover:bg-red-200 transition-colors cursor-pointer"
+                              >
+                                <Eye size={16} className="text-gray-500" />
+                              </button>
+                              <button
+                                onClick={() => handleEdit(item)}
+                                title="Edit"
+                                className="p-1.5 rounded-md hover:bg-red-200 transition-colors cursor-pointer"
+                              >
+                                <Pencil size={16} className="text-gray-500" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteClick(item)}
+                                title="Delete"
+                                className="p-1.5 rounded-md hover:bg-red-200 transition-colors cursor-pointer"
+                              >
+                                <Trash2 size={16} style={{ color: C.accent }} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }
+                    return rows;
+                  })()
+                )}
+
+                {!loading && filtered.length > 0 && (
+                  <tr className="border-t-2 font-semibold" style={{ borderTopColor: C.accent, backgroundColor: "#FAFAFA" }}>
+                    <td className="px-2 py-2.5 text-center text-xs text-gray-400">—</td>
+                    <td colSpan={2} className="px-3 py-2.5 text-xs text-gray-700">
+                      TOTAL ({filtered.length} materials)
+                    </td>
+                    <td className="px-3 py-2.5 text-center text-xs text-gray-400">—</td>
+                    <td className="px-3 py-2.5 text-center text-xs text-gray-400">—</td>
+                    <td className="px-3 py-2.5 text-center text-xs">
+                      {(lowStockCount + outStockCount) > 0 && (
+                        <span
+                          className="px-1.5 py-0.5 rounded text-[11px] font-medium border"
+                          style={STATUS_STYLE["Low Stock"]}
+                        >
+                          {lowStockCount + outStockCount} need attention
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-center text-xs text-gray-400">—</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Legend */}
+        <div className="flex gap-4 flex-wrap text-xs text-gray-500 pb-2">
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded-sm inline-block border" style={{ backgroundColor: C.warningSoft, borderColor: C.warningBorder }} />
+            Low stock
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded-sm inline-block border" style={{ backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder }} />
+            Out of stock
+          </span>
+        </div>
+
+        {/* Modals */}
+        {showAddModal && (
+          <AddMaterialModal
+            onClose={() => {
+              setShowAddModal(false);
+              setEditItem(null);
+            }}
+            onSaved={fetchMaterials}
+            editItem={editItem}
+          />
+        )}
+
+        {showViewModal && selectedItem && (
+          <ViewMaterialModal
+            item={selectedItem}
+            onClose={() => {
+              setShowViewModal(false);
+              setSelectedItem(null);
+            }}
+          />
+        )}
+
+        {showDeleteModal && itemToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+            <div className="bg-white rounded-lg shadow-xl border border-gray-200 w-full max-w-md">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+                <h2 className="text-sm font-semibold text-gray-900">Delete material</h2>
+                <button
+                  onClick={() => {
+                    setShowDeleteModal(false);
+                    setItemToDelete(null);
+                  }}
+                  className="text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="px-5 py-4">
+                <p className="text-sm text-gray-600">
+                  Delete <span className="font-medium text-gray-800">{itemToDelete.material_name}</span>? This can't be undone.
+                </p>
+              </div>
+
+              <div className="px-5 py-4 border-t border-gray-200 flex justify-end gap-2">
+                <SecondaryButton
+                  onClick={() => {
+                    setShowDeleteModal(false);
+                    setItemToDelete(null);
+                  }}
+                >
+                  Cancel
+                </SecondaryButton>
+                <PrimaryButton onClick={confirmDelete} disabled={saving}>
+                  {saving ? "Deleting…" : "Delete"}
+                </PrimaryButton>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

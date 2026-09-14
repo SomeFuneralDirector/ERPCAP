@@ -60,8 +60,6 @@ function Finance() {
       setLoading(true);
       setError("");
 
-      // Query exactly the selected range. The previous implementation loaded
-      // six months but calculated cards/categories from a different range.
       const { data, error: queryError } = await supabase
         .from("ledger_entries")
         .select("date, detail, type, amount, ledger_categories(name)")
@@ -99,7 +97,12 @@ function Finance() {
       const amount = Number(entry.amount);
       if (!Number.isFinite(amount) || amount < 0) return;
 
-      const type = entry.type === "credit" ? "credit" : entry.type === "debit" ? "debit" : null;
+      const type =
+        entry.type === "credit"
+          ? "credit"
+          : entry.type === "debit"
+            ? "debit"
+            : null;
       if (!type) return;
 
       result[type === "debit" ? "totalDebit" : "totalCredit"] += amount;
@@ -118,13 +121,21 @@ function Finance() {
     return {
       totalDebit: result.totalDebit,
       totalCredit: result.totalCredit,
-      byCategory: Object.values(result.byCategory).sort((a, b) => b.amount - a.amount),
-      monthlyTrend: Object.values(result.byMonth).sort((a, b) => a.month.localeCompare(b.month)),
+      byCategory: Object.values(result.byCategory).sort(
+        (a, b) => b.amount - a.amount
+      ),
+      monthlyTrend: Object.values(result.byMonth).sort((a, b) =>
+        a.month.localeCompare(b.month)
+      ),
     };
   }, [entries]);
 
   const { totalDebit, totalCredit, byCategory, monthlyTrend } = analytics;
-  const net = totalDebit - totalCredit;
+
+  // P&L: revenue (credit) − expenses (debit)
+  // Positive = net income · Negative = net loss
+  const net = totalCredit - totalDebit;
+  const isProfit = net >= 0;
 
   return (
     <div className="p-6">
@@ -151,46 +162,62 @@ function Finance() {
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
         <div className="bg-white rounded-lg shadow p-6">
-          <p className="text-xs font-bold text-gray-500 uppercase">Total Debit</p>
-          <p className="text-2xl font-bold text-gray-800 mt-1">
+          <p className="text-xs font-bold text-red-600 uppercase">
+            Total Debit
+          </p>
+          <p className="text-2xl font-bold text-gray-500 mt-1">
             {loading ? "…" : formatPeso(totalDebit)}
           </p>
+          <p className="text-[11px] text-gray-400 mt-1">Expenses &amp; outflows</p>
         </div>
         <div className="bg-white rounded-lg shadow p-6">
-          <p className="text-xs font-bold text-gray-500 uppercase">Total Credit</p>
-          <p className="text-2xl font-bold text-gray-800 mt-1">
+          <p className="text-xs font-bold text-green-600 uppercase">
+            Total Credit
+          </p>
+          <p className="text-2xl font-bold text-gray-500 mt-1">
             {loading ? "…" : formatPeso(totalCredit)}
           </p>
+          <p className="text-[11px] text-gray-400 mt-1">Revenue &amp; inflows</p>
         </div>
         <div className="bg-white rounded-lg shadow p-6">
-          <p className="text-xs font-bold text-gray-500 uppercase">Net</p>
+          <p className="text-xs font-bold text-gray-500 uppercase">
+            {isProfit ? "Net Income" : "Net Loss"}
+          </p>
           <p
             className={`text-2xl font-bold mt-1 ${
-              net >= 0 ? "text-green-600" : "text-red-600"
+              isProfit ? "text-green-600" : "text-red-600"
             }`}
           >
-            {loading ? "…" : formatPeso(net)}
+            {loading ? "…" : formatPeso(Math.abs(net))}
+          </p>
+          <p className="text-[11px] text-gray-400 mt-1">
+            Credit − Debit
           </p>
         </div>
       </div>
 
       <div className="bg-white rounded-lg shadow p-6 mb-4">
-        <h2 className="text-sm font-bold text-gray-700 mb-4">
-          Debit vs Credit
-        </h2>
+        <h2 className="text-sm font-bold text-gray-700 mb-4">Debit vs Credit</h2>
         <ResponsiveContainer width="100%" height={260}>
-          <AreaChart data={monthlyTrend} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+          <AreaChart
+            data={monthlyTrend}
+            margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
+          >
             <defs>
               <linearGradient id="debitFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#16a34a" stopOpacity={0.35} />
-                <stop offset="100%" stopColor="#16a34a" stopOpacity={0} />
-              </linearGradient>
-              <linearGradient id="creditFill" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="#dc2626" stopOpacity={0.35} />
                 <stop offset="100%" stopColor="#dc2626" stopOpacity={0} />
               </linearGradient>
+              <linearGradient id="creditFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#16a34a" stopOpacity={0.35} />
+                <stop offset="100%" stopColor="#16a34a" stopOpacity={0} />
+              </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+            <CartesianGrid
+              strokeDasharray="3 3"
+              stroke="#f3f4f6"
+              vertical={false}
+            />
             <XAxis
               dataKey="month"
               tick={{ fontSize: 11, fill: "#080808" }}
@@ -214,20 +241,20 @@ function Finance() {
               type="monotone"
               dataKey="debit"
               name="Debit"
-              stroke="#16a34a"
+              stroke="#dc2626"
               strokeWidth={2}
               fill="url(#debitFill)"
-              dot={{ r: 3, fill: "#16a34a", strokeWidth: 0 }}
+              dot={{ r: 3, fill: "#dc2626", strokeWidth: 0 }}
               activeDot={{ r: 5 }}
             />
             <Area
               type="monotone"
               dataKey="credit"
               name="Credit"
-              stroke="#dc2626"
+              stroke="#16a34a"
               strokeWidth={2}
               fill="url(#creditFill)"
-              dot={{ r: 3, fill: "#dc2626", strokeWidth: 0 }}
+              dot={{ r: 3, fill: "#16a34a", strokeWidth: 0 }}
               activeDot={{ r: 5 }}
             />
           </AreaChart>
@@ -235,17 +262,23 @@ function Finance() {
       </div>
 
       <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-sm font-bold text-gray-500 uppercase mb-4">By Category</h2>
+        <h2 className="text-sm font-bold text-gray-500 uppercase mb-4">
+          By Category
+        </h2>
         {byCategory.length === 0 ? (
-          <p className="text-sm text-gray-400">No categorized entries in this range.</p>
+          <p className="text-sm text-gray-400">
+            No categorized entries in this range.
+          </p>
         ) : (
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={byCategory}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="name" fontSize={12} tick={{ fill: "#000000" }} />
               <YAxis fontSize={12} tick={{ fill: "#000000" }} />
-              <Tooltip formatter={(v) => `₱${Number(v || 0).toLocaleString()}`} />
-              <Bar dataKey="amount" fill="#dc2626" radius={[4, 4, 0, 0]} />
+              <Tooltip
+                formatter={(v) => `₱${Number(v || 0).toLocaleString()}`}
+              />
+              <Bar dataKey="amount" fill="#B3211B" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         )}

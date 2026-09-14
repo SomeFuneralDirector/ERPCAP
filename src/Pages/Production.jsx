@@ -36,9 +36,9 @@ const PLATFORM_BADGE = {
 };
 
 const PLATFORM_HEX = {
-  shopee: "#E1571F",
-  lazada: "#5B4B93",
-  tiktok: "#111827",
+  shopee: "#EE4D2D",
+  lazada: "#0F146D",
+  tikTok: "#101113",
 };
 
 const WO_STATUS_HEX = {
@@ -390,7 +390,7 @@ function Production() {
     return (
       <div className="p-6">
         <div className={`${CARD} p-6 border-red-200`}>
-          <h1 className="text-lg font-semibold text-gray-900 mb-2">Production — Dashboard</h1>
+          <h1 className="text-lg font-semibold text-gray-900 mb-2">Production - Dashboard</h1>
           <p className="text-sm text-red-700 mb-4">{errorMsg}</p>
           <button
             onClick={fetchAll}
@@ -410,7 +410,7 @@ function Production() {
     <div className="p-6 space-y-4">
       <div className={`${CARD} p-5 flex flex-col md:flex-row md:items-center justify-between gap-3`}>
         <div>
-          <h1 className="text-lg font-semibold text-gray-900">Production — Dashboard</h1>
+          <h1 className="text-lg font-semibold text-gray-900">Production - Dashboard</h1>
         </div>
         <button
           onClick={fetchAll}

@@ -34,10 +34,10 @@ const C = {
   warningSoft: "#FBF3E7",
   warningBorder: "#F1DDB8",
   shopee: "#EE4D2D",
-  lazada: "#1E2A5E",
+  lazada: "#0F146D",
   tiktok: "#101113",
   men: "#1D4E89",
-  women: "#8B2942",
+  women: "#8b2976",
 };
 
 const isLowStock = (item) => {
@@ -730,7 +730,7 @@ function Inventory() {
         </div>
 
         {/* Summary strip */}
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm flex flex-wrap divide-x divide-gray-100">
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm flex flex-wrap divide-x divide-gray-300">
           <SummaryStat label="Products" value={filtered.length} />
           <SummaryStat label="Total stock" value={totalStock.toLocaleString()} />
           <SummaryStat label="Shopee" value={totals.shopee.toLocaleString()} dot={C.shopee} />
@@ -810,7 +810,6 @@ function Inventory() {
           <div className="flex gap-2">
             {["All", "Men", "Women"].map((cat) => {
               const active = filterCategory === cat;
-              const activeColor = cat === "Men" ? C.men : cat === "Women" ? C.women : C.accent;
               return (
                 <button
                   key={cat}
@@ -818,7 +817,7 @@ function Inventory() {
                   className="px-4 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer border"
                   style={
                     active
-                      ? { backgroundColor: activeColor, borderColor: activeColor, color: "#fff" }
+                      ? { backgroundColor: C.accent, borderColor: C.accent, color: "#fff" }
                       : { backgroundColor: "#fff", borderColor: "#D1D5DB", color: "#142947" }
                   }
                 >
@@ -857,7 +856,7 @@ function Inventory() {
                   </th>
                   <th className="px-3 py-2 text-center text-xs font-semibold tracking-wide">
                     <span className="inline-flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-sm inline-block bg-white" />
+                      <span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: C.tiktok }} />
                       TIKTOK
                     </span>
                   </th>
