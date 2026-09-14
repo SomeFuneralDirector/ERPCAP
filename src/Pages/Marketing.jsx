@@ -198,17 +198,47 @@ function Marketing() {
     setOrders(validOrders)
     const orderUuids = validOrders.map((o) => o.id).filter(Boolean)
 
-    const [itemsRes, campaignsRes] = await Promise.all([
-      orderUuids.length > 0
-        ? supabase
-            .from('order_items')
-            .select('order_uuid, order_id, platform, product_name, quantity, unit_price')
-            .in('order_uuid', orderUuids)
-        : Promise.resolve({ data: [], error: null }),
+    // Supabase/PostgREST caps GET URL length, and `.in()` with hundreds of
+    // UUIDs blows past that limit (silently returns 400 Bad Request with no
+    // useful message). Chunk the lookup so each request stays well under
+    // the limit, then merge the results back together.
+    const ORDER_ITEMS_CHUNK_SIZE = 150
+    const orderUuidChunks = []
+    for (let i = 0; i < orderUuids.length; i += ORDER_ITEMS_CHUNK_SIZE) {
+      orderUuidChunks.push(orderUuids.slice(i, i + ORDER_ITEMS_CHUNK_SIZE))
+    }
+
+    const [itemsChunkResults, campaignsRes] = await Promise.all([
+      orderUuidChunks.length > 0
+        ? Promise.all(
+            orderUuidChunks.map((chunk) =>
+              supabase
+                .from('order_items')
+                .select('order_uuid, order_id, platform, product_name, quantity, unit_price')
+                .in('order_uuid', chunk)
+            )
+          )
+        : Promise.resolve([]),
       supabase
         .from('campaigns')
         .select('id, name, platform, discount_type, discount_value, start_date, end_date, status'),
     ])
+
+    const firstItemsError = itemsChunkResults.find((r) => r.error)?.error || null
+    const itemsRes = {
+      data: firstItemsError ? [] : itemsChunkResults.flatMap((r) => r.data || []),
+      error: firstItemsError,
+    }
+
+    // ---- DEBUG: remove once the empty-dashboard issue is diagnosed ----
+    console.log('[Marketing] raw orders fetched:', completedOrders?.length ?? 0, completedOrders?.[0])
+    console.log('[Marketing] valid orders (after date filter):', validOrders.length, validOrders[0])
+    console.log('[Marketing] orderUuids used for order_items lookup:', orderUuids.slice(0, 5))
+    console.log('[Marketing] order_items fetched:', itemsRes.data?.length ?? 0, itemsRes.data?.[0])
+    console.log('[Marketing] order_items error:', itemsRes.error)
+    console.log('[Marketing] campaigns fetched:', campaignsRes.data?.length ?? 0, campaignsRes.data?.[0])
+    console.log('[Marketing] campaigns error:', campaignsRes.error)
+    // ---------------------------------------------------------------------
 
     if (itemsRes.error) {
       console.error('Error fetching order items:', itemsRes.error)

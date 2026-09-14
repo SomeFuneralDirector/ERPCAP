@@ -15,6 +15,35 @@ const centsToPesos = (c) => (c || 0) / 100
 const fmtPHP = (n) =>
   `₱${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
 
+// Supabase/PostgREST caps GET URL length. With hundreds of order UUIDs,
+// a single `.in('order_uuid', orderUuids)` call blows past that limit and
+// silently comes back as `400 Bad Request` with no useful message. Batch
+// the lookup into chunks and merge the results back together.
+const ORDER_ITEMS_CHUNK_SIZE = 150
+
+async function fetchOrderItemsInChunks(orderUuids) {
+  const chunks = []
+  for (let i = 0; i < orderUuids.length; i += ORDER_ITEMS_CHUNK_SIZE) {
+    chunks.push(orderUuids.slice(i, i + ORDER_ITEMS_CHUNK_SIZE))
+  }
+
+  if (chunks.length === 0) return { data: [], error: null }
+
+  const results = await Promise.all(
+    chunks.map((chunk) =>
+      supabase
+        .from('order_items')
+        .select('order_uuid, order_id, platform, product_name, sku, quantity, unit_price')
+        .in('order_uuid', chunk)
+    )
+  )
+
+  const firstError = results.find((r) => r.error)?.error || null
+  if (firstError) return { data: [], error: firstError }
+
+  return { data: results.flatMap((r) => r.data || []), error: null }
+}
+
 function Marketing_io() {
   const [orderItems, setOrderItems] = useState([])
   const [inventory, setInventory] = useState([])
@@ -52,12 +81,7 @@ function Marketing_io() {
 
     // ── 2. Line items for those completed orders + inventory context, in parallel ──
     const [itemsRes, inventoryRes] = await Promise.all([
-      orderUuids.length > 0
-        ? supabase
-            .from('order_items')
-            .select('order_uuid, order_id, platform, product_name, sku, quantity, unit_price')
-            .in('order_uuid', orderUuids)
-        : Promise.resolve({ data: [], error: null }),
+      fetchOrderItemsInChunks(orderUuids),
       supabase
         .from('inventory')
         .select('product_name, category, shopee_stock, lazada_stock, tiktok_stock'),
