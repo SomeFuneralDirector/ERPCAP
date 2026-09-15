@@ -127,27 +127,37 @@ export default function CSVImport({ onImportComplete }) {
       setDateRange(range);
 
       // Duplicate check
-     // Duplicate check
-const { data: dupCheck, error: dupErr } = await supabase.rpc('check_duplicate_import', {
-  p_platform:  result.platform,
-  p_file_hash: hash,
-  p_date_from: range.dateFrom,
-  p_date_to:   range.dateTo,
-})
+      // Duplicate check
+      const { data: dupCheck, error: dupErr } = await supabase.rpc(
+        "check_duplicate_import",
+        {
+          p_platform: result.platform,
+          p_file_hash: hash,
+          p_date_from: range.dateFrom,
+          p_date_to: range.dateTo,
+        },
+      );
 
-// Only block on an exact same-file re-upload. Date-range overlap is no
-// longer treated as a blocker — demo/test data can legitimately have
-// overlapping or future dates while we're prepping for the presentation.
-if (!dupErr && dupCheck?.isDuplicate && dupCheck.reason === 'same_file') {
-  setError(`🚫 Duplicate file detected. ${dupCheck.message}`)
-  await supabase.from('import_logs').insert({
-    platform: result.platform, filename: file.name, file_hash: hash,
-    date_from: range.dateFrom, date_to: range.dateTo,
-    row_count: result.rowCount, parsed_count: result.parsedCount,
-    inserted: 0, skipped: 0, status: 'rejected', reject_reason: dupCheck.message,
-  })
-  return
-}
+      // Only block on an exact same-file re-upload. Date-range overlap is no
+      // longer treated as a blocker — demo/test data can legitimately have
+      // overlapping or future dates while we're prepping for the presentation.
+      if (!dupErr && dupCheck?.isDuplicate && dupCheck.reason === "same_file") {
+        setError(`🚫 Duplicate file detected. ${dupCheck.message}`);
+        await supabase.from("import_logs").insert({
+          platform: result.platform,
+          filename: file.name,
+          file_hash: hash,
+          date_from: range.dateFrom,
+          date_to: range.dateTo,
+          row_count: result.rowCount,
+          parsed_count: result.parsedCount,
+          inserted: 0,
+          skipped: 0,
+          status: "rejected",
+          reject_reason: dupCheck.message,
+        });
+        return;
+      }
 
       if (!range.dateFrom) {
         setWarning(

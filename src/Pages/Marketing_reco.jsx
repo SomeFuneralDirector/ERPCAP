@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
-  AlertTriangle,
   Megaphone,
   TrendingUp,
   TrendingDown,
   ArrowLeftRight,
   PackageX,
   BarChart3,
+  Clock,
   Search,
 } from "lucide-react";
 import { supabase } from "../api/supabase";
@@ -33,8 +33,6 @@ const safeDate = (v) => {
   return Number.isNaN(d.getTime()) ? null : d;
 };
 
-const orderDate = (o) => o.completed_at || o.created_at || o.paid_time;
-
 const fmtPHP = (n) => `₱${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
 function deriveCampaignStatus(c) {
@@ -54,44 +52,45 @@ function deriveCampaignStatus(c) {
 // TUNABLE THRESHOLDS
 // ══════════════════════════════════════════════════════════════
 const THRESHOLDS = {
-  restockUrgentDays: 7,
-  restockWarningDays: 14,
   slowMoverSellThrough: 0.15,
   slowMoverMinStock: 10,
   risingStarTrendPct: 50,
   decliningTrendPct: -40,
   minUnitsForTrend: 5,
   platformGapMinUnits: 10,
-  deadStockDays: 60,
+  deadStockDays: 60, // kept for messaging clarity; window itself is enforced by DATA_WINDOW_DAYS + last60 bucket
   campaignMinLiftPct: 10,     // lift below this = underperforming
-  campaignMinElapsedDays: 3,  // need at least this much data to judge
+  // Orders only land in this database once their marketplace status reaches
+  // "completed" — there's no To Ship / Shipped stage tracked yet — and that
+  // typically takes 1-2+ weeks after purchase. Judging a campaign before then
+  // compares a mostly-empty "during" window against a full baseline and makes
+  // it look artificially bad. 14 days gives completions time to land first.
+  campaignMinElapsedDays: 14,
 };
 
+// How far back to pull order data. Must comfortably cover the 60-day
+// sales-trend window plus the longest campaign baseline we'd compare against.
+const DATA_WINDOW_DAYS = 180;
+
 const TYPE_META = {
-  restock_urgent: { label: "Restock — Urgent", icon: AlertTriangle, badge: "bg-red-100 text-red-700", card: "border-red-200 bg-red-50/40" },
-  restock_warning: { label: "Restock — Soon", icon: AlertTriangle, badge: "bg-amber-100 text-amber-700", card: "border-amber-200 bg-amber-50/40" },
   promo_candidate: { label: "Promo Candidate", icon: Megaphone, badge: "bg-orange-100 text-orange-700", card: "border-orange-200 bg-orange-50/40" },
   rising_star: { label: "Rising Star", icon: TrendingUp, badge: "bg-emerald-100 text-emerald-700", card: "border-emerald-200 bg-emerald-50/40" },
   declining: { label: "Declining", icon: TrendingDown, badge: "bg-pink-100 text-pink-700", card: "border-pink-200 bg-pink-50/40" },
   platform_gap: { label: "Platform Gap", icon: ArrowLeftRight, badge: "bg-indigo-100 text-indigo-700", card: "border-indigo-200 bg-indigo-50/40" },
   dead_stock: { label: "Dead Stock", icon: PackageX, badge: "bg-gray-200 text-gray-700", card: "border-gray-300 bg-gray-50" },
   campaign_lift_low: { label: "Campaign Underperforming", icon: BarChart3, badge: "bg-purple-100 text-purple-700", card: "border-purple-200 bg-purple-50/40" },
+  campaign_too_early: { label: "Awaiting Data", icon: Clock, badge: "bg-blue-100 text-blue-700", card: "border-blue-200 bg-blue-50/40" },
 };
 
 const SEVERITY_ORDER = {
-  restock_urgent: 0,
-  dead_stock: 1,
-  campaign_lift_low: 2,
-  restock_warning: 3,
-  declining: 4,
-  promo_candidate: 5,
-  platform_gap: 6,
-  rising_star: 7,
+  dead_stock: 0,
+  campaign_lift_low: 1,
+  declining: 2,
+  promo_candidate: 3,
+  platform_gap: 4,
+  rising_star: 5,
+  campaign_too_early: 6,
 };
-
-function cap(s) {
-  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
-}
 
 // ══════════════════════════════════════════════════════════════
 // Pure logic — metrics + rules
@@ -142,8 +141,6 @@ function computeProductMetrics(inventoryRows, orderItems, orderDateById) {
       byPlatformLast30: { Shopee: 0, Lazada: 0, TikTok: 0 },
     };
     const currentStock = toNumber(p.shopee_stock) + toNumber(p.lazada_stock) + toNumber(p.tiktok_stock);
-    const avgDailySales = s.last30 / 30;
-    const daysOfInventory = avgDailySales > 0 ? currentStock / avgDailySales : Infinity;
     const sellThroughRate = s.last30 + currentStock > 0 ? s.last30 / (s.last30 + currentStock) : 0;
     const trendPct = s.prev30 > 0 ? ((s.last30 - s.prev30) / s.prev30) * 100 : s.last30 > 0 ? 100 : 0;
 
@@ -157,7 +154,6 @@ function computeProductMetrics(inventoryRows, orderItems, orderDateById) {
       unitsSoldLast60: s.last60,
       revenueLast30: s.revenueLast30,
       byPlatformLast30: s.byPlatformLast30,
-      daysOfInventory,
       sellThroughRate,
       trendPct,
     };
@@ -174,32 +170,6 @@ function generateProductRecommendations(products, campaignsWithStatus) {
   const recs = [];
 
   products.forEach((p) => {
-    if (p.daysOfInventory !== Infinity && p.unitsSoldLast30 >= THRESHOLDS.minUnitsForTrend) {
-      if (p.daysOfInventory <= THRESHOLDS.restockUrgentDays) {
-        recs.push({
-          type: "restock_urgent",
-          title: p.product_name,
-          subtitle: p.category || "",
-          message: `Only ~${Math.max(0, Math.round(p.daysOfInventory))} day(s) of stock left (${p.currentStock} units, selling ${(p.unitsSoldLast30 / 30).toFixed(1)}/day). Reorder now.`,
-          metrics: [
-            { label: "Stock", value: p.currentStock },
-            { label: "Sold (30d)", value: p.unitsSoldLast30 },
-          ],
-        });
-      } else if (p.daysOfInventory <= THRESHOLDS.restockWarningDays) {
-        recs.push({
-          type: "restock_warning",
-          title: p.product_name,
-          subtitle: p.category || "",
-          message: `~${Math.round(p.daysOfInventory)} days of stock left (${p.currentStock} units on hand). Plan a reorder soon.`,
-          metrics: [
-            { label: "Stock", value: p.currentStock },
-            { label: "Sold (30d)", value: p.unitsSoldLast30 },
-          ],
-        });
-      }
-    }
-
     if (p.unitsSoldLast60 === 0 && p.currentStock > 0) {
       recs.push({
         type: "dead_stock",
@@ -287,7 +257,19 @@ function generateCampaignRecommendations(campaignsWithStatus, orderItems, orderD
       if (!start || !effectiveEnd) return;
 
       const elapsedDays = Math.floor((effectiveEnd - start) / 86_400_000) + 1;
-      if (elapsedDays < THRESHOLDS.campaignMinElapsedDays) return;
+      if (elapsedDays < THRESHOLDS.campaignMinElapsedDays) {
+        recs.push({
+          type: "campaign_too_early",
+          title: c.name,
+          subtitle: `${c.platform} · ${elapsedDays} day(s) elapsed`,
+          message: `Only ${elapsedDays} day(s) in — orders take time to reach "completed" status, so lift can't be judged reliably yet. Check back after day ${THRESHOLDS.campaignMinElapsedDays}.`,
+          metrics: [
+            { label: "Elapsed", value: `${elapsedDays}d` },
+            { label: "Needs", value: `${THRESHOLDS.campaignMinElapsedDays}d` },
+          ],
+        });
+        return;
+      }
 
       const baselineStart = new Date(start.getTime() - elapsedDays * 86_400_000);
       const baselineEnd = new Date(start.getTime() - 1);
@@ -373,42 +355,38 @@ function Marketing_reco() {
     setLoading(true);
     setErrorMsg("");
 
-    const { data: completedOrders, error: ordersError } = await supabase
-      .from("orders")
-      .select("id, order_id, platform, completed_at, created_at, paid_time, status")
-      .eq("status", "COMPLETED");
+    const cutoffIso = new Date(Date.now() - DATA_WINDOW_DAYS * 86_400_000).toISOString();
 
-    if (ordersError) {
-      setErrorMsg(ordersError.message);
-      setLoading(false);
-      return;
-    }
-
-    const validOrders = (completedOrders || []).filter((o) => safeDate(orderDate(o)));
-    const dateMap = {};
-    validOrders.forEach((o) => {
-      dateMap[o.id] = safeDate(orderDate(o));
-    });
-    setOrderDateById(dateMap);
-
-    const orderUuids = validOrders.map((o) => o.id).filter(Boolean);
-
+    // Single query: order_items joined (inner) to orders, filtered server-side
+    // on order status + a recency window. This avoids ever building a huge
+    // `order_uuid IN (...)` filter, which is what was causing the 400s.
     const [itemsRes, inventoryRes, campaignsRes] = await Promise.all([
-      orderUuids.length > 0
-        ? supabase
-            .from("order_items")
-            .select("order_uuid, order_id, platform, product_name, sku, quantity, unit_price")
-            .in("order_uuid", orderUuids)
-        : Promise.resolve({ data: [], error: null }),
+      supabase
+        .from("order_items")
+        .select("order_uuid, order_id, platform, product_name, sku, quantity, unit_price, orders!inner(completed_at, created_at, paid_time, status)")
+        .eq("orders.status", "COMPLETED")
+        .gte("orders.created_at", cutoffIso),
       supabase.from("inventory").select("product_name, category, shopee_stock, lazada_stock, tiktok_stock"),
       supabase.from("campaigns").select("id, name, platform, discount_type, discount_value, start_date, end_date, status"),
     ]);
 
     if (itemsRes.error) {
-      setErrorMsg((prev) => prev || itemsRes.error.message);
-    } else {
-      setOrderItems((itemsRes.data || []).filter((i) => toNumber(i.quantity) > 0));
+      setErrorMsg(itemsRes.error.message);
+      setLoading(false);
+      return;
     }
+
+    const dateMap = {};
+    const validItems = [];
+    (itemsRes.data || []).forEach((item) => {
+      const o = item.orders;
+      const date = safeDate(o?.completed_at || o?.created_at || o?.paid_time);
+      if (!date) return;
+      dateMap[item.order_uuid] = date;
+      if (toNumber(item.quantity) > 0) validItems.push(item);
+    });
+    setOrderDateById(dateMap);
+    setOrderItems(validItems);
 
     if (!inventoryRes.error) setInventory(inventoryRes.data || []);
     else console.error("inventory fetch error:", inventoryRes.error);
