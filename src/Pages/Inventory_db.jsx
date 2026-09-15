@@ -663,7 +663,7 @@ function Inventory_db() {
         {/* Header + filters */}
         <Card className="px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
-            <h1 className="text-lg font-semibold text-gray-900">Inventory - Dashboard</h1>
+            <h1 className="text-2xl font-semibold text-gray-900">Inventory - Dashboard</h1>
             {lastUpdated && !loading && (
               <p className="text-xs text-gray-400 mt-0.5">
                 Updated {formatLogTime(lastUpdated.toISOString())}

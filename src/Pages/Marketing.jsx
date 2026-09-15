@@ -541,7 +541,7 @@ function Marketing() {
     return (
       <div className="min-h-screen p-6" style={{ backgroundColor: "#F6F6F7" }}>
         <Card className="p-6 max-w-[1400px] mx-auto" style={{ borderColor: C.accentSoftBorder }}>
-          <h1 className="text-lg font-semibold text-gray-900 mb-2">Marketing - Dashboard</h1>
+          <h1 className="text-2xl font-semibold text-gray-900 mb-2">Marketing - Dashboard</h1>
           <p className="text-sm mb-4" style={{ color: C.accent }}>
             {errorMsg}
           </p>
@@ -557,7 +557,7 @@ function Marketing() {
         {/* Header + filters */}
         <Card className="px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
-            <h1 className="text-lg font-semibold text-gray-900">Marketing - Dashboard</h1>
+            <h1 className="text-2xl font-semibold text-gray-900">Marketing - Dashboard</h1>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">

@@ -101,7 +101,7 @@ function IncomeStatement() {
   return (
     <div className="p-6">
       <div className="flex items-center justify-between flex-wrap gap-4 bg-white rounded-lg shadow p-6 mb-4">
-        <h1 className="text-2xl font-bold text-gray-800">Income Statement</h1>
+        <h1 className="text-2xl font-semibold text-gray-800">Income Statement</h1>
         <div className="flex items-center gap-2">
           <input
             type="date"

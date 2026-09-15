@@ -333,7 +333,6 @@ function Marketing_campaigns() {
     <div className="min-h-screen" style={{ backgroundColor: "#F6F6F7" }}>
       <div className="p-6 space-y-4 max-w-[1400px] mx-auto">
         {/* Header */}
-        {/* Header */}
         <Card className="px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
             <h1 className="text-lg font-semibold text-gray-900">Marketing - Campaigns</h1>
@@ -405,99 +404,96 @@ function Marketing_campaigns() {
             </button>
           </div>
 
-          <div className="p-5">
-            {loading ? (
-              <div className="space-y-3">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="h-10 bg-gray-100 rounded animate-pulse" />
-                ))}
-              </div>
-            ) : displayedCampaigns.length === 0 ? (
-              <p className="text-xs text-gray-400 py-8 text-center">
-                No {activeTab === "active" ? "active or upcoming" : "ended or cancelled"}{" "}
-                campaigns yet.
-              </p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left">
-                  <thead>
-                    <tr className="border-b border-gray-200 text-gray-500 text-xs uppercase tracking-wide">
-                      <th className="py-2.5 pr-4 font-semibold">Campaign</th>
-                      <th className="py-2.5 pr-4 font-semibold">Platform</th>
-                      <th className="py-2.5 pr-4 font-semibold">Offer</th>
-                      <th className="py-2.5 pr-4 font-semibold">Start</th>
-                      <th className="py-2.5 pr-4 font-semibold">End</th>
-                      <th className="py-2.5 pr-4 font-semibold">Status</th>
-                      <th className="py-2.5 pr-4 font-semibold">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {displayedCampaigns.map((c) => {
-                      const status = deriveStatus(c);
-                      return (
-                        <tr
-                          key={c.id}
-                          className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
-                        >
-                          <td className="py-3 pr-4 font-medium text-gray-800">{c.name}</td>
-                          <td className="py-3 pr-4">
-                            <PlatformBadge platform={c.platform} />
-                          </td>
-                          <td className="py-3 pr-4 text-gray-600">{formatDiscount(c)}</td>
-                          <td className="py-3 pr-4 text-gray-600">
-                            {c.start_date
-                              ? new Date(c.start_date).toLocaleDateString()
-                              : "—"}
-                          </td>
-                          <td className="py-3 pr-4 text-gray-600">
-                            {c.end_date
-                              ? new Date(c.end_date).toLocaleDateString()
-                              : "—"}
-                          </td>
-                          <td className="py-3 pr-4">
-                            <StatusBadge status={status} />
-                          </td>
-                          <td className="py-3 pr-4">
-                            <div className="flex items-center gap-3">
+          {loading ? (
+            <div className="p-5 space-y-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-10 bg-gray-100 rounded animate-pulse" />
+              ))}
+            </div>
+          ) : displayedCampaigns.length === 0 ? (
+            <p className="text-xs text-gray-400 py-8 text-center">
+              No {activeTab === "active" ? "active or upcoming" : "ended or cancelled"}{" "}
+              campaigns yet.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left border-collapse">
+                <thead>
+                  <tr className="bg-red-900 text-white">
+                    <th className="px-5 py-2.5 text-xs font-semibold tracking-wide">CAMPAIGN</th>
+                    <th className="px-5 py-2.5 text-xs font-semibold tracking-wide">PLATFORM</th>
+                    <th className="px-5 py-2.5 text-xs font-semibold tracking-wide">OFFER</th>
+                    <th className="px-5 py-2.5 text-xs font-semibold tracking-wide">START</th>
+                    <th className="px-5 py-2.5 text-xs font-semibold tracking-wide">END</th>
+                    <th className="px-5 py-2.5 text-xs font-semibold tracking-wide">STATUS</th>
+                    <th className="px-5 py-2.5 text-xs font-semibold tracking-wide">ACTIONS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {displayedCampaigns.map((c) => {
+                    const status = deriveStatus(c);
+                    return (
+                      <tr
+                        key={c.id}
+                        className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
+                      >
+                        <td className="px-5 py-3 font-medium text-gray-800">{c.name}</td>
+                        <td className="px-5 py-3">
+                          <PlatformBadge platform={c.platform} />
+                        </td>
+                        <td className="px-5 py-3 text-gray-600">{formatDiscount(c)}</td>
+                        <td className="px-5 py-3 text-gray-600">
+                          {c.start_date
+                            ? new Date(c.start_date).toLocaleDateString()
+                            : "—"}
+                        </td>
+                        <td className="px-5 py-3 text-gray-600">
+                          {c.end_date
+                            ? new Date(c.end_date).toLocaleDateString()
+                            : "—"}
+                        </td>
+                        <td className="px-5 py-3">
+                          <StatusBadge status={status} />
+                        </td>
+                        <td className="px-5 py-3">
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={() => setViewCampaign(c)}
+                              className="text-xs font-medium cursor-pointer hover:underline"
+                              style={{ color: C.accent }}
+                            >
+                              View
+                            </button>
+                            {status === "Cancelled" ? (
                               <button
-                                onClick={() => setViewCampaign(c)}
-                                className="text-xs font-medium cursor-pointer hover:underline"
-                                style={{ color: C.accent }}
+                                onClick={() => handleReactivate(c)}
+                                className="text-xs font-medium text-gray-500 hover:text-gray-700 hover:underline cursor-pointer"
                               >
-                                View
+                                Reactivate
                               </button>
-                              {status === "Cancelled" ? (
-                                <button
-                                  onClick={() => handleReactivate(c)}
-                                  className="text-xs font-medium text-gray-500 hover:text-gray-700 hover:underline cursor-pointer"
-                                >
-                                  Reactivate
-                                </button>
-                              ) : status !== "Ended" ? (
-                                <button
-                                  onClick={() => handleCancel(c)}
-                                  className="text-xs font-medium text-gray-400 hover:underline cursor-pointer"
-                                  style={{}}
-                                  onMouseEnter={(e) =>
-                                    (e.currentTarget.style.color = C.accent)
-                                  }
-                                  onMouseLeave={(e) =>
-                                    (e.currentTarget.style.color = "")
-                                  }
-                                >
-                                  Cancel
-                                </button>
-                              ) : null}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+                            ) : status !== "Ended" ? (
+                              <button
+                                onClick={() => handleCancel(c)}
+                                className="text-xs font-medium text-gray-400 hover:underline cursor-pointer"
+                                onMouseEnter={(e) =>
+                                  (e.currentTarget.style.color = C.accent)
+                                }
+                                onMouseLeave={(e) =>
+                                  (e.currentTarget.style.color = "")
+                                }
+                              >
+                                Cancel
+                              </button>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Card>
 
         {/* Create Campaign Modal */}
