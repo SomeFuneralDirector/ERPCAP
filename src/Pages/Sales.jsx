@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import CSVImport from '../Components/Csvimport'
-import { LayoutDashboard, Package, ShoppingCart, Megaphone, Factory, Settings, ChevronRight, ChevronDown,ChevronLeft, Menu, X, Search, LogOut } from "lucide-react";
+import { LayoutDashboard, Package, ShoppingCart, Megaphone, Factory, Settings, ChevronLeft, Menu, X, Search, LogOut } from "lucide-react";
 import { supabase } from "../api/supabase";
 
 const PLATFORM_BADGE = {
@@ -30,8 +30,10 @@ function Sales() {
   const [totalCount, setTotalCount]   = useState(0)
   const [expandedOrder, setExpandedOrder] = useState(null)
   const [orderItems, setOrderItems]   = useState({})
+  const [rowProducts, setRowProducts] = useState({}) // `${platform}:${order_id}` -> [{product_name, quantity}]
 
   const PAGE_SIZE = 10
+  const COLUMN_COUNT = 8 // Order ID + Platform + Recipient + Product + Qty + Total + Completed + Tracking No.
 
   const fetchOrders = useCallback(async () => {
     setLoading(true)
@@ -55,10 +57,55 @@ function Sales() {
     }
 
     const { data, count, error } = await query
-    if (!error) {
-      setOrders(data || [])
-      setTotalCount(count || 0)
+
+    if (error || !data) {
+      setOrders([])
+      setTotalCount(0)
+      setRowProducts({})
+      setLoading(false)
+      return
     }
+
+    setOrders(data)
+    setTotalCount(count || 0)
+
+    // ── Batch-fetch product names for every order on this page ────────────
+    // One query per platform present on the page (almost always just one),
+    // instead of a per-row fetch-on-click, so the product column is filled
+    // in immediately without needing to expand each row.
+    if (data.length > 0) {
+      const idsByPlatform = {}
+      data.forEach(o => {
+        if (!o.platform || !o.order_id) return
+        ;(idsByPlatform[o.platform] ||= []).push(o.order_id)
+      })
+
+      const productsMap = {}
+      await Promise.all(
+        Object.entries(idsByPlatform).map(async ([platform, orderIds]) => {
+          const { data: items, error: itemsErr } = await supabase
+            .from('order_items')
+            .select('order_id, product_name, quantity')
+            .eq('platform', platform)
+            .in('order_id', orderIds)
+
+          if (itemsErr) {
+            console.error('Failed to load product names for platform', platform, itemsErr)
+            return
+          }
+
+          ;(items || []).forEach(item => {
+            const key = `${platform}:${item.order_id}`
+            ;(productsMap[key] ||= []).push(item)
+          })
+        })
+      )
+
+      setRowProducts(productsMap)
+    } else {
+      setRowProducts({})
+    }
+
     setLoading(false)
   }, [search, sortBy, filterPlatform, page])
 
@@ -82,6 +129,18 @@ function Sales() {
       setExpandedOrder(order.order_id)
       fetchItems(order.order_id, order.platform)
     }
+  }
+
+  const formatProductNames = (order) => {
+    const items = rowProducts[`${order.platform}:${order.order_id}`]
+    if (!items || items.length === 0) return '—'
+    return items.map(item => item.product_name).join(', ')
+  }
+
+  const formatProductQty = (order) => {
+    const items = rowProducts[`${order.platform}:${order.order_id}`]
+    if (!items || items.length === 0) return '—'
+    return items.map(item => item.quantity).join(', ')
   }
 
   const totalAmount = orders.reduce((s, o) => s + (o.total_amount || 0), 0)
@@ -158,10 +217,11 @@ function Sales() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="px-4 py-3 text-left font-semibold text-gray-600 w-8" />
                 <th className="px-4 py-3 text-left font-semibold text-gray-600">Order ID</th>
                 <th className="px-4 py-3 text-left font-semibold text-gray-600">Platform</th>
                 <th className="px-4 py-3 text-left font-semibold text-gray-600">Recipient</th>
+                <th className="px-4 py-3 text-left font-semibold text-gray-600">Product</th>
+                <th className="px-4 py-3 text-left font-semibold text-gray-600">Qty</th>
                 <th className="px-4 py-3 text-left font-semibold text-gray-600">Total (PHP)</th>
                 <th className="px-4 py-3 text-left font-semibold text-gray-600">Completed</th>
                 <th className="px-4 py-3 text-left font-semibold text-gray-600">Tracking No.</th>
@@ -171,7 +231,7 @@ function Sales() {
               {loading ? (
                 [...Array(5)].map((_, i) => (
                   <tr key={i} className="border-b border-gray-100">
-                    {[...Array(7)].map((_, j) => (
+                    {[...Array(COLUMN_COUNT)].map((_, j) => (
                       <td key={j} className="px-4 py-3">
                         <div className="h-4 bg-gray-100 rounded animate-pulse w-full" />
                       </td>
@@ -180,7 +240,7 @@ function Sales() {
                 ))
               ) : orders.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-16 text-center text-gray-400">
+                  <td colSpan={COLUMN_COUNT} className="px-4 py-16 text-center text-gray-400">
                     <div className="text-4xl mb-3"></div>
                     <p className="font-medium text-gray-500">No completed orders found</p>
                     <p className="text-sm mt-1">
@@ -197,9 +257,6 @@ function Sales() {
                       className={`border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors ${expandedOrder === order.order_id ? 'bg-indigo-50' : ''}`}
                       onClick={() => toggleExpand(order)}
                     >
-                      <td className="px-4 py-3 text-gray-400 text-center">
-                        <span className="text-xs">{expandedOrder === order.order_id ? <ChevronDown size={16} /> :  <ChevronRight size={16} />}</span>
-                      </td>
                       <td className="px-4 py-3 font-mono text-xs text-gray-600">{order.order_id}</td>
                       <td className="px-4 py-3">
                         <span className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${PLATFORM_BADGE[order.platform] || 'bg-gray-100 text-gray-600'}`}>
@@ -207,6 +264,8 @@ function Sales() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-gray-700">{order.recipient_name || '—'}</td>
+                      <td className="px-4 py-3 text-gray-700">{formatProductNames(order)}</td>
+                      <td className="px-4 py-3 text-gray-700 text-xs whitespace-nowrap">{formatProductQty(order)}</td>
                       <td className="px-4 py-3 font-semibold text-gray-800">
                         {((order.total_amount || 0) / 100).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
                       </td>
@@ -220,7 +279,7 @@ function Sales() {
 
                     {expandedOrder === order.order_id && (
                       <tr className="bg-indigo-50 border-b border-indigo-100">
-                        <td colSpan={7} className="px-8 py-4">
+                        <td colSpan={COLUMN_COUNT} className="px-8 py-4">
                           <p className="text-xs font-semibold text-indigo-600 mb-3 uppercase tracking-wide">Order Items</p>
                           {!orderItems[order.order_id] ? (
                             <p className="text-sm text-gray-400">Loading items…</p>

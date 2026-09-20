@@ -1,5 +1,4 @@
 import { useState, useCallback } from "react";
-import { createClient } from "@supabase/supabase-js";
 import { parseCSV } from "../lib/csv-parser";
 import { supabase } from "../api/supabase";
 
@@ -46,6 +45,50 @@ const REQUIRED_HEADERS = {
 
 function validateHeaders(headers, platform) {
   return (REQUIRED_HEADERS[platform] || []).filter((h) => !headers.includes(h));
+}
+
+// ─── Duplicate detection helpers ────────────────────────────────────────────
+// Same approach as the production importer: the real source of truth is the
+// table the data actually lands in ("orders"), not the import_logs table.
+// Log rows can go missing for all sorts of reasons; order rows can't, if the
+// import actually happened.
+
+// Supabase caps how much you can cram into a single .in() filter, so chunk.
+async function fetchExistingOrderIds(platform, orderIds) {
+  const found = new Set();
+  const CHUNK = 200;
+
+  for (let i = 0; i < orderIds.length; i += CHUNK) {
+    const chunk = orderIds.slice(i, i + CHUNK);
+    const { data, error } = await supabase
+      .from("orders")
+      .select("order_id")
+      .eq("platform", platform)
+      .in("order_id", chunk);
+
+    if (error) throw error;
+    (data || []).forEach((r) => found.add(String(r.order_id)));
+  }
+
+  return found;
+}
+
+// Secondary signal only — nice for the message, never the thing we rely on.
+async function findPriorImportByHash(platform, hash) {
+  const { data, error } = await supabase
+    .from("import_logs")
+    .select("filename, created_at, inserted")
+    .eq("platform", platform)
+    .eq("file_hash", hash)
+    .eq("status", "success")
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (error) {
+    console.warn("import_logs lookup failed:", error);
+    return null;
+  }
+  return data?.length ? data[0] : null;
 }
 
 export default function CSVImport({ onImportComplete }) {
@@ -126,52 +169,85 @@ export default function CSVImport({ onImportComplete }) {
       const range = extractDateRange(result.orders);
       setDateRange(range);
 
-      // Duplicate check
-      // Duplicate check
-      const { data: dupCheck, error: dupErr } = await supabase.rpc(
-        "check_duplicate_import",
-        {
-          p_platform: result.platform,
-          p_file_hash: hash,
-          p_date_from: range.dateFrom,
-          p_date_to: range.dateTo,
-        },
-      );
+      const warnings = [];
 
-      // Only block on an exact same-file re-upload. Date-range overlap is no
-      // longer treated as a blocker — demo/test data can legitimately have
-      // overlapping or future dates while we're prepping for the presentation.
-      if (!dupErr && dupCheck?.isDuplicate && dupCheck.reason === "same_file") {
-        setError(`🚫 Duplicate file detected. ${dupCheck.message}`);
-        await supabase.from("import_logs").insert({
-          platform: result.platform,
-          filename: file.name,
-          file_hash: hash,
-          date_from: range.dateFrom,
-          date_to: range.dateTo,
-          row_count: result.rowCount,
-          parsed_count: result.parsedCount,
-          inserted: 0,
-          skipped: 0,
-          status: "rejected",
-          reject_reason: dupCheck.message,
-        });
-        return;
+      // ── Duplicate check ─────────────────────────────────────────────────
+      // Primary check is against orders: if every order in this file is
+      // already sitting in the orders table, the file has been imported
+      // before, regardless of what (if anything) the log table says.
+      const orderIds = [
+        ...new Set(
+          result.orders.map((o) => String(o.order_id || "")).filter(Boolean),
+        ),
+      ];
+
+      let existingIds = null;
+      try {
+        existingIds = await fetchExistingOrderIds(result.platform, orderIds);
+      } catch (e) {
+        // Fail open — a broken lookup shouldn't block a real import.
+        console.error("Duplicate check against orders failed:", e);
+      }
+
+      if (existingIds && existingIds.size > 0) {
+        const alreadyIn = orderIds.filter((id) => existingIds.has(id));
+
+        if (alreadyIn.length === orderIds.length) {
+          // Every order already imported → block.
+          const prior = await findPriorImportByHash(result.platform, hash);
+          const when = prior?.created_at
+            ? ` (last imported ${new Date(prior.created_at).toLocaleString()}${
+                prior.filename ? ` as "${prior.filename}"` : ""
+              })`
+            : "";
+          const message =
+            `All ${orderIds.length} order(s) in this file are already in the ` +
+            `orders table${when}. Nothing new to import.`;
+
+          setError(`🚫 Duplicate file detected. ${message}`);
+
+          const { error: logErr } = await supabase.from("import_logs").insert({
+            platform: result.platform,
+            filename: file.name,
+            file_hash: hash,
+            date_from: range.dateFrom,
+            date_to: range.dateTo,
+            row_count: result.rowCount,
+            parsed_count: result.parsedCount,
+            inserted: 0,
+            skipped: 0,
+            status: "rejected",
+            reject_reason: message,
+          });
+          if (logErr) console.warn("Could not write rejected log:", logErr);
+
+          return;
+        }
+
+        // Partial overlap → let it through, but say so. Re-importing these
+        // updates the existing rows rather than creating new ones.
+        warnings.push(
+          `${alreadyIn.length} of ${orderIds.length} order(s) in this file are ` +
+            `already in Sales and will be updated, not duplicated. ` +
+            `${orderIds.length - alreadyIn.length} order(s) are new.`,
+        );
       }
 
       if (!range.dateFrom) {
-        setWarning(
+        warnings.push(
           "Could not detect order dates. Duplicate date checking is disabled for this import.",
         );
       }
 
       // Warn about excluded non-completed orders
       if (result.skippedCount > 0) {
-        setWarning(
+        warnings.push(
           `${result.skippedCount} non-completed order(s) were excluded (To Ship, Shipped, Cancelled, etc.). ` +
             `Only the ${result.parsedCount} COMPLETED order(s) below will be imported.`,
         );
       }
+
+      if (warnings.length) setWarning(warnings.join(" "));
 
       setParsed({ ...result, filename: file.name });
       setStep("preview");
@@ -196,82 +272,143 @@ export default function CSVImport({ onImportComplete }) {
     let inserted = 0,
       skipped = 0;
     const errors = [];
+    let productSummary = [];
 
-    for (let i = 0; i < parsed.orders.length; i++) {
-      const order = parsed.orders[i];
-      setProgress({ current: i + 1, total: parsed.orders.length });
-
-      // Safety guard — only COMPLETED
+    // ── Pass 1: filter in memory, no network calls ─────────────────────────
+    const toImport = [];
+    for (const order of parsed.orders) {
       if (order.status !== "COMPLETED") {
         skipped++;
         continue;
       }
+      toImport.push(order);
+    }
 
-      try {
-        const { data: orderRow, error: orderErr } = await supabase
-          .from("orders")
-          .upsert(
-            {
-              platform: order.platform,
-              order_id: order.order_id,
-              status: order.status,
-              tracking_no: order.tracking_no,
-              shipping_option: order.shipping_option,
-              payment_method: order.payment_method,
-              total_amount: order.total_amount,
-              shipping_fee: order.shipping_fee,
-              buyer_username: order.buyer_username,
-              recipient_name: order.recipient_name,
-              phone: order.phone,
-              address: order.address,
-              created_at: order.created_at,
-              paid_time: order.paid_time,
-              completed_at: order.completed_at,
-              cancel_reason: order.cancel_reason,
-              buyer_note: order.buyer_note,
-            },
-            { onConflict: "platform,order_id" },
-          )
-          .select()
-          .single();
+    setProgress({ current: 0, total: toImport.length || 1 });
 
-        if (orderErr) {
-          skipped++;
-          errors.push(`${order.order_id}: ${orderErr.message}`);
-          continue;
-        }
+    // ── Pass 2: one batched upsert for every order, instead of one per row ──
+    let orderRows = [];
+    if (toImport.length > 0) {
+      const { data, error: upsertErr } = await supabase
+        .from("orders")
+        .upsert(
+          toImport.map((order) => ({
+            platform: order.platform,
+            order_id: order.order_id,
+            status: order.status,
+            tracking_no: order.tracking_no,
+            shipping_option: order.shipping_option,
+            payment_method: order.payment_method,
+            total_amount: order.total_amount,
+            shipping_fee: order.shipping_fee,
+            buyer_username: order.buyer_username,
+            recipient_name: order.recipient_name,
+            phone: order.phone,
+            address: order.address,
+            created_at: order.created_at,
+            paid_time: order.paid_time,
+            completed_at: order.completed_at,
+            cancel_reason: order.cancel_reason,
+            buyer_note: order.buyer_note,
+          })),
+          { onConflict: "platform,order_id" },
+        )
+        .select();
 
-        if (order.items?.length > 0) {
-          await supabase
-            .from("order_items")
-            .delete()
-            .eq("order_id", order.order_id)
-            .eq("platform", order.platform);
-
-          await supabase.from("order_items").insert(
-            order.items.map((item) => ({
-              order_uuid: orderRow.id,
-              platform: order.platform,
-              order_id: order.order_id,
-              product_name: item.product_name,
-              sku: item.sku,
-              variation: item.variation,
-              quantity: item.quantity,
-              unit_price: item.unit_price,
-              original_price: item.original_price || item.unit_price,
-              platform_disc: item.platform_disc || 0,
-              seller_disc: item.seller_disc || 0,
-            })),
-          );
-        }
-        inserted++;
-      } catch (e) {
-        errors.push(`${order.order_id}: ${e.message}`);
-        skipped++;
+      if (upsertErr) {
+        console.error("BATCH UPSERT FAILED:", upsertErr);
+        errors.push(`Batch order upsert failed: ${upsertErr.message}`);
+        skipped += toImport.length;
+      } else {
+        orderRows = data || [];
       }
     }
 
-    await supabase.from("import_logs").insert({
+    setProgress({ current: Math.round(orderRows.length / 2), total: toImport.length || 1 });
+
+    if (orderRows.length > 0) {
+      const uuidByKey = {};
+      orderRows.forEach((r) => {
+        uuidByKey[`${r.platform}:${r.order_id}`] = r.id;
+      });
+
+      // ── Pass 3: one batched delete + one batched insert for all items ────
+      const idsByPlatform = {};
+      toImport.forEach((o) => {
+        (idsByPlatform[o.platform] ||= []).push(o.order_id);
+      });
+
+      for (const [platform, orderIds] of Object.entries(idsByPlatform)) {
+        const { error: delErr } = await supabase
+          .from("order_items")
+          .delete()
+          .eq("platform", platform)
+          .in("order_id", orderIds);
+        if (delErr) {
+          console.error("Batch item delete failed:", delErr);
+          errors.push(`Item cleanup failed for ${platform}: ${delErr.message}`);
+        }
+      }
+
+      const itemsToInsert = [];
+      const productTotals = {};
+      toImport.forEach((order) => {
+        const uuid = uuidByKey[`${order.platform}:${order.order_id}`];
+        if (!uuid || !order.items?.length) return;
+        order.items.forEach((item) => {
+          itemsToInsert.push({
+            order_uuid: uuid,
+            platform: order.platform,
+            order_id: order.order_id,
+            product_name: item.product_name,
+            sku: item.sku,
+            variation: item.variation,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            original_price: item.original_price || item.unit_price,
+            platform_disc: item.platform_disc || 0,
+            seller_disc: item.seller_disc || 0,
+          });
+
+          if (item.product_name) {
+            if (!productTotals[item.product_name]) {
+              productTotals[item.product_name] = {
+                quantity: 0,
+                orderIds: new Set(),
+              };
+            }
+            productTotals[item.product_name].quantity += item.quantity || 0;
+            productTotals[item.product_name].orderIds.add(order.order_id);
+          }
+        });
+      });
+
+      productSummary = Object.entries(productTotals)
+        .map(([name, t]) => ({
+          name,
+          quantity: t.quantity,
+          orderCount: t.orderIds.size,
+        }))
+        .sort((a, b) => b.quantity - a.quantity);
+
+      if (itemsToInsert.length > 0) {
+        const { error: itemsErr } = await supabase
+          .from("order_items")
+          .insert(itemsToInsert);
+        if (itemsErr) {
+          console.error("Batch item insert failed:", itemsErr);
+          errors.push(`Batch item insert failed: ${itemsErr.message}`);
+        }
+      }
+
+      inserted = orderRows.length;
+    }
+
+    setProgress({ current: toImport.length, total: toImport.length || 1 });
+
+    // Surface log-write failures instead of swallowing them — a silently
+    // rejected insert here is what makes hash-based duplicate checks useless.
+    const { error: logErr } = await supabase.from("import_logs").insert({
       platform: parsed.platform,
       filename: parsed.filename,
       file_hash: fileHash,
@@ -284,8 +421,9 @@ export default function CSVImport({ onImportComplete }) {
       errors: errors.length ? errors : null,
       status: "success",
     });
+    if (logErr) console.warn("Could not write import log:", logErr);
 
-    setImportResult({ inserted, skipped, errors, dateRange });
+    setImportResult({ inserted, skipped, errors, productSummary, dateRange });
     setStep("done");
     if (onImportComplete) onImportComplete();
   };
@@ -349,11 +487,16 @@ export default function CSVImport({ onImportComplete }) {
       {step === "preview" && parsed && (
         <div>
           <div className="mb-4 p-3 bg-green-50 border border-green-300 rounded-lg flex items-center gap-2">
-            <span className="text-green-500 text-lg"></span>
             <p className="text-green-800 text-sm font-medium">
               Completed Orders:
             </p>
           </div>
+
+          {warning && (
+            <div className="mb-4 p-3 bg-yellow-50 border border-yellow-300 rounded-lg text-yellow-800 text-sm">
+              {warning}
+            </div>
+          )}
 
           {/* Summary cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
@@ -394,7 +537,7 @@ export default function CSVImport({ onImportComplete }) {
                   {[
                     "Order ID",
                     "Recipient",
-                    "Items",
+                    "Products",
                     "Total (PHP)",
                     "Date",
                   ].map((h) => (
@@ -420,7 +563,16 @@ export default function CSVImport({ onImportComplete }) {
                       {o.recipient_name || "—"}
                     </td>
                     <td className="px-4 py-3 text-gray-700">
-                      {o.items.length}
+                      {o.items.length > 0
+                        ? o.items
+                            .map(
+                              (item) =>
+                                `${item.product_name}${
+                                  item.quantity > 1 ? ` ×${item.quantity}` : ""
+                                }`,
+                            )
+                            .join(", ")
+                        : "—"}
                     </td>
                     <td className="px-4 py-3 font-semibold text-gray-800">
                       {(o.total_amount / 100).toFixed(2)}
@@ -458,7 +610,6 @@ export default function CSVImport({ onImportComplete }) {
         </div>
       )}
 
-      {/* ── IMPORTING ── */}
       {/* ── IMPORTING ── */}
       {step === "importing" && (
         <div className="text-center py-16">
@@ -500,6 +651,34 @@ export default function CSVImport({ onImportComplete }) {
               </span>
             </StatCard>
           </div>
+
+          {importResult.productSummary?.length > 0 && (
+            <div className="border border-gray-200 rounded-lg mb-4 overflow-hidden">
+              <p className="font-semibold text-gray-700 text-sm px-4 py-3 bg-gray-50 border-b border-gray-200">
+                Products Ordered ({importResult.productSummary.length})
+              </p>
+              <div className="max-h-64 overflow-y-auto">
+                <table className="w-full text-sm">
+                  <tbody>
+                    {importResult.productSummary.map((p, i) => (
+                      <tr
+                        key={i}
+                        className="border-b border-gray-100 last:border-b-0"
+                      >
+                        <td className="px-4 py-2 text-gray-700">{p.name}</td>
+                        <td className="px-4 py-2 text-gray-500 text-xs whitespace-nowrap">
+                          {p.orderCount} order{p.orderCount === 1 ? "" : "s"}
+                        </td>
+                        <td className="px-4 py-2 text-right font-semibold text-gray-800 whitespace-nowrap">
+                          ×{p.quantity}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {importResult.errors.length > 0 && (
             <div className="p-4 bg-red-50 border border-red-200 rounded-lg mb-4">
