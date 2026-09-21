@@ -135,8 +135,8 @@ function Finance() {
 
   const analytics = useMemo(() => {
     const result = {
-      totalDebit: 0,
-      totalCredit: 0,
+      totalExpenses: 0,
+      totalRevenue: 0,
       byCategory: {},
       byMonth: {},
     };
@@ -145,15 +145,16 @@ function Finance() {
       const amount = Number(entry.amount);
       if (!Number.isFinite(amount) || amount < 0) return;
 
-      const type =
+      // Ledger convention: debit entries are expenses, credit entries are revenue.
+      const flow =
         entry.type === "credit"
-          ? "credit"
+          ? "revenue"
           : entry.type === "debit"
-            ? "debit"
+            ? "expenses"
             : null;
-      if (!type) return;
+      if (!flow) return;
 
-      result[type === "debit" ? "totalDebit" : "totalCredit"] += amount;
+      result[flow === "expenses" ? "totalExpenses" : "totalRevenue"] += amount;
 
       const category = entry.ledger_categories?.name || "Uncategorized";
       result.byCategory[category] ||= { name: category, amount: 0 };
@@ -161,14 +162,14 @@ function Finance() {
 
       const month = entry.date?.slice(0, 7);
       if (month) {
-        result.byMonth[month] ||= { month, debit: 0, credit: 0 };
-        result.byMonth[month][type] += amount / 100;
+        result.byMonth[month] ||= { month, expenses: 0, revenue: 0 };
+        result.byMonth[month][flow] += amount / 100;
       }
     });
 
     return {
-      totalDebit: result.totalDebit,
-      totalCredit: result.totalCredit,
+      totalExpenses: result.totalExpenses,
+      totalRevenue: result.totalRevenue,
       byCategory: Object.values(result.byCategory).sort(
         (a, b) => b.amount - a.amount
       ),
@@ -178,10 +179,10 @@ function Finance() {
     };
   }, [entries]);
 
-  const { totalDebit, totalCredit, byCategory, monthlyTrend } = analytics;
+  const { totalExpenses, totalRevenue, byCategory, monthlyTrend } = analytics;
 
-  // P&L: revenue (credit) − expenses (debit)
-  const net = totalCredit - totalDebit;
+  // P&L: revenue − expenses
+  const net = totalRevenue - totalExpenses;
   const isProfit = net >= 0;
 
   return (
@@ -234,23 +235,23 @@ function Finance() {
         {/* Summary cards */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Card className="p-4">
-            <p className="text-xs text-gray-500">Total debit</p>
+            <p className="text-xs text-gray-500">Total expenses</p>
             {loading ? (
               <Skeleton />
             ) : (
               <p className="text-2xl font-semibold mt-1 text-gray-900">
-                {formatPeso(totalDebit)}
+                {formatPeso(totalExpenses)}
               </p>
             )}
           </Card>
 
           <Card className="p-4">
-            <p className="text-xs text-gray-500">Total credit</p>
+            <p className="text-xs text-gray-500">Total revenue</p>
             {loading ? (
               <Skeleton />
             ) : (
               <p className="text-2xl font-semibold mt-1 text-gray-900">
-                {formatPeso(totalCredit)}
+                {formatPeso(totalRevenue)}
               </p>
             )}
           </Card>
@@ -275,7 +276,7 @@ function Finance() {
         {/* Trend */}
         <Card className="p-6">
           <h2 className="text-sm font-semibold text-gray-700 mb-3">
-            Debit vs credit
+            Revenue vs expenses
           </h2>
           {loading ? (
             <Skeleton className="h-56 w-full" />
@@ -288,13 +289,13 @@ function Finance() {
                 margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
               >
                 <defs>
-                  <linearGradient id="debitFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={C.accent} stopOpacity={0.35} />
-                    <stop offset="100%" stopColor={C.accent} stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="creditFill" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor={C.success} stopOpacity={0.35} />
                     <stop offset="100%" stopColor={C.success} stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="expensesFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={C.accent} stopOpacity={0.35} />
+                    <stop offset="100%" stopColor={C.accent} stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid
@@ -323,22 +324,22 @@ function Finance() {
                 />
                 <Area
                   type="monotone"
-                  dataKey="debit"
-                  name="Debit"
-                  stroke={C.accent}
+                  dataKey="revenue"
+                  name="Revenue"
+                  stroke={C.success}
                   strokeWidth={2}
-                  fill="url(#debitFill)"
-                  dot={{ r: 3, fill: C.accent, strokeWidth: 0 }}
+                  fill="url(#revenueFill)"
+                  dot={{ r: 3, fill: C.success, strokeWidth: 0 }}
                   activeDot={{ r: 5 }}
                 />
                 <Area
                   type="monotone"
-                  dataKey="credit"
-                  name="Credit"
-                  stroke={C.success}
+                  dataKey="expenses"
+                  name="Expenses"
+                  stroke={C.accent}
                   strokeWidth={2}
-                  fill="url(#creditFill)"
-                  dot={{ r: 3, fill: C.success, strokeWidth: 0 }}
+                  fill="url(#expensesFill)"
+                  dot={{ r: 3, fill: C.accent, strokeWidth: 0 }}
                   activeDot={{ r: 5 }}
                 />
               </AreaChart>
@@ -349,7 +350,7 @@ function Finance() {
         {/* By category */}
         <Card className="p-6">
           <h2 className="text-sm font-semibold text-gray-700 mb-3">
-            By category
+           Utilized Money By Category
           </h2>
           {loading ? (
             <Skeleton className="h-56 w-full" />
