@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { Plus, X } from "lucide-react";
 import { supabase } from "../api/supabase";
 
 const STATUS_FLOW = ["Pending", "In Progress", "Completed", "Cancelled"];
@@ -13,23 +14,55 @@ const STATUS_STYLES = {
 };
 
 const PLATFORM_STYLES = {
-  Shopee: "text-orange-700  rounded-none",
-  Lazada: "text-blue-700  rounded-none",
-  TikTok: "text-black-700 rounded-none",
-  All: "text-emerald-700 rounded-none",
+  Shopee: "bg-orange-100 text-orange-700 rounded-full",
+  Lazada: "bg-blue-100 text-blue-700 rounded-full",
+  TikTok: "bg-gray-800 text-white rounded-full",
+  All: "bg-emerald-100 text-emerald-700 rounded-full",
+  Multiple: "bg-purple-100 text-purple-700 rounded-full",
 };
+
+const PLATFORM_OPTIONS = ["Shopee", "Lazada", "TikTok"];
+
+let rowIdCounter = 0;
+const nextRowId = () => `row-${++rowIdCounter}`;
+
+function emptyRows() {
+  return [{ id: nextRowId(), platform: "Shopee", quantity: "" }];
+}
 
 function emptyForm() {
   return {
     wo_number: "",
     product_id: null,
     product_name: "",
-    quantity: "",
-    platform: "Shopee",
     assigned_to: "",
     due_date: "",
     notes: "",
   };
+}
+
+// Expand one form row into concrete {platform, quantity} entries.
+// "All" means the FULL quantity is produced for EACH platform, not split.
+function expandRow(row) {
+  const qty = Number(row.quantity) || 0;
+  if (!qty) return [];
+  if (row.platform === "All") {
+    return PLATFORM_OPTIONS.map((platform) => ({ platform, quantity: qty }));
+  }
+  return [{ platform: row.platform, quantity: qty }];
+}
+
+// Expand every row and merge duplicate platforms (e.g. two Shopee rows,
+// or an "All" row overlapping a dedicated Shopee row) into one breakdown.
+function buildBreakdown(rows) {
+  const totals = new Map();
+  rows.flatMap(expandRow).forEach(({ platform, quantity }) => {
+    totals.set(platform, (totals.get(platform) || 0) + quantity);
+  });
+  return PLATFORM_OPTIONS.filter((p) => totals.has(p)).map((platform) => ({
+    platform,
+    quantity: totals.get(platform),
+  }));
 }
 
 // ── Searchable product input ─────────────────────────────────────────────
@@ -118,6 +151,133 @@ function ProductSearchInput({ productId, productName, onSelect, products }) {
   );
 }
 
+// ── PlatformBreakdown badge (used in the table + view modal) ─────────────
+function PlatformBadges({ platform, breakdown }) {
+  if (Array.isArray(breakdown) && breakdown.length > 0) {
+    return (
+      <div className="flex flex-wrap gap-1">
+        {breakdown.map((b) => (
+          <span
+            key={b.platform}
+            className={`px-2 py-0.5 text-[11px] font-semibold ${
+              PLATFORM_STYLES[b.platform] || "bg-gray-100 text-gray-500 rounded-full"
+            }`}
+          >
+            {b.platform} · {b.quantity}
+          </span>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <span
+      className={`px-2 py-1 text-xs font-semibold ${
+        PLATFORM_STYLES[platform] || "bg-gray-100 text-gray-500 rounded-full"
+      }`}
+    >
+      {platform}
+    </span>
+  );
+}
+
+// ── Platform allocation table (the Qty | Platform rows from the sketch) ──
+function PlatformRowsTable({ rows, setRows }) {
+  const addRow = () =>
+    setRows((prev) => [...prev, { id: nextRowId(), platform: "Shopee", quantity: "" }]);
+
+  const removeRow = (id) =>
+    setRows((prev) => (prev.length > 1 ? prev.filter((r) => r.id !== id) : prev));
+
+  const updateRow = (id, field, value) =>
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
+
+  const breakdown = buildBreakdown(rows);
+  const total = breakdown.reduce((sum, b) => sum + b.quantity, 0);
+
+  return (
+    <div>
+      <label className="block text-xs font-semibold text-gray-500 mb-1">
+        Platform allocation
+      </label>
+      <div className="border border-gray-300 rounded overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50 text-gray-500 text-xs uppercase">
+              <th className="text-left px-3 py-1.5 w-24">Qty</th>
+              <th className="text-left px-3 py-1.5">Platform</th>
+              <th className="w-8" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.id} className="border-t border-gray-100">
+                <td className="px-3 py-1.5">
+                  <input
+                    type="number"
+                    min="1"
+                    value={row.quantity}
+                    onChange={(e) => updateRow(row.id, "quantity", e.target.value)}
+                    placeholder="0"
+                    className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-red-400"
+                  />
+                </td>
+                <td className="px-3 py-1.5">
+                  <select
+                    value={row.platform}
+                    onChange={(e) => updateRow(row.id, "platform", e.target.value)}
+                    className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-red-400 cursor-pointer"
+                  >
+                    <option value="Shopee">Shopee</option>
+                    <option value="Lazada">Lazada</option>
+                    <option value="TikTok">TikTok</option>
+                    <option value="All">All Platforms (full qty each)</option>
+                  </select>
+                </td>
+                <td className="px-1 py-1.5 text-center">
+                  {rows.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeRow(row.id)}
+                      className="text-gray-400 hover:text-red-500 cursor-pointer"
+                      title="Remove row"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <button
+        type="button"
+        onClick={addRow}
+        className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 cursor-pointer"
+      >
+        <Plus size={13} /> Add platform
+      </button>
+
+      <div className="mt-2 text-xs text-gray-500">
+        {breakdown.length === 0 ? (
+          <span className="text-gray-400">Enter a quantity to see the breakdown.</span>
+        ) : (
+          <>
+            Total <span className="font-semibold text-gray-700">{total}</span> ·{" "}
+            {breakdown.map((b, i) => (
+              <span key={b.platform}>
+                {i > 0 && ", "}
+                {b.platform} {b.quantity}
+              </span>
+            ))}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Production_wo() {
   const [workOrders, setWorkOrders] = useState([]);
   const [products, setProducts] = useState([]);
@@ -127,6 +287,7 @@ function Production_wo() {
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [formData, setFormData] = useState(emptyForm());
+  const [platformRows, setPlatformRows] = useState(emptyRows());
   const [saving, setSaving] = useState(false);
   const [loadingWoNumber, setLoadingWoNumber] = useState(false);
 
@@ -182,6 +343,7 @@ function Production_wo() {
   async function openCreateForm() {
     setLoadingWoNumber(true);
     setFormData({ ...emptyForm(), wo_number: "" });
+    setPlatformRows(emptyRows());
     setIsFormOpen(true);
     const wo_number = await generateWoNumber();
     setFormData((prev) => ({ ...prev, wo_number }));
@@ -191,6 +353,7 @@ function Production_wo() {
   function closeForm() {
     setIsFormOpen(false);
     setFormData(emptyForm());
+    setPlatformRows(emptyRows());
   }
 
   function handleFormChange(e) {
@@ -204,15 +367,26 @@ function Production_wo() {
 
   async function handleCreateWorkOrder(e) {
     e.preventDefault();
-    setSaving(true);
     setErrorMsg("");
+
+    const breakdown = buildBreakdown(platformRows);
+    if (breakdown.length === 0) {
+      setErrorMsg("Add at least one platform row with a quantity.");
+      return;
+    }
+
+    setSaving(true);
+
+    const total = breakdown.reduce((sum, b) => sum + b.quantity, 0);
+    const platform = breakdown.length === 1 ? breakdown[0].platform : "Multiple";
 
     const payload = {
       wo_number: formData.wo_number,
       product_id: formData.product_id || null,
       product_name: formData.product_name,
-      quantity: Number(formData.quantity) || 0,
-      platform: formData.platform,
+      quantity: total,
+      platform,
+      platform_breakdown: breakdown,
       assigned_to: formData.assigned_to || null,
       due_date: formData.due_date || null,
       notes: formData.notes || null,
@@ -345,14 +519,7 @@ function Production_wo() {
                     <td className="py-2 pr-4">{wo.product_name}</td>
                     <td className="py-2 pr-4">{wo.quantity}</td>
                     <td className="py-2 pr-4">
-                      <span
-                        className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                          PLATFORM_STYLES[wo.platform] ||
-                          "bg-gray-100 text-gray-500"
-                        }`}
-                      >
-                        {wo.platform}
-                      </span>
+                      <PlatformBadges platform={wo.platform} breakdown={wo.platform_breakdown} />
                     </td>
                     <td className="py-2 pr-4">{wo.assigned_to || "—"}</td>
                     <td className="py-2 pr-4">
@@ -405,7 +572,7 @@ function Production_wo() {
       {/* Create Work Order Modal */}
       {isFormOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
             <h2 className="text-lg font-bold text-gray-800 mb-4">
               New Work Order
             </h2>
@@ -438,38 +605,7 @@ function Production_wo() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 mb-1">
-                    Quantity
-                  </label>
-                  <input
-                    type="number"
-                    name="quantity"
-                    min="1"
-                    value={formData.quantity}
-                    onChange={handleFormChange}
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-red-400"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 mb-1">
-                    Platform
-                  </label>
-                  <select
-                    name="platform"
-                    value={formData.platform}
-                    onChange={handleFormChange}
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-red-400 cursor-pointer"
-                  >
-                    <option value="Shopee">Shopee</option>
-                    <option value="Lazada">Lazada</option>
-                    <option value="TikTok">TikTok</option>
-                    <option value="All">All Platforms</option>
-                  </select>
-                </div>
-              </div>
+              <PlatformRowsTable rows={platformRows} setRows={setPlatformRows} />
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -558,17 +694,13 @@ function Production_wo() {
                 <dt className="font-semibold text-gray-500">Quantity</dt>
                 <dd>{viewOrder.quantity}</dd>
               </div>
-              <div className="flex justify-between">
+              <div className="flex justify-between items-start">
                 <dt className="font-semibold text-gray-500">Platform</dt>
                 <dd>
-                  <span
-                    className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                      PLATFORM_STYLES[viewOrder.platform] ||
-                      "bg-gray-100 text-gray-500"
-                    }`}
-                  >
-                    {viewOrder.platform}
-                  </span>
+                  <PlatformBadges
+                    platform={viewOrder.platform}
+                    breakdown={viewOrder.platform_breakdown}
+                  />
                 </dd>
               </div>
               <div className="flex justify-between">

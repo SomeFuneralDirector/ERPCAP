@@ -9,13 +9,38 @@ const PLATFORM_STYLES = {
   All: "bg-emerald-100 text-emerald-700 border border-emerald-300",
 };
 
+const ACTION_COLOR = "text-indigo-600 hover:text-indigo-700";
+
+
+const linesFor = (wo) => {
+  if (Array.isArray(wo.platform_breakdown) && wo.platform_breakdown.length > 0) {
+    return wo.platform_breakdown.map((b, i) => ({
+      key: `${wo.id}::${i}`,
+      wo,
+      platform: b.platform,
+      quantity: b.quantity,
+      concrete: true, 
+    }));
+  }
+  return [
+    {
+      key: `${wo.id}::0`,
+      wo,
+      platform: wo.platform,
+      quantity: wo.quantity,
+      concrete: !!wo.platform && wo.platform !== "All",
+    },
+  ];
+};
+
 function Production_fg() {
   const [workOrders, setWorkOrders] = useState([]);
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("ready");
-  const [requestingId, setRequestingId] = useState(null);
+  const [requestingKey, setRequestingKey] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
+  const [platformOverride, setPlatformOverride] = useState({});
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -46,50 +71,87 @@ function Production_fg() {
     fetchAll();
   }, [fetchAll]);
 
-  // For each completed work order, find its most recent allocation request (if any)
-  const latestRequestFor = (woId) => {
-    const forWo = requests.filter((r) => r.work_order_id === woId);
-    if (forWo.length === 0) return null;
-    return forWo.reduce((a, b) =>
-      new Date(a.requested_at) > new Date(b.requested_at) ? a : b
-    );
-  };
+  // Keep Finished Goods live in sync with whatever Inventory approves/rejects,
+  // instead of only refreshing after this tab's own actions.
+  useEffect(() => {
+    const channel = supabase
+      .channel("production_fg_allocation_requests")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "allocation_requests" },
+        () => fetchAll()
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchAll]);
 
-  const rows = workOrders.map((wo) => ({
-    wo,
-    request: latestRequestFor(wo.id),
-  }));
+  // Flatten every completed work order into its platform lines, and match
+  // each line to its own most recent allocation request.
+  const lineRows = workOrders.flatMap(linesFor).map((line) => {
+    const forLine = requests.filter((r) => {
+      if (r.work_order_id !== line.wo.id) return false;
+      // A concrete (breakdown-derived) line only matches requests filed for
+      // that exact platform, so sibling lines on the same WO stay independent.
+      // A legacy single-implicit-line WO has just one line, so any request
+      // tied to that WO belongs to it regardless of resolved platform.
+      return line.concrete ? r.platform === line.platform : true;
+    });
+    const request =
+      forLine.length === 0
+        ? null
+        : forLine.reduce((a, b) => (new Date(a.requested_at) > new Date(b.requested_at) ? a : b));
+    return { ...line, request };
+  });
 
-  const ready = rows.filter((r) => !r.request || r.request.status === "rejected");
-  const pending = rows.filter((r) => r.request?.status === "pending");
-  const allocated = rows.filter((r) => r.request?.status === "approved");
+  const ready = lineRows.filter((l) => !l.request || l.request.status === "rejected");
+  const pending = lineRows.filter((l) => l.request?.status === "pending");
+  const allocated = lineRows.filter((l) => l.request?.status === "approved");
 
   const displayed =
     activeTab === "ready" ? ready : activeTab === "pending" ? pending : allocated;
 
-  const handleRequestAllocation = async (wo) => {
-    setRequestingId(wo.id);
+  // The platform that will actually be sent on the request: resolved
+  // already for breakdown lines, otherwise whatever Production picked in
+  // the inline selector for a legacy ambiguous line.
+  const resolvedPlatformFor = (line) =>
+    line.concrete ? line.platform : platformOverride[line.key] || "";
+
+  const handleRequestAllocation = async (line) => {
+    const platform = resolvedPlatformFor(line);
+    if (!platform) {
+      setErrorMsg(`Choose a platform for ${line.wo.wo_number} before requesting allocation.`);
+      return;
+    }
+
+    setRequestingKey(line.key);
     setErrorMsg("");
 
     const { error } = await supabase.from("allocation_requests").insert([
       {
-        work_order_id: wo.id,
-        wo_number: wo.wo_number,
-        product_id: wo.product_id || null,
-        product_name: wo.product_name,
-        quantity: wo.quantity,
-        platform: wo.platform,
+        work_order_id: line.wo.id,
+        wo_number: line.wo.wo_number,
+        product_id: line.wo.product_id || null,
+        product_name: line.wo.product_name,
+        quantity: line.quantity,
+        platform,
         status: "pending",
       },
     ]);
 
-    setRequestingId(null);
+    setRequestingKey(null);
 
     if (error) {
       setErrorMsg(error.message);
       return;
     }
 
+    setPlatformOverride((p) => {
+      const next = { ...p };
+      delete next[line.key];
+      return next;
+    });
     fetchAll();
   };
 
@@ -98,8 +160,9 @@ function Production_fg() {
       <div className="bg-white rounded-lg shadow p-6">
         <h1 className="text-2xl font-bold text-gray-800">Production - Finished Goods</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Completed work orders, ready to request allocation into sellable stock. Inventory
-          reviews and approves each request before stock is updated.
+          Completed work orders, ready to request allocation into sellable stock. A work order
+          split across platforms is requested one platform at a time. Inventory reviews and
+          approves each request before stock is updated.
         </p>
       </div>
 
@@ -186,63 +249,88 @@ function Production_fg() {
                 </tr>
               </thead>
               <tbody>
-                {displayed.map(({ wo, request }) => (
-                  <tr key={wo.id} className="border-b border-gray-100 hover:bg-red-50/40">
-                    <td className="py-2 pr-4 font-medium text-gray-700">{wo.wo_number}</td>
-                    <td className="py-2 pr-4">{wo.product_name}</td>
-                    <td className="py-2 pr-4">{wo.quantity}</td>
-                    <td className="py-2 pr-4">
-                      <span
-                        className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                          PLATFORM_STYLES[
-                            request?.status === "approved"
-                              ? request.resolved_platform || request.platform
-                              : wo.platform
-                          ] || "bg-gray-100 text-gray-500"
-                        }`}
-                      >
-                        {request?.status === "approved"
-                          ? request.resolved_platform || request.platform
-                          : wo.platform}
-                      </span>
-                    </td>
-                    <td className="py-2 pr-4 text-gray-500">
-                      {wo.completed_at ? new Date(wo.completed_at).toLocaleDateString() : "—"}
-                    </td>
-                    <td className="py-2 pr-4 text-right">
-                      {activeTab === "ready" && (
-                        <div className="flex items-center justify-end gap-2">
-                          {request?.status === "rejected" && (
-                            <span className="inline-flex items-center gap-1 text-red-500 text-xs font-semibold">
-                              <XCircle size={13} /> Rejected — re-request?
-                            </span>
-                          )}
-                          <button
-                            onClick={() => handleRequestAllocation(wo)}
-                            disabled={requestingId === wo.id}
-                            className="inline-flex items-center gap-1 text-red-600 hover:underline text-xs font-semibold cursor-pointer disabled:opacity-50"
+                {displayed.map((line) => {
+                  const { wo, request } = line;
+                  const ambiguous = activeTab === "ready" && !line.concrete;
+                  const chosen = resolvedPlatformFor(line);
+
+                  return (
+                    <tr key={line.key} className="border-b border-gray-100 hover:bg-red-50/40">
+                      <td className="py-2 pr-4 font-medium text-gray-700">{wo.wo_number}</td>
+                      <td className="py-2 pr-4">{wo.product_name}</td>
+                      <td className="py-2 pr-4">{line.quantity}</td>
+                      <td className="py-2 pr-4">
+                        {ambiguous ? (
+                          <select
+                            value={platformOverride[line.key] || ""}
+                            onChange={(e) =>
+                              setPlatformOverride((p) => ({ ...p, [line.key]: e.target.value }))
+                            }
+                            className="text-xs border rounded-md px-2 py-1 text-gray-700 focus:outline-none focus:ring-2 cursor-pointer"
+                            style={{
+                              borderColor: platformOverride[line.key] ? "#D4D4D8" : "#F3C9C7",
+                            }}
                           >
-                            {requestingId === wo.id ? "Requesting…" : "Request Allocation"}
-                            <ArrowRightCircle size={14} />
-                          </button>
-                        </div>
-                      )}
-                      {activeTab === "pending" && (
-                        <span className="inline-flex items-center gap-1 text-amber-600 text-xs font-semibold">
-                          <Clock3 size={14} /> Awaiting Inventory
-                        </span>
-                      )}
-                      {activeTab === "allocated" && (
-                        <span className="inline-flex items-center gap-1 text-emerald-600 text-xs font-semibold">
-                          <CheckCircle2 size={14} />
-                          Approved{" "}
-                          {request?.resolved_at &&
-                            `· ${new Date(request.resolved_at).toLocaleDateString()}`}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                            <option value="">Choose platform…</option>
+                            <option value="Shopee">Shopee</option>
+                            <option value="Lazada">Lazada</option>
+                            <option value="TikTok">TikTok</option>
+                          </select>
+                        ) : (
+                          <span
+                            className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                              PLATFORM_STYLES[
+                                request?.status === "approved"
+                                  ? request.resolved_platform || request.platform
+                                  : line.platform
+                              ] || "bg-gray-100 text-gray-500"
+                            }`}
+                          >
+                            {request?.status === "approved"
+                              ? request.resolved_platform || request.platform
+                              : line.platform}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2 pr-4 text-gray-500">
+                        {wo.completed_at ? new Date(wo.completed_at).toLocaleDateString() : "—"}
+                      </td>
+                      <td className="py-2 pr-4 text-right">
+                        {activeTab === "ready" && (
+                          <div className="flex items-center justify-end gap-2">
+                            {request?.status === "rejected" && (
+                              <span className="inline-flex items-center gap-1 text-red-500 text-xs font-semibold">
+                                <XCircle size={13} /> Rejected — re-request?
+                              </span>
+                            )}
+                            <button
+                              onClick={() => handleRequestAllocation(line)}
+                              disabled={requestingKey === line.key || (ambiguous && !chosen)}
+                              title={ambiguous && !chosen ? "Choose a platform first" : undefined}
+                              className={`inline-flex items-center gap-1 ${ACTION_COLOR} hover:underline text-xs font-semibold cursor-pointer disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed`}
+                            >
+                              {requestingKey === line.key ? "Requesting…" : "Request Allocation"}
+                              <ArrowRightCircle size={14} />
+                            </button>
+                          </div>
+                        )}
+                        {activeTab === "pending" && (
+                          <span className="inline-flex items-center gap-1 text-amber-600 text-xs font-semibold">
+                            <Clock3 size={14} /> Awaiting Inventory
+                          </span>
+                        )}
+                        {activeTab === "allocated" && (
+                          <span className="inline-flex items-center gap-1 text-emerald-600 text-xs font-semibold">
+                            <CheckCircle2 size={14} />
+                            Approved{" "}
+                            {request?.resolved_at &&
+                              `· ${new Date(request.resolved_at).toLocaleDateString()}`}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

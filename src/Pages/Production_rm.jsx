@@ -37,7 +37,7 @@ const EMPTY_FORM = {
   category: "",
   unit: "pcs",
   current_stock: "",
-  supplier: "",
+  supplier_id: "",
   unit_cost: "",
   notes: "",
 };
@@ -108,9 +108,26 @@ function SummaryStat({ label, value, color }) {
   );
 }
 
+/* Filter chip used for both category and supplier rows */
+function FilterChip({ active, onClick, children }) {
+  return (
+    <button
+      onClick={onClick}
+      className="px-4 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer border"
+      style={
+        active
+          ? { backgroundColor: C.accent, borderColor: C.accent, color: "#fff" }
+          : { backgroundColor: "#fff", borderColor: "#D1D5DB", color: "#142947" }
+      }
+    >
+      {children}
+    </button>
+  );
+}
+
 /* ── AddMaterialModal ──────────────────────────────────────────────────── */
 
-function AddMaterialModal({ onClose, onSaved, editItem = null }) {
+function AddMaterialModal({ onClose, onSaved, suppliers, editItem = null }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -123,7 +140,7 @@ function AddMaterialModal({ onClose, onSaved, editItem = null }) {
         category: editItem.category || "",
         unit: editItem.unit || "pcs",
         current_stock: editItem.current_stock?.toString() || "",
-        supplier: editItem.supplier || "",
+        supplier_id: editItem.supplier_id || "",
         unit_cost: editItem.unit_cost?.toString() || "",
         notes: editItem.notes || "",
       });
@@ -132,9 +149,15 @@ function AddMaterialModal({ onClose, onSaved, editItem = null }) {
 
   const set = (key, val) => setForm((p) => ({ ...p, [key]: val }));
 
+  const selectedSupplier = suppliers.find((s) => s.id === form.supplier_id);
+
   const handleSubmit = async () => {
     if (!form.material_name.trim()) {
       setError("Material name is required.");
+      return;
+    }
+    if (!form.supplier_id) {
+      setError("Please select a supplier.");
       return;
     }
     setSaving(true);
@@ -145,7 +168,7 @@ function AddMaterialModal({ onClose, onSaved, editItem = null }) {
       category: form.category.trim() || null,
       unit: form.unit,
       current_stock: Number(form.current_stock) || 0,
-      supplier: form.supplier.trim() || null,
+      supplier_id: form.supplier_id,
       unit_cost: form.unit_cost ? Number(form.unit_cost) : null,
       notes: form.notes.trim() || null,
     };
@@ -227,12 +250,19 @@ function AddMaterialModal({ onClose, onSaved, editItem = null }) {
           </Field>
 
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Supplier">
-              <TextInput
-                type="text"
-                value={form.supplier}
-                onChange={(e) => set("supplier", e.target.value)}
-              />
+            <Field label="Supplier" required hint={selectedSupplier?.notes || undefined}>
+              <select
+                value={form.supplier_id}
+                onChange={(e) => set("supplier_id", e.target.value)}
+                className={`${inputBase} border-gray-300 cursor-pointer`}
+              >
+                <option value="">Select supplier…</option>
+                {suppliers.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
             </Field>
             <Field label="Unit cost (₱)">
               <TextInput
@@ -327,7 +357,8 @@ function ViewMaterialModal({ item, onClose }) {
 
           <div>
             <p className="text-xs text-gray-500">Supplier</p>
-            <p className="text-sm text-gray-800 mt-0.5">{item.supplier || "—"}</p>
+            <p className="text-sm text-gray-800 mt-0.5">{item.suppliers?.name || "—"}</p>
+            {item.suppliers?.notes && <p className="text-xs text-gray-400 mt-0.5">{item.suppliers.notes}</p>}
           </div>
 
           {item.notes && (
@@ -356,9 +387,11 @@ function ViewMaterialModal({ item, onClose }) {
 
 function Production_rm() {
   const [materials, setMaterials] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState("All");
+  const [filterSupplier, setFilterSupplier] = useState("All");
   const [editingStock, setEditingStock] = useState(null);
   const [saving, setSaving] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -368,21 +401,29 @@ function Production_rm() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [itemToDelete, setItemToDelete] = useState(null);
 
+  const fetchSuppliers = useCallback(async () => {
+    const { data, error } = await supabase.from("suppliers").select("*").order("name", { ascending: true });
+    if (!error && data) setSuppliers(data);
+    else if (error) console.error("suppliers fetch error:", error);
+  }, []);
+
   const fetchMaterials = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from("raw_materials")
-      .select("*")
+      .select("*, suppliers(id, name, notes)")
       .order("category", { ascending: true })
       .order("material_name", { ascending: true });
 
     if (!error && data) setMaterials(data);
+    else if (error) console.error("raw_materials fetch error:", error);
     setLoading(false);
   }, []);
 
   useEffect(() => {
+    fetchSuppliers();
     fetchMaterials();
-  }, [fetchMaterials]);
+  }, [fetchSuppliers, fetchMaterials]);
 
   const handleView = (item) => {
     setSelectedItem(item);
@@ -412,17 +453,29 @@ function Production_rm() {
   const categories = Array.from(new Set(materials.map((m) => m.category).filter(Boolean))).sort();
 
   const filtered = materials.filter((item) => {
+    const supplierName = item.suppliers?.name || "";
     const matchCat = filterCategory === "All" || item.category === filterCategory;
+    const matchSupplier = filterSupplier === "All" || item.supplier_id === filterSupplier;
+    const q = search.toLowerCase();
     const matchSearch =
       !search ||
-      item.material_name.toLowerCase().includes(search.toLowerCase()) ||
-      (item.supplier || "").toLowerCase().includes(search.toLowerCase());
-    return matchCat && matchSearch;
+      item.material_name.toLowerCase().includes(q) ||
+      supplierName.toLowerCase().includes(q);
+    return matchCat && matchSupplier && matchSearch;
   });
 
   const inStockCount = filtered.filter((m) => (m.status || "In Stock") === "In Stock").length;
   const lowStockCount = filtered.filter((m) => m.status === "Low Stock").length;
   const outStockCount = filtered.filter((m) => m.status === "Out of Stock").length;
+
+  /* Per-supplier count of items needing reorder (Low + Out), shown on chips
+     so you can see at a glance who to call. Ignores the supplier filter itself. */
+  const needsReorderBySupplier = materials.reduce((acc, m) => {
+    if (m.status === "Low Stock" || m.status === "Out of Stock") {
+      acc[m.supplier_id] = (acc[m.supplier_id] || 0) + 1;
+    }
+    return acc;
+  }, {});
 
   const saveField = async (id, field, value) => {
     const newValue = field === "current_stock" ? parseFloat(value) : value;
@@ -477,7 +530,13 @@ function Production_rm() {
               <Plus size={15} />
               Add material
             </PrimaryButton>
-            <SecondaryButton onClick={fetchMaterials} disabled={loading}>
+            <SecondaryButton
+              onClick={() => {
+                fetchSuppliers();
+                fetchMaterials();
+              }}
+              disabled={loading}
+            >
               {loading ? "Loading…" : "Refresh"}
             </SecondaryButton>
           </div>
@@ -492,8 +551,8 @@ function Production_rm() {
         </div>
 
         {/* Filters */}
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm px-4 py-3 flex flex-col md:flex-row gap-3 items-center">
-          <div className="relative flex-1 w-full">
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm px-4 py-3 space-y-3">
+          <div className="relative w-full">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
               <Search size={16} />
             </span>
@@ -515,24 +574,44 @@ function Production_rm() {
               </button>
             )}
           </div>
-          <div className="flex gap-2 flex-wrap">
-            {["All", ...categories].map((cat) => {
-              const active = filterCategory === cat;
+
+          {/* Supplier row */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-medium text-gray-500 w-16 shrink-0">Supplier</span>
+            <FilterChip active={filterSupplier === "All"} onClick={() => setFilterSupplier("All")}>
+              All
+            </FilterChip>
+            {suppliers.map((s) => {
+              const count = needsReorderBySupplier[s.id] || 0;
               return (
-                <button
-                  key={cat}
-                  onClick={() => setFilterCategory(cat)}
-                  className="px-4 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer border"
-                  style={
-                    active
-                      ? { backgroundColor: C.accent, borderColor: C.accent, color: "#fff" }
-                      : { backgroundColor: "#fff", borderColor: "#D1D5DB", color: "#142947" }
-                  }
-                >
-                  {cat}
-                </button>
+                <FilterChip key={s.id} active={filterSupplier === s.id} onClick={() => setFilterSupplier(s.id)}>
+                  {s.name}
+                  {count > 0 && (
+                    <span
+                      className="ml-2 px-1.5 py-0.5 rounded-full text-[11px] font-semibold"
+                      style={
+                        filterSupplier === s.id
+                          ? { backgroundColor: "#fff", color: C.accent }
+                          : { backgroundColor: C.accentSoft, color: C.accent }
+                      }
+                      title={`${count} need reorder`}
+                    >
+                      {count}
+                    </span>
+                  )}
+                </FilterChip>
               );
             })}
+          </div>
+
+          {/* Category row */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-medium text-gray-500 w-16 shrink-0">Category</span>
+            {["All", ...categories].map((cat) => (
+              <FilterChip key={cat} active={filterCategory === cat} onClick={() => setFilterCategory(cat)}>
+                {cat}
+              </FilterChip>
+            ))}
           </div>
         </div>
 
@@ -567,7 +646,7 @@ function Production_rm() {
                   <tr>
                     <td colSpan={TOTAL_COLS} className="px-4 py-14 text-center text-gray-400">
                       <p className="text-sm font-medium text-gray-500">No raw materials found</p>
-                      <p className="text-xs text-gray-400 mt-1">Try a different search term or category.</p>
+                      <p className="text-xs text-gray-400 mt-1">Try a different search term, supplier, or category.</p>
                     </td>
                   </tr>
                 ) : (
@@ -602,7 +681,9 @@ function Production_rm() {
                             </div>
                           </td>
 
-                          <td className="px-3 py-2 text-xs text-gray-500">{item.supplier || "—"}</td>
+                          <td className="px-3 py-2 text-xs text-gray-500">
+                            {item.suppliers?.name || <span className="text-gray-300">—</span>}
+                          </td>
 
                           <td className="px-3 py-2 text-center">
                             {editingStock?.id === item.id ? (
@@ -719,6 +800,12 @@ function Production_rm() {
             <span className="w-3 h-3 rounded-sm inline-block border" style={{ backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder }} />
             Out of stock
           </span>
+          <span className="flex items-center gap-1.5">
+            <span className="px-1.5 rounded-full text-[11px] font-semibold" style={{ backgroundColor: C.accentSoft, color: C.accent }}>
+              n
+            </span>
+            Items needing reorder from that supplier
+          </span>
         </div>
 
         {/* Modals */}
@@ -729,6 +816,7 @@ function Production_rm() {
               setEditItem(null);
             }}
             onSaved={fetchMaterials}
+            suppliers={suppliers}
             editItem={editItem}
           />
         )}

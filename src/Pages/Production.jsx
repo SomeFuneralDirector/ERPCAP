@@ -1,6 +1,6 @@
 //PRODUCTION DASHBOARD!!!!
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { PackageMinus } from "lucide-react";
+import { PackageMinus, TimerReset } from "lucide-react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -9,10 +9,12 @@ import {
   Line,
   AreaChart,
   Area,
+  ComposedChart,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
+  Legend,
   PieChart,
   Pie,
   Cell,
@@ -35,10 +37,14 @@ const PLATFORM_BADGE = {
   tiktok: "bg-gray-100 text-gray-800",
 };
 
+// NOTE: keys must match the lowercase `platform` values coming from
+// production_orders (shopee / lazada / tiktok). A prior "tikTok" typo
+// here silently dropped the TikTok slice's color in every chart that
+// keyed off this map — fixed so all three platforms render consistently.
 const PLATFORM_HEX = {
   shopee: "#EE4D2D",
   lazada: "#0F146D",
-  tikTok: "#101113",
+  tiktok: "#101113",
 };
 
 const WO_STATUS_HEX = {
@@ -279,14 +285,25 @@ function Production() {
 
   const filteredReadyValue = filteredReadyToShip.reduce((sum, o) => sum + (o.total_amount || 0), 0) / 100;
 
+  // Per-platform breakdown now carries both order count AND peso value —
+  // count alone hides the fact that a platform with fewer orders can be
+  // worth more, which matters more to the business than a raw tally.
   const readyPlatformChartData = useMemo(() => {
-    const map = { shopee: 0, lazada: 0, tiktok: 0 };
+    const map = { shopee: { count: 0, value: 0 }, lazada: { count: 0, value: 0 }, tiktok: { count: 0, value: 0 } };
     filteredReadyToShip.forEach((o) => {
-      if (map[o.platform] !== undefined) map[o.platform] += 1;
+      if (map[o.platform]) {
+        map[o.platform].count += 1;
+        map[o.platform].value += (o.total_amount || 0) / 100;
+      }
     });
     return Object.entries(map)
-      .filter(([, count]) => count > 0)
-      .map(([platform, count]) => ({ name: platform, value: count, color: PLATFORM_HEX[platform] }));
+      .filter(([, v]) => v.count > 0)
+      .map(([platform, v]) => ({
+        name: platform,
+        value: v.count,
+        pesoValue: Math.round(v.value),
+        color: PLATFORM_HEX[platform],
+      }));
   }, [filteredReadyToShip]);
 
   const woStatusChartData = useMemo(() => {
@@ -298,6 +315,41 @@ function Production() {
       .filter(([, count]) => count > 0)
       .map(([status, count]) => ({ name: status, value: count, color: WO_STATUS_HEX[status] }));
   }, [workOrders]);
+
+  // Work order timeliness: for Completed orders, compare completed_at
+  // against due_date; for still-open orders, flag anything already past
+  // its due date as overdue. This is the metric that actually tells
+  // Production whether the queue is under control, not just how big it is.
+  const woTimeliness = useMemo(() => {
+    const now = new Date();
+    let onTime = 0;
+    let late = 0;
+    let overdue = 0;
+    workOrders.forEach((w) => {
+      if (w.status === "Completed") {
+        if (!w.due_date || !w.completed_at) return;
+        const due = new Date(w.due_date);
+        const done = new Date(w.completed_at);
+        if (done <= due) onTime++;
+        else late++;
+      } else if (["Pending", "In Progress"].includes(w.status)) {
+        if (w.due_date && new Date(w.due_date) < now) overdue++;
+      }
+    });
+    const completedWithDueDate = onTime + late;
+    const onTimeRate = completedWithDueDate > 0 ? Math.round((onTime / completedWithDueDate) * 100) : null;
+    return { onTime, late, overdue, onTimeRate };
+  }, [workOrders]);
+
+  const woTimelinessChartData = useMemo(
+    () =>
+      [
+        { name: "Completed on time", value: woTimeliness.onTime, color: "#059669" },
+        { name: "Completed late", value: woTimeliness.late, color: "#B42318" },
+        { name: "Still open, overdue", value: woTimeliness.overdue, color: "#D97706" },
+      ].filter((d) => d.value > 0),
+    [woTimeliness]
+  );
 
   // Output trend, last 30 days (local date keys, not UTC). Replaces the
   // old 7-day bar chart with a line/area trend, mirroring the Sales
@@ -331,6 +383,32 @@ function Production() {
     }
     return days;
   }, [usage]);
+
+  // Production efficiency, last 14 days: units produced vs. raw material
+  // consumed on the same day, on one timeline. Output and usage were
+  // previously shown in two separate charts on different date ranges
+  // (30 days vs 7 days) with no shared axis, so there was no way to see
+  // whether more material in is actually turning into more output.
+  const efficiencyTrendData = useMemo(() => {
+    const days = [];
+    const today = new Date();
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
+      const key = localDateKey(d);
+      const produced = output
+        .filter((o) => o.production_date === key)
+        .reduce((sum, o) => sum + Number(o.quantity), 0);
+      const used = usage
+        .filter((u) => u.usage_date === key)
+        .reduce((sum, u) => sum + Number(u.quantity_used), 0);
+      days.push({
+        label: d.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+        produced,
+        used,
+      });
+    }
+    return days;
+  }, [output, usage]);
 
   // Top produced products, last 30 days
   const topProductsChartData = useMemo(() => {
@@ -462,10 +540,16 @@ function Production() {
           loading={loading}
         />
         <StatCard
-          label="Materials needing attention"
-          value={lowMaterials.length}
-          sub="low / out of stock"
-          color="text-red-700"
+          label="On-time completion"
+          value={woTimeliness.onTimeRate !== null ? `${woTimeliness.onTimeRate}%` : "—"}
+          sub={
+            woTimeliness.overdue > 0
+              ? `${woTimeliness.overdue} open order(s) overdue`
+              : "no overdue open orders"
+          }
+          color={
+            woTimeliness.onTimeRate !== null && woTimeliness.onTimeRate < 80 ? "text-red-700" : "text-emerald-700"
+          }
           loading={loading}
         />
         <StatCard
@@ -528,7 +612,21 @@ function Production() {
                       <Cell key={p.name} fill={p.color} />
                     ))}
                   </Pie>
-                  <Tooltip content={<ChartTooltip />} />
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null;
+                      const d = payload[0].payload;
+                      return (
+                        <div className="bg-white border border-gray-200 rounded-md shadow-md px-3 py-2 text-xs">
+                          <p className="font-semibold text-gray-700 capitalize">{d.name}</p>
+                          <p className="text-gray-600">{d.value} order(s)</p>
+                          <p className="text-gray-600">
+                            PHP {d.pesoValue.toLocaleString("en-PH")}
+                          </p>
+                        </div>
+                      );
+                    }}
+                  />
                 </PieChart>
               </ResponsiveContainer>
               <div className="space-y-3">
@@ -539,7 +637,12 @@ function Production() {
                     >
                       {p.name}
                     </span>
-                    <span className="text-sm font-semibold text-gray-700">{p.value} orders</span>
+                    <span className="text-right">
+                      <span className="block text-sm font-semibold text-gray-700">{p.value} orders</span>
+                      <span className="block text-xs text-gray-400">
+                        PHP {p.pesoValue.toLocaleString("en-PH")}
+                      </span>
+                    </span>
                   </div>
                 ))}
                 <div className="pt-3 border-t border-gray-100 flex items-center justify-between">
@@ -594,6 +697,116 @@ function Production() {
                 ))}
               </ul>
             </>
+          )}
+        </div>
+      </div>
+
+      {/* Work order timeliness + Production efficiency (output vs material used) */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className={`lg:col-span-1 ${CARD} p-5`}>
+          <div className="flex items-center gap-2 mb-1">
+            <TimerReset size={16} className="text-gray-500" />
+            <h2 className="text-sm font-semibold text-gray-800">Work order timeliness</h2>
+          </div>
+          <p className="text-xs text-gray-400 mb-3">Completed vs. due date, plus open orders already overdue</p>
+          {loading ? (
+            <Skeleton className="h-40 w-full" />
+          ) : woTimelinessChartData.length === 0 ? (
+            <p className="text-xs text-gray-400">Not enough due-date data yet.</p>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={150}>
+                <PieChart>
+                  <Pie
+                    data={woTimelinessChartData}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={38}
+                    outerRadius={58}
+                    paddingAngle={3}
+                  >
+                    {woTimelinessChartData.map((s) => (
+                      <Cell key={s.name} fill={s.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip content={<ChartTooltip />} />
+                </PieChart>
+              </ResponsiveContainer>
+              <ul className="space-y-1.5 mt-2">
+                {woTimelinessChartData.map((s) => (
+                  <li key={s.name} className="flex items-center justify-between text-xs">
+                    <span className="flex items-center gap-1.5 text-gray-600">
+                      <span className="w-2 h-2 rounded-full inline-block" style={{ background: s.color }} />
+                      {s.name}
+                    </span>
+                    <span className="font-semibold text-gray-700">{s.value}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+
+        <div className={`lg:col-span-2 ${CARD} p-5`}>
+          <h2 className="text-sm font-semibold text-gray-800 mb-1">Production efficiency, last 14 days</h2>
+          <p className="text-xs text-gray-400 mb-3">Units produced against raw material consumed, same day</p>
+          {loading ? (
+            <Skeleton className="h-56 w-full" />
+          ) : (
+            <ResponsiveContainer width="100%" height={230}>
+              <ComposedChart data={efficiencyTrendData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f1" vertical={false} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 10, fill: "#6b7280" }}
+                  axisLine={false}
+                  tickLine={false}
+                  interval={1}
+                />
+                <YAxis
+                  yAxisId="left"
+                  tick={{ fontSize: 11, fill: "#6b7280" }}
+                  axisLine={false}
+                  tickLine={false}
+                  allowDecimals={false}
+                />
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  tick={{ fontSize: 11, fill: "#6b7280" }}
+                  axisLine={false}
+                  tickLine={false}
+                  allowDecimals={false}
+                />
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    return (
+                      <div className="bg-white border border-gray-200 rounded-md shadow-md px-3 py-2 text-xs space-y-0.5">
+                        <p className="font-semibold text-gray-700">{label}</p>
+                        <p style={{ color: ACCENT }}>{payload.find((p) => p.dataKey === "produced")?.value ?? 0} units produced</p>
+                        <p className="text-amber-600">{payload.find((p) => p.dataKey === "used")?.value ?? 0} material units used</p>
+                      </div>
+                    );
+                  }}
+                />
+                <Legend
+                  wrapperStyle={{ fontSize: 11 }}
+                  formatter={(value) => (value === "produced" ? "Units produced" : "Material used")}
+                />
+                <Bar yAxisId="left" dataKey="produced" name="produced" fill={ACCENT} radius={[3, 3, 0, 0]} barSize={14} />
+                <Line
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="used"
+                  name="used"
+                  stroke="#D97706"
+                  strokeWidth={2}
+                  dot={{ r: 3, fill: "#D97706" }}
+                  activeDot={{ r: 5 }}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
           )}
         </div>
       </div>

@@ -17,7 +17,10 @@ import { supabase } from "../api/supabase";
 /* ── Design tokens ──────────────────────────────────────────────────────────
    Single palette used across the module. Platform/category colors are kept
    as small swatches or text accents (identity cues), never as full-bleed
-   fills, so the page reads as one product rather than three tinted zones. */
+   fills, so the page reads as one product rather than three tinted zones.
+
+   Status colors are semantic and shared with Production > Finished Goods:
+   amber = pending, emerald/green = approved, red = rejected / low stock. */
 const C = {
   accent: "#B3211B",
   accentHover: "#8E1A15",
@@ -38,6 +41,12 @@ const C = {
   tiktok: "#101113",
   men: "#1D4E89",
   women: "#8b2976",
+};
+
+const PLATFORM_FIELD = {
+  Shopee: "shopee_stock",
+  Lazada: "lazada_stock",
+  TikTok: "tiktok_stock",
 };
 
 const isLowStock = (item) => {
@@ -368,28 +377,40 @@ function ViewProductModal({ item, onClose }) {
 /* ── AllocationRequestsPanel ─────────────────────────────────────────────
    Notification: Production requests allocation, Inventory approves/rejects
    here. This is the only place that writes stock changes caused by
-   production output, keeping Inventory as the source of truth. */
+   production output, keeping Inventory as the source of truth.
+
+   Inventory NEVER chooses which platform to allocate into — that decision
+   belongs to Production, and is already baked into req.platform when the
+   request was filed. Inventory's only actions are Approve / Reject.
+   If a request somehow arrives without a concrete platform ("All" or
+   empty), it cannot be approved — Inventory can only reject it and ask
+   Production to resubmit with a specific platform. */
 function AllocationRequestsPanel({ requests, inventory, onResolved }) {
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState("");
 
+  // The platform is whatever Production set on the request. "All" or empty
+  // means the request isn't tied to a single sellable platform yet, so it
+  // can't be resolved here — that's on Production, not Inventory.
+  const platformFor = (req) => (req.platform && req.platform !== "All" ? req.platform : null);
+
   const handleApprove = async (req) => {
     setError("");
     const productId = req.product_id;
-    const platform = req.platform;
+    const platform = platformFor(req);
 
     if (!productId) {
-      setError(`"${req.product_name}" isn't linked to an inventory product. Ask Production to resubmit with the correct product.`);
+      setError(`"${req.product_name}" isn't linked to an inventory product. Reject and ask Production to resubmit with the correct product.`);
       return;
     }
-    if (!platform || platform === "All") {
-      setError(`${req.wo_number || req.product_name} doesn't specify a single platform. Ask Production to resubmit with one platform.`);
+    if (!platform) {
+      setError(`"${req.wo_number || req.product_name}" has no specific platform assigned. Reject it and ask Production to resubmit with a platform — Inventory can't choose one here.`);
       return;
     }
 
     setBusyId(req.id);
     const product = inventory.find((p) => p.id === productId);
-    const field = platform === "Shopee" ? "shopee_stock" : platform === "Lazada" ? "lazada_stock" : "tiktok_stock";
+    const field = PLATFORM_FIELD[platform];
     const newFieldValue = (product?.[field] || 0) + req.quantity;
     const newTotal =
       (platform === "Shopee" ? newFieldValue : product?.shopee_stock || 0) +
@@ -458,7 +479,8 @@ function AllocationRequestsPanel({ requests, inventory, onResolved }) {
       <div className="space-y-2">
         {requests.map((req) => {
           const product = inventory.find((p) => p.id === req.product_id);
-          const canApprove = !!req.product_id && !!req.platform && req.platform !== "All";
+          const platform = platformFor(req);
+          const canApprove = !!req.product_id && !!platform;
 
           return (
             <div key={req.id} className="border border-gray-200 rounded-md px-3 py-2.5 flex flex-col md:flex-row md:items-center gap-3">
@@ -468,22 +490,31 @@ function AllocationRequestsPanel({ requests, inventory, onResolved }) {
                   {req.wo_number || "No WO"} · {req.quantity} units · requested {new Date(req.requested_at).toLocaleDateString()}
                 </p>
                 {!product && <p className="text-xs mt-0.5" style={{ color: C.warning }}>Not matched to an inventory product</p>}
+                {!platform && <p className="text-xs mt-0.5" style={{ color: C.warning }}>No platform assigned — cannot be approved, only rejected</p>}
               </div>
 
               <div className="w-full md:w-56 text-xs text-gray-600">
                 {product ? `${product.product_code} · ${product.product_name}` : "—"}
               </div>
 
-              <div className="w-full md:w-32 flex items-center gap-1.5 text-xs font-medium text-gray-700">
-                <span className="w-2 h-2 rounded-sm inline-block shrink-0" style={{ backgroundColor: platformDot(req.platform) }} />
-                {req.platform || "Unspecified"}
+              <div className="w-full md:w-36">
+                {platform ? (
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-gray-700">
+                    <span className="w-2 h-2 rounded-sm inline-block shrink-0" style={{ backgroundColor: platformDot(platform) }} />
+                    {platform}
+                  </div>
+                ) : (
+                  <span className="text-xs font-medium" style={{ color: C.warning }}>
+                    No platform
+                  </span>
+                )}
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={() => handleApprove(req)}
                   disabled={busyId === req.id || !canApprove}
-                  title={!canApprove ? "Missing product or platform on this request" : undefined}
+                  title={!canApprove ? "Missing product or platform on this request — reject and ask Production to resubmit" : undefined}
                   className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white rounded-md disabled:opacity-40 transition-colors cursor-pointer"
                   style={{ backgroundColor: C.success }}
                 >
@@ -493,7 +524,8 @@ function AllocationRequestsPanel({ requests, inventory, onResolved }) {
                 <button
                   onClick={() => handleReject(req)}
                   disabled={busyId === req.id}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200 disabled:opacity-40 transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md disabled:opacity-40 transition-colors cursor-pointer hover:opacity-80"
+                  style={{ color: C.accent, backgroundColor: C.accentSoft }}
                 >
                   <XCircle size={13} />
                   Reject
@@ -579,6 +611,22 @@ function Inventory() {
     fetchPendingRequests();
   }, [fetchInventory, fetchMaterialAlerts, fetchPendingRequests]);
 
+  // Live-refresh the moment Production files a new request, instead of
+  // waiting for a manual "Refresh" click.
+  useEffect(() => {
+    const channel = supabase
+      .channel("inventory_allocation_requests")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "allocation_requests" },
+        () => fetchPendingRequests()
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchPendingRequests]);
+
   const handleView = (item) => {
     setSelectedItem(item);
     setShowViewModal(true);
@@ -663,7 +711,7 @@ function Inventory() {
 
   const TOTAL_COLS = 8;
 
-  const StockCell = ({ item, field, accentColor }) => {
+  const StockCell = ({ item, field, accentColor, low }) => {
     const isEditing = editingStock?.id === item.id && editingStock.field === field;
     const value = field === "stock" ? (item.shopee_stock || 0) + (item.lazada_stock || 0) + (item.tiktok_stock || 0) : item[field] || 0;
 
@@ -690,7 +738,8 @@ function Inventory() {
       <button
         onClick={() => handleStockEdit(item, field)}
         title="Click to edit"
-        className="text-xs font-medium px-2 py-0.5 rounded cursor-pointer hover:bg-gray-100 transition-colors"
+        className="text-xs px-2 py-0.5 rounded cursor-pointer hover:bg-gray-100 transition-colors"
+        style={low ? { color: C.accent, fontWeight: 700 } : { fontWeight: 500 }}
       >
         {value}
       </button>
@@ -924,7 +973,11 @@ function Inventory() {
                         <tr
                           key={item.id}
                           className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
-                          style={low ? { backgroundColor: C.accentSoft } : rowBg}
+                          style={
+                            low
+                              ? { backgroundColor: C.accentSoft, borderLeft: `3px solid ${C.accent}` }
+                              : { ...rowBg, borderLeft: "3px solid transparent" }
+                          }
                         >
                           <td className="px-2 py-2 text-center text-xs text-gray-400 w-8">{rowNum++}</td>
 
@@ -936,8 +989,8 @@ function Inventory() {
                               {low && (
                                 <span
                                   title={`At or below threshold of ${threshold} — shown on Production's dashboard`}
-                                  className="px-1.5 py-0.5 text-[11px] rounded font-medium shrink-0"
-                                  style={{ color: C.accent, backgroundColor: "#fff", border: `1px solid ${C.accentSoftBorder}` }}
+                                  className="px-1.5 py-0.5 text-[11px] rounded font-semibold shrink-0"
+                                  style={{ color: "#fff", backgroundColor: C.accent }}
                                 >
                                   Low stock
                                 </span>
@@ -946,16 +999,16 @@ function Inventory() {
                           </td>
 
                           <td className="px-3 py-2 text-center">
-                            <StockCell item={item} field="stock" accentColor={C.accent} />
+                            <StockCell item={item} field="stock" accentColor={C.accent} low={low} />
                           </td>
                           <td className="px-3 py-2 text-center">
-                            <StockCell item={item} field="shopee_stock" accentColor={C.shopee} />
+                            <StockCell item={item} field="shopee_stock" accentColor={C.shopee} low={low} />
                           </td>
                           <td className="px-3 py-2 text-center">
-                            <StockCell item={item} field="lazada_stock" accentColor={C.lazada} />
+                            <StockCell item={item} field="lazada_stock" accentColor={C.lazada} low={low} />
                           </td>
                           <td className="px-3 py-2 text-center">
-                            <StockCell item={item} field="tiktok_stock" accentColor={C.tiktok} />
+                            <StockCell item={item} field="tiktok_stock" accentColor={C.tiktok} low={low} />
                           </td>
 
                           <td className="px-1.5 py-1.5 text-center">
@@ -1010,7 +1063,7 @@ function Inventory() {
         {/* Legend */}
         <div className="flex gap-4 flex-wrap text-xs text-gray-500 pb-2">
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-sm inline-block border" style={{ backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder }} />
+            <span className="w-3 h-3 rounded-sm inline-block" style={{ backgroundColor: C.accent }} />
             Low stock — at or below each product's threshold (default 5), also shown on Production's dashboard
           </span>
         </div>
