@@ -145,11 +145,11 @@ function Finance() {
       const amount = Number(entry.amount);
       if (!Number.isFinite(amount) || amount < 0) return;
 
-      // Ledger convention: debit entries are expenses, credit entries are revenue.
+      // Ledger convention: debit entries are revenue, credit entries are expenses.
       const flow =
-        entry.type === "credit"
+        entry.type === "debit"
           ? "revenue"
-          : entry.type === "debit"
+          : entry.type === "credit"
             ? "expenses"
             : null;
       if (!flow) return;

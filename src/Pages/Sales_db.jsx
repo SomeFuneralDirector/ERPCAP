@@ -76,6 +76,16 @@ const normalizePlatform = (p) => {
 };
 const orderDate = (o) => o.completed_at || o.created_at || o.paid_time;
 
+// Batch an array into chunks of a max size — used to keep PostgREST
+// `.in()` filter URLs from growing past server/proxy URL length limits.
+const chunkArray = (arr, size) => {
+  const chunks = [];
+  for (let i = 0; i < arr.length; i += size) {
+    chunks.push(arr.slice(i, i + size));
+  }
+  return chunks;
+};
+
 function getStartOfWeek(d) {
   const date = new Date(d);
   date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
@@ -212,7 +222,6 @@ function Sales_db({ onGoToImport }) {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [platformFilter, setPlatformFilter] = useState("all");
-  const [lastImportLog, setLastImportLog] = useState(null);
 
   const fetchAll = useCallback(async (isInitial = false) => {
     if (isInitial) {
@@ -243,19 +252,31 @@ function Sales_db({ onGoToImport }) {
     if (orderUuids.length === 0) {
       setOrderItems([]);
     } else {
-      const { data: items, error: itemsError } = await supabase
-        .from("order_items")
-        .select("order_uuid, order_id, platform, product_name, sku, quantity, unit_price")
-        .in("order_uuid", orderUuids);
+      // Fetch order_items in chunks — a single .in() call with hundreds of
+      // UUIDs produces a URL long enough that Supabase/PostgREST (and most
+      // proxies in front of it) reject it with a 400.
+      const ORDER_ITEMS_CHUNK_SIZE = 150;
+      const chunks = chunkArray(orderUuids, ORDER_ITEMS_CHUNK_SIZE);
 
-      if (itemsError) {
-        console.error("Error fetching order items:", itemsError);
+      const results = await Promise.all(
+        chunks.map((chunk) =>
+          supabase
+            .from("order_items")
+            .select("order_uuid, order_id, platform, product_name, sku, quantity, unit_price")
+            .in("order_uuid", chunk)
+        )
+      );
+
+      const failed = results.find((r) => r.error);
+      if (failed) {
+        console.error("Error fetching order items:", failed.error);
         setOrderItems([]);
         setItemsWarning(
-          `Order items failed to load: ${itemsError.message}. Item/product totals shown may be incomplete.`
+          `Order items failed to load: ${failed.error.message}. Item/product totals shown may be incomplete.`
         );
       } else {
-        setOrderItems((items || []).filter((item) => toNumber(item.quantity) > 0));
+        const items = results.flatMap((r) => r.data || []);
+        setOrderItems(items.filter((item) => toNumber(item.quantity) > 0));
       }
     }
 
@@ -264,29 +285,15 @@ function Sales_db({ onGoToImport }) {
     setRefreshing(false);
   }, []);
 
-  const fetchLastImportLog = useCallback(async () => {
-    const { data } = await supabase
-      .from("import_logs")
-      .select("platform, filename, inserted, skipped, status, created_at")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .single();
-    if (data) setLastImportLog(data);
-  }, []);
-
   useEffect(() => {
     fetchAll(true);
-    fetchLastImportLog();
 
     const channel = supabase
       .channel("sales-realtime")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "orders" },
-        () => {
-          fetchAll(false);
-          fetchLastImportLog();
-        }
+        () => fetchAll(false)
       )
       .on(
         "postgres_changes",
@@ -296,7 +303,7 @@ function Sales_db({ onGoToImport }) {
       .subscribe();
 
     return () => supabase.removeChannel(channel);
-  }, [fetchAll, fetchLastImportLog]);
+  }, [fetchAll]);
 
   const filteredOrders = useMemo(() => {
     let result = orders;
@@ -484,21 +491,6 @@ function Sales_db({ onGoToImport }) {
       {itemsWarning && (
         <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-md p-3 text-xs">
           {itemsWarning}
-        </div>
-      )}
-      {lastImportLog && (
-        <div
-          className={`rounded-md p-3 text-xs flex items-center justify-between border ${
-            lastImportLog.status === "success"
-              ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-              : "bg-amber-50 text-amber-800 border-amber-200"
-          }`}
-        >
-          <span>
-            Last import ({normalizePlatform(lastImportLog.platform)}): {lastImportLog.inserted} inserted,{" "}
-            {lastImportLog.skipped} skipped — {lastImportLog.filename}
-          </span>
-          <span className="text-gray-400">{timeAgo(new Date(lastImportLog.created_at))}</span>
         </div>
       )}
 

@@ -33,12 +33,12 @@ function getWeekInfo(dateStr) {
 
 const PAGE_SIZE = 10;
 
-// Assets and expenses normally increase with a Debit.
-// Liabilities, equity, and revenue normally increase with a Credit.
+// Liabilities, equity, and revenue normally increase with a Debit.
+// Assets and expenses normally increase with a Credit.
 function normalType(classification) {
   return classification === "asset" || classification === "expense"
-    ? "debit"
-    : "credit";
+    ? "credit"
+    : "debit";
 }
 
 function newRow() {
@@ -104,7 +104,7 @@ function Ledger() {
       )
       .gte("date", dateFrom)
       .lte("date", dateTo)
-      .order("date", { ascending: true });
+      .order("date", { ascending: false });
 
     if (error) {
       console.error("Error loading ledger:", error);
@@ -142,7 +142,7 @@ function Ledger() {
     });
 
     return [...Object.values(salesWeeks), ...others].sort((a, b) =>
-      a.date.localeCompare(b.date)
+      b.date.localeCompare(a.date)
     );
   })();
 
@@ -196,7 +196,7 @@ function Ledger() {
         const updated = { ...r, [field]: value };
         // When the category changes, auto-suggest the correct Debit/Credit
         // direction for it — this is what prevents e.g. an expense category
-        // from being accidentally saved as a Credit, which silently flips
+        // from being accidentally saved as a Debit, which silently flips
         // its sign in every report.
         if (field === "category_id") {
           const cat = categories.find((c) => c.id === value);
@@ -350,7 +350,7 @@ function Ledger() {
                     </td>
                     <td className="py-3 px-4 text-right font-medium">
                       {e.type === "debit" ? (
-                        <span className="text-red-600">
+                        <span className="text-green-600">
                           {formatPeso(e.amount)}
                         </span>
                       ) : (
@@ -359,7 +359,7 @@ function Ledger() {
                     </td>
                     <td className="py-3 px-4 text-right font-medium">
                       {e.type === "credit" ? (
-                        <span className="text-green-600">
+                        <span className="text-red-600">
                           {formatPeso(e.amount)}
                         </span>
                       ) : (
@@ -440,8 +440,8 @@ function Ledger() {
                 <p className="text-xs text-gray-500 mb-4">
                   Add as many rows as you need, then review before saving.
                   Liabilities you owe (like unpaid salaries) are usually a{" "}
-                  <strong>Credit</strong>; money spent or an increase in what
-                  you own is usually a <strong>Debit</strong>.
+                  <strong>Debit</strong>; money spent or an increase in what
+                  you own is usually a <strong>Credit</strong>.
                 </p>
 
                 {banner && (
@@ -563,7 +563,7 @@ function Ledger() {
                                   }
                                   className={`px-2 py-1.5 rounded text-xs font-semibold border ${
                                     r.type === "debit"
-                                      ? "bg-red-600 text-white border-red-600"
+                                      ? "bg-green-600 text-white border-green-600"
                                       : "border-gray-300 text-gray-500"
                                   }`}
                                 >
@@ -576,7 +576,7 @@ function Ledger() {
                                   }
                                   className={`px-2 py-1.5 rounded text-xs font-semibold border ${
                                     r.type === "credit"
-                                      ? "bg-green-600 text-white border-green-600"
+                                      ? "bg-red-600 text-white border-red-600"
                                       : "border-gray-300 text-gray-500"
                                   }`}
                                 >
@@ -717,7 +717,7 @@ function Ledger() {
                           </td>
                           <td className="py-2 px-3 text-right font-medium">
                             {r.type === "debit" ? (
-                              <span className="text-red-600">
+                              <span className="text-green-600">
                                 {formatPeso(
                                   Math.round(parseFloat(r.amount) * 100)
                                 )}
@@ -728,7 +728,7 @@ function Ledger() {
                           </td>
                           <td className="py-2 px-3 text-right font-medium">
                             {r.type === "credit" ? (
-                              <span className="text-green-600">
+                              <span className="text-red-600">
                                 {formatPeso(
                                   Math.round(parseFloat(r.amount) * 100)
                                 )}

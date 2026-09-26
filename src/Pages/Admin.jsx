@@ -449,15 +449,15 @@ function Admin() {
   }, [loadDashboard]);
 
   // Ledger convention — matches the Finance page: debit entries are
-  // expenses, credit entries are revenue.
+  // revenue, credit entries are expenses.
   const financeStats = useMemo(() => {
     const expenses =
       ledgerEntries
-        .filter((e) => e.type === "debit")
+        .filter((e) => e.type === "credit")
         .reduce((s, e) => s + Math.max(0, toNumber(e.amount)), 0) / 100;
     const revenue =
       ledgerEntries
-        .filter((e) => e.type === "credit")
+        .filter((e) => e.type === "debit")
         .reduce((s, e) => s + Math.max(0, toNumber(e.amount)), 0) / 100;
     return { expenses, revenue, net: revenue - expenses };
   }, [ledgerEntries]);
@@ -469,8 +469,8 @@ function Admin() {
       if (!key) return;
       if (!map[key]) map[key] = { month: key, expenses: 0, revenue: 0 };
       const amount = Math.max(0, toNumber(e.amount)) / 100;
-      if (e.type === "debit") map[key].expenses += amount;
-      else if (e.type === "credit") map[key].revenue += amount;
+      if (e.type === "credit") map[key].expenses += amount;
+      else if (e.type === "debit") map[key].revenue += amount;
     });
     return Object.values(map)
       .sort((a, b) => a.month.localeCompare(b.month))
