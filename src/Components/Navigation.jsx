@@ -102,6 +102,7 @@ const navItems = [
       { id: "production-workorders", label: "Work Orders", icon: ClipboardList, path: "/production_wo" },
       { id: "production-finished", label: "Finished Goods", icon: PackageCheck, path: "/production_fg" },
       { id: "production-usage", label: "Raw Materials Usage", icon: Gauge, path: "/RawMaterialUsage" },
+      {id : "production-bom", label: "Recipe", icon: Boxes, path: "/Production_bom"},
     ],
   },
 ];

@@ -24,7 +24,6 @@ const C = {
 };
 
 const UNITS = ["pcs", "kg", "g", "liters", "ml", "meters", "rolls", "sheets", "boxes"];
-const STOCK_STATUSES = ["In Stock", "Low Stock", "Out of Stock"];
 
 const STATUS_STYLE = {
   "In Stock": { color: C.success, backgroundColor: C.successSoft, borderColor: C.successBorder },
@@ -37,6 +36,7 @@ const EMPTY_FORM = {
   category: "",
   unit: "pcs",
   current_stock: "",
+  reorder_point: "5",
   supplier_id: "",
   unit_cost: "",
   notes: "",
@@ -140,6 +140,7 @@ function AddMaterialModal({ onClose, onSaved, suppliers, editItem = null }) {
         category: editItem.category || "",
         unit: editItem.unit || "pcs",
         current_stock: editItem.current_stock?.toString() || "",
+        reorder_point: editItem.reorder_point?.toString() ?? "5",
         supplier_id: editItem.supplier_id || "",
         unit_cost: editItem.unit_cost?.toString() || "",
         notes: editItem.notes || "",
@@ -163,11 +164,14 @@ function AddMaterialModal({ onClose, onSaved, suppliers, editItem = null }) {
     setSaving(true);
     setError("");
 
+    // status is no longer set here — a DB trigger computes it from
+    // current_stock vs reorder_point on every insert/update.
     const payload = {
       material_name: form.material_name.trim(),
       category: form.category.trim() || null,
       unit: form.unit,
       current_stock: Number(form.current_stock) || 0,
+      reorder_point: form.reorder_point === "" ? 5 : Math.max(0, Number(form.reorder_point) || 0),
       supplier_id: form.supplier_id,
       unit_cost: form.unit_cost ? Number(form.unit_cost) : null,
       notes: form.notes.trim() || null,
@@ -238,16 +242,31 @@ function AddMaterialModal({ onClose, onSaved, suppliers, editItem = null }) {
             </Field>
           </div>
 
-          <Field label="Current stock">
-            <TextInput
-              type="number"
-              min="0"
-              step="any"
-              placeholder="0"
-              value={form.current_stock}
-              onChange={(e) => set("current_stock", e.target.value)}
-            />
-          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Current stock">
+              <TextInput
+                type="number"
+                min="0"
+                step="any"
+                placeholder="0"
+                value={form.current_stock}
+                onChange={(e) => set("current_stock", e.target.value)}
+              />
+            </Field>
+            <Field
+              label="Reorder point"
+              hint="Status flips to Low/Out automatically at or below this."
+            >
+              <TextInput
+                type="number"
+                min="0"
+                step="any"
+                placeholder="5"
+                value={form.reorder_point}
+                onChange={(e) => set("reorder_point", e.target.value)}
+              />
+            </Field>
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Supplier" required hint={selectedSupplier?.notes || undefined}>
@@ -350,16 +369,24 @@ function ViewMaterialModal({ item, onClose }) {
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-500">Unit cost</p>
-              <p className="text-sm text-gray-800 mt-0.5">{item.unit_cost != null ? `₱${item.unit_cost}` : "—"}</p>
+              <p className="text-xs text-gray-500">Reorder point</p>
+              <p className="text-sm text-gray-800 mt-0.5">
+                {item.reorder_point ?? 5} {item.unit}
+              </p>
             </div>
           </div>
 
-          <div>
-            <p className="text-xs text-gray-500">Supplier</p>
-            <p className="text-sm text-gray-800 mt-0.5">{item.suppliers?.name || "—"}</p>
-            {item.suppliers?.notes && <p className="text-xs text-gray-400 mt-0.5">{item.suppliers.notes}</p>}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-xs text-gray-500">Unit cost</p>
+              <p className="text-sm text-gray-800 mt-0.5">{item.unit_cost != null ? `₱${item.unit_cost}` : "—"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Supplier</p>
+              <p className="text-sm text-gray-800 mt-0.5">{item.suppliers?.name || "—"}</p>
+            </div>
           </div>
+          {item.suppliers?.notes && <p className="text-xs text-gray-400 -mt-2">{item.suppliers.notes}</p>}
 
           {item.notes && (
             <div className="pt-3 border-t border-gray-100">
@@ -425,6 +452,18 @@ function Production_rm() {
     fetchMaterials();
   }, [fetchSuppliers, fetchMaterials]);
 
+  // Live-refresh when Work Orders consume or restock materials elsewhere
+  // (Production tab), so this page never shows stale stock.
+  useEffect(() => {
+    const channel = supabase
+      .channel("raw_materials_live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "raw_materials" }, () => fetchMaterials())
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchMaterials]);
+
   const handleView = (item) => {
     setSelectedItem(item);
     setShowViewModal(true);
@@ -477,25 +516,24 @@ function Production_rm() {
     return acc;
   }, {});
 
-  const saveField = async (id, field, value) => {
-    const newValue = field === "current_stock" ? parseFloat(value) : value;
-    if (field === "current_stock" && (isNaN(newValue) || newValue < 0)) return;
+  // current_stock is the only thing edited inline now — status is derived
+  // server-side by the trigger, so we just refetch that row after saving.
+  const saveStock = async (id, value) => {
+    const newValue = parseFloat(value);
+    if (isNaN(newValue) || newValue < 0) return;
 
     setSaving(true);
-    const updateData = { [field]: newValue, updated_at: new Date().toISOString() };
+    const { data, error } = await supabase
+      .from("raw_materials")
+      .update({ current_stock: newValue, updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .select("*, suppliers(id, name, notes)")
+      .single();
 
-    const { error } = await supabase.from("raw_materials").update(updateData).eq("id", id);
-    if (!error) {
-      setMaterials((prev) => prev.map((i) => (i.id === id ? { ...i, ...updateData } : i)));
+    if (!error && data) {
+      setMaterials((prev) => prev.map((i) => (i.id === id ? data : i)));
     }
     setSaving(false);
-  };
-
-  const handleStatusChange = async (item, newStatus) => {
-    const { error } = await supabase.from("raw_materials").update({ status: newStatus }).eq("id", item.id);
-    if (!error) {
-      setMaterials((prev) => prev.map((i) => (i.id === item.id ? { ...i, status: newStatus } : i)));
-    }
   };
 
   const handleStockEdit = (item) => {
@@ -504,13 +542,13 @@ function Production_rm() {
 
   const handleKeyDown = (e, id) => {
     if (e.key === "Enter" && editingStock) {
-      saveField(id, "current_stock", editingStock.value);
+      saveStock(id, editingStock.value);
       setEditingStock(null);
     }
     if (e.key === "Escape") setEditingStock(null);
   };
 
-  const TOTAL_COLS = 7;
+  const TOTAL_COLS = 8;
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#F6F6F7" }}>
@@ -625,6 +663,7 @@ function Production_rm() {
                   <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide min-w-[200px]">MATERIAL</th>
                   <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide">SUPPLIER</th>
                   <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">STOCK</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">REORDER AT</th>
                   <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">UNIT COST</th>
                   <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">STATUS</th>
                   <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">VIEW · EDIT · DELETE</th>
@@ -694,7 +733,7 @@ function Production_rm() {
                                 value={editingStock.value}
                                 onChange={(e) => setEditingStock({ ...editingStock, value: e.target.value })}
                                 onBlur={() => {
-                                  saveField(item.id, "current_stock", editingStock.value);
+                                  saveStock(item.id, editingStock.value);
                                   setEditingStock(null);
                                 }}
                                 onKeyDown={(e) => handleKeyDown(e, item.id)}
@@ -713,23 +752,22 @@ function Production_rm() {
                             )}
                           </td>
 
+                          <td className="px-3 py-2 text-center text-xs text-gray-500">
+                            {item.reorder_point ?? 5} {item.unit}
+                          </td>
+
                           <td className="px-3 py-2 text-center text-xs text-gray-600">
                             {item.unit_cost != null ? `₱${item.unit_cost}` : "—"}
                           </td>
 
                           <td className="px-2 py-2 text-center">
-                            <select
-                              value={status}
-                              onChange={(e) => handleStatusChange(item, e.target.value)}
-                              className="px-2 py-1 rounded-full text-xs font-semibold border cursor-pointer focus:outline-none focus:ring-1"
+                            <span
+                              className="inline-block px-2 py-1 rounded-full text-xs font-semibold border"
                               style={STATUS_STYLE[status]}
+                              title="Computed automatically from stock vs. reorder point"
                             >
-                              {STOCK_STATUSES.map((s) => (
-                                <option key={s} value={s}>
-                                  {s}
-                                </option>
-                              ))}
-                            </select>
+                              {status}
+                            </span>
                           </td>
 
                           <td className="px-1.5 py-1.5 text-center">
@@ -772,6 +810,7 @@ function Production_rm() {
                     </td>
                     <td className="px-3 py-2.5 text-center text-xs text-gray-400">—</td>
                     <td className="px-3 py-2.5 text-center text-xs text-gray-400">—</td>
+                    <td className="px-3 py-2.5 text-center text-xs text-gray-400">—</td>
                     <td className="px-3 py-2.5 text-center text-xs">
                       {(lowStockCount + outStockCount) > 0 && (
                         <span
@@ -794,7 +833,7 @@ function Production_rm() {
         <div className="flex gap-4 flex-wrap text-xs text-gray-500 pb-2">
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-3 rounded-sm inline-block border" style={{ backgroundColor: C.warningSoft, borderColor: C.warningBorder }} />
-            Low stock
+            Low stock (at/below reorder point)
           </span>
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-3 rounded-sm inline-block border" style={{ backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder }} />
@@ -850,6 +889,7 @@ function Production_rm() {
               <div className="px-5 py-4">
                 <p className="text-sm text-gray-600">
                   Delete <span className="font-medium text-gray-800">{itemToDelete.material_name}</span>? This can't be undone.
+                  {" "}If it's used in any product recipe, deletion will be blocked — remove it from those recipes first.
                 </p>
               </div>
 

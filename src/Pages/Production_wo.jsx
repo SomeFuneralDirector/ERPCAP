@@ -292,6 +292,7 @@ function Production_wo() {
   const [loadingWoNumber, setLoadingWoNumber] = useState(false);
 
   const [viewOrder, setViewOrder] = useState(null);
+  const [cancelBusyId, setCancelBusyId] = useState(null);
 
   useEffect(() => {
     fetchWorkOrders();
@@ -365,6 +366,18 @@ function Production_wo() {
     setFormData((prev) => ({ ...prev, product_id, product_name }));
   }
 
+  // Cleans up the raised Postgres exception text
+  // ("INSUFFICIENT_MATERIALS: Oil A: need 480ml, have 210ml; ") into
+  // something readable in the UI.
+  function formatMaterialsError(message) {
+    if (!message) return "Something went wrong.";
+    if (message.includes("INSUFFICIENT_MATERIALS:")) {
+      const detail = message.split("INSUFFICIENT_MATERIALS:")[1]?.trim();
+      return `Not enough raw materials to create this work order — ${detail}`;
+    }
+    return message;
+  }
+
   async function handleCreateWorkOrder(e) {
     e.preventDefault();
     setErrorMsg("");
@@ -380,25 +393,26 @@ function Production_wo() {
     const total = breakdown.reduce((sum, b) => sum + b.quantity, 0);
     const platform = breakdown.length === 1 ? breakdown[0].platform : "Multiple";
 
-    const payload = {
-      wo_number: formData.wo_number,
-      product_id: formData.product_id || null,
-      product_name: formData.product_name,
-      quantity: total,
-      platform,
-      platform_breakdown: breakdown,
-      assigned_to: formData.assigned_to || null,
-      due_date: formData.due_date || null,
-      notes: formData.notes || null,
-      status: "Pending",
-    };
-
-    const { error } = await supabase.from("work_orders").insert([payload]);
+    // Creates the work order AND checks/deducts raw materials against the
+    // product's recipe (bill_of_materials) in one atomic DB transaction.
+    // If any material is short, the whole thing is rolled back and this
+    // throws INSUFFICIENT_MATERIALS instead of creating the WO.
+    const { error } = await supabase.rpc("create_work_order_with_materials", {
+      p_wo_number: formData.wo_number,
+      p_product_id: formData.product_id || null,
+      p_product_name: formData.product_name,
+      p_quantity: total,
+      p_platform: platform,
+      p_platform_breakdown: breakdown,
+      p_assigned_to: formData.assigned_to || null,
+      p_due_date: formData.due_date || null,
+      p_notes: formData.notes || null,
+    });
 
     setSaving(false);
 
     if (error) {
-      setErrorMsg(error.message);
+      setErrorMsg(formatMaterialsError(error.message));
       return;
     }
 
@@ -407,6 +421,31 @@ function Production_wo() {
   }
 
   async function handleStatusChange(order, newStatus) {
+    setErrorMsg("");
+
+    // Cancelling goes through the RPC too, so consumed raw materials are
+    // returned to stock atomically instead of leaking away silently.
+    if (newStatus === "Cancelled") {
+      setCancelBusyId(order.id);
+      const { error } = await supabase.rpc("cancel_work_order_and_restock", {
+        p_wo_id: order.id,
+      });
+      setCancelBusyId(null);
+
+      if (error) {
+        setErrorMsg(error.message);
+        return;
+      }
+
+      setWorkOrders((prev) =>
+        prev.map((wo) => (wo.id === order.id ? { ...wo, status: "Cancelled" } : wo)),
+      );
+      if (viewOrder && viewOrder.id === order.id) {
+        setViewOrder((prev) => ({ ...prev, status: "Cancelled" }));
+      }
+      return;
+    }
+
     const updates = { status: newStatus };
     if (newStatus === "Completed") {
       updates.completed_at = new Date().toISOString();
@@ -455,7 +494,7 @@ function Production_wo() {
       </div>
 
       {errorMsg && (
-        <div className="bg-white border border-red-300 text-red-600 rounded-lg shadow p-4 mb-4">
+        <div className="bg-white border border-red-300 text-red-600 rounded-lg shadow p-4 mb-4 text-sm whitespace-pre-line">
           {errorMsg}
         </div>
       )}
@@ -547,10 +586,11 @@ function Production_wo() {
                         {ACTIVE_STATUSES.includes(wo.status) && (
                           <select
                             value={wo.status}
+                            disabled={cancelBusyId === wo.id}
                             onChange={(e) =>
                               handleStatusChange(wo, e.target.value)
                             }
-                            className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-red-400 cursor-pointer"
+                            className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-red-400 cursor-pointer disabled:opacity-50"
                           >
                             {STATUS_FLOW.map((s) => (
                               <option key={s} value={s}>
@@ -603,6 +643,10 @@ function Production_wo() {
                   onSelect={handleProductSelect}
                   products={products}
                 />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  If this product has a recipe set up in Production → Recipes, raw materials will
+                  be checked and deducted automatically when you create this work order.
+                </p>
               </div>
 
               <PlatformRowsTable rows={platformRows} setRows={setPlatformRows} />
@@ -660,7 +704,7 @@ function Production_wo() {
                   disabled={saving || loadingWoNumber}
                   className="px-4 py-2 rounded-lg text-sm font-semibold bg-red-600 hover:bg-red-700 text-white disabled:opacity-50 cursor-pointer"
                 >
-                  {saving ? "Saving..." : "Create Work Order"}
+                  {saving ? "Checking materials & saving..." : "Create Work Order"}
                 </button>
               </div>
             </form>
@@ -730,10 +774,11 @@ function Production_wo() {
                 </label>
                 <select
                   value={viewOrder.status}
+                  disabled={cancelBusyId === viewOrder.id}
                   onChange={(e) =>
                     handleStatusChange(viewOrder, e.target.value)
                   }
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-red-400 cursor-pointer"
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-red-400 cursor-pointer disabled:opacity-50"
                 >
                   {STATUS_FLOW.map((s) => (
                     <option key={s} value={s}>
@@ -741,6 +786,9 @@ function Production_wo() {
                     </option>
                   ))}
                 </select>
+                {cancelBusyId === viewOrder.id && (
+                  <p className="text-[11px] text-gray-400 mt-1">Restocking raw materials…</p>
+                )}
               </div>
             )}
 
