@@ -1,21 +1,27 @@
+//Dating LEDGER NGAYON CASH BOOK NA. ENGOT KASI KAMI
+
 import React, { useState, useEffect } from "react";
 import { supabase } from "../api/supabase";
 import { useAuth } from "../context/AuthContext";
 import { Loader2, Plus, Trash2, X, AlertCircle } from "lucide-react";
+import { formatPeso, localDateKey, firstOfMonthKey } from "../lib/Finance";
 
-function formatPeso(cents) {
-  return (cents / 100).toLocaleString("en-PH", {
-    style: "currency",
-    currency: "PHP",
-  });
-}
+// Ledger convention (cash view):
+//   Debit  = cash IN
+//   Credit = cash OUT
+//
+// The database keeps the values 'debit' and 'credit' so the reports keep
+// working. Only the labels shown on screen say Cash In and Cash Out.
+const TYPE_LABEL = { debit: "Cash In", credit: "Cash Out" };
 
-// ISO-week key (Mon-Sun) for a YYYY-MM-DD date string, plus a display label
-// for that week's range — used to collapse individual sale entries into
-// one weekly total instead of showing every order as its own row.
+const PAGE_SIZE = 10;
+
+// Monday to Sunday week for a YYYY-MM-DD date string, plus a display label
+// for that range. Used to collapse individual sale entries into one weekly
+// total instead of showing every order as its own row.
 function getWeekInfo(dateStr) {
   const d = new Date(dateStr + "T00:00:00");
-  const day = d.getDay(); // 0 = Sun
+  const day = d.getDay(); // 0 = Sunday
   const diffToMonday = day === 0 ? -6 : 1 - day;
   const monday = new Date(d);
   monday.setDate(d.getDate() + diffToMonday);
@@ -26,15 +32,16 @@ function getWeekInfo(dateStr) {
     dt.toLocaleDateString("en-PH", { month: "short", day: "numeric" });
 
   return {
-    key: monday.toISOString().slice(0, 10),
-    label: `Week of ${fmt(monday)}–${fmt(sunday)}`,
+    // Local date key. toISOString() would shift this a day back in the
+    // Philippines because it converts to UTC.
+    key: localDateKey(monday),
+    label: `Week of ${fmt(monday)} to ${fmt(sunday)}`,
   };
 }
 
-const PAGE_SIZE = 10;
-
-// Liabilities, equity, and revenue normally increase with a Debit.
-// Assets and expenses normally increase with a Credit.
+// Money spent or put into things you own (expenses, assets) is normally
+// Cash Out (credit). Money received (revenue, loans, owner investment) is
+// normally Cash In (debit).
 function normalType(classification) {
   return classification === "asset" || classification === "expense"
     ? "credit"
@@ -47,7 +54,7 @@ function newRow() {
       typeof crypto !== "undefined" && crypto.randomUUID
         ? crypto.randomUUID()
         : `row-${Date.now()}-${Math.random()}`,
-    date: new Date().toISOString().slice(0, 10),
+    date: localDateKey(),
     detail: "",
     category_id: "",
     type: "debit",
@@ -58,13 +65,12 @@ function newRow() {
 function Ledger() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [dateFrom, setDateFrom] = useState(
-    new Date(new Date().setDate(1)).toISOString().slice(0, 10)
-  );
-  const [dateTo, setDateTo] = useState(new Date().toISOString().slice(0, 10));
+  const [dateFrom, setDateFrom] = useState(firstOfMonthKey());
+  const [dateTo, setDateTo] = useState(localDateKey());
   const [entries, setEntries] = useState([]);
   const [categories, setCategories] = useState([]);
   const [page, setPage] = useState(1);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const [showModal, setShowModal] = useState(false);
   const [step, setStep] = useState("edit"); // "edit" | "confirm"
@@ -74,7 +80,41 @@ function Ledger() {
   const [banner, setBanner] = useState(null);
 
   useEffect(() => {
+    // Ignore responses from an earlier request if the dates changed again.
+    let ignore = false;
+
+    async function loadLedger() {
+      setLoading(true);
+
+      const { data, error } = await supabase
+        .from("ledger_entries")
+        .select(
+          "id, date, detail, type, amount, ledger_categories ( name, classification )"
+        )
+        .gte("date", dateFrom)
+        .lte("date", dateTo)
+        .order("date", { ascending: false });
+
+      if (ignore) return;
+
+      if (error) {
+        console.error("Error loading ledger:", error);
+        setLoading(false);
+        return;
+      }
+
+      setEntries(data || []);
+      setLoading(false);
+    }
+
     loadLedger();
+
+    return () => {
+      ignore = true;
+    };
+  }, [dateFrom, dateTo, refreshKey]);
+
+  useEffect(() => {
     setPage(1);
   }, [dateFrom, dateTo]);
 
@@ -94,30 +134,8 @@ function Ledger() {
     setCategories(data || []);
   }
 
-  async function loadLedger() {
-    setLoading(true);
-
-    const { data, error } = await supabase
-      .from("ledger_entries")
-      .select(
-        "id, date, detail, type, amount, ledger_categories ( name, classification )"
-      )
-      .gte("date", dateFrom)
-      .lte("date", dateTo)
-      .order("date", { ascending: false });
-
-    if (error) {
-      console.error("Error loading ledger:", error);
-      setLoading(false);
-      return;
-    }
-
-    setEntries(data || []);
-    setLoading(false);
-  }
-
-  // Collapse Sales Revenue entries into one row per week; everything
-  // else (expenses, manual entries) stays as individual rows.
+  // Collapse Sales Revenue entries into one row per week. Everything else
+  // (expenses, manual entries) stays as individual rows.
   const displayRows = (() => {
     const salesWeeks = {};
     const others = [];
@@ -182,10 +200,7 @@ function Ledger() {
     setRows((prev) => {
       const last = prev[prev.length - 1];
       if (!last) return [...prev, newRow()];
-      return [
-        ...prev,
-        { ...last, _rowId: newRow()._rowId, amount: "" },
-      ];
+      return [...prev, { ...last, _rowId: newRow()._rowId, amount: "" }];
     });
   }
 
@@ -194,10 +209,9 @@ function Ledger() {
       prev.map((r) => {
         if (r._rowId !== rowId) return r;
         const updated = { ...r, [field]: value };
-        // When the category changes, auto-suggest the correct Debit/Credit
-        // direction for it — this is what prevents e.g. an expense category
-        // from being accidentally saved as a Debit, which silently flips
-        // its sign in every report.
+        // When the category changes, suggest the usual Cash In or Cash Out
+        // direction for it. This prevents an expense from being saved as
+        // Cash In by accident, which would flip its sign in every report.
         if (field === "category_id") {
           const cat = categories.find((c) => c.id === value);
           if (cat) updated.type = normalType(cat.classification);
@@ -207,8 +221,7 @@ function Ledger() {
     );
     setRowErrors((prev) => {
       if (!prev[rowId]?.[field]) return prev;
-      const next = { ...prev, [rowId]: { ...prev[rowId], [field]: null } };
-      return next;
+      return { ...prev, [rowId]: { ...prev[rowId], [field]: null } };
     });
   }
 
@@ -269,17 +282,17 @@ function Ledger() {
 
     setShowModal(false);
     setStep("edit");
-    loadLedger();
+    setRefreshKey((k) => k + 1);
   }
 
   function categoryName(categoryId) {
-    return categories.find((c) => c.id === categoryId)?.name || "—";
+    return categories.find((c) => c.id === categoryId)?.name || "-";
   }
 
   return (
     <div className="p-6">
       <div className="flex items-center justify-between flex-wrap gap-4 bg-white rounded-lg shadow p-6 mb-4">
-        <h1 className="text-2xl font-semibold text-gray-800">Ledger</h1>
+        <h1 className="text-2xl font-semibold text-gray-800">Cash Book</h1>
         <div className="flex items-center gap-2">
           <input
             type="date"
@@ -308,7 +321,7 @@ function Ledger() {
         {loading ? (
           <div className="flex items-center gap-2 text-gray-400 text-sm py-6 justify-center">
             <Loader2 size={16} className="animate-spin" />
-            Loading ledger…
+            Loading cash book...
           </div>
         ) : displayRows.length === 0 ? (
           <p className="text-sm text-gray-400">
@@ -322,8 +335,12 @@ function Ledger() {
                   <th className="py-3 px-4 font-extrabold">No</th>
                   <th className="py-3 px-4 font-extrabold">Date</th>
                   <th className="py-3 px-4 font-extrabold">Detail</th>
-                  <th className="py-3 px-4 font-extrabold text-right">Debit</th>
-                  <th className="py-3 px-4 font-extrabold text-right">Credit</th>
+                  <th className="py-3 px-4 font-extrabold text-right">
+                    {TYPE_LABEL.debit}
+                  </th>
+                  <th className="py-3 px-4 font-extrabold text-right">
+                    {TYPE_LABEL.credit}
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -354,7 +371,7 @@ function Ledger() {
                           {formatPeso(e.amount)}
                         </span>
                       ) : (
-                        <span className="text-gray-300">—</span>
+                        <span className="text-gray-300">-</span>
                       )}
                     </td>
                     <td className="py-3 px-4 text-right font-medium">
@@ -363,7 +380,7 @@ function Ledger() {
                           {formatPeso(e.amount)}
                         </span>
                       ) : (
-                        <span className="text-gray-300">—</span>
+                        <span className="text-gray-300">-</span>
                       )}
                     </td>
                   </tr>
@@ -424,7 +441,7 @@ function Ledger() {
           >
             <div className="flex items-center justify-between mb-1">
               <h2 className="text-lg font-bold text-gray-800">
-                {step === "edit" ? "Add Ledger Entries" : "Confirm Entries"}
+                {step === "edit" ? "Add Entries" : "Confirm Entries"}
               </h2>
               <button
                 type="button"
@@ -439,9 +456,10 @@ function Ledger() {
               <>
                 <p className="text-xs text-gray-500 mb-4">
                   Add as many rows as you need, then review before saving.
-                  Liabilities you owe (like unpaid salaries) are usually a{" "}
-                  <strong>Debit</strong>; money spent or an increase in what
-                  you own is usually a <strong>Credit</strong>.
+                  Money coming in (sales, loans received, owner investment) is{" "}
+                  <strong>Cash In</strong>. Money going out (expenses, loan
+                  repayments, equipment purchases) is <strong>Cash Out</strong>
+                  . Record salaries and bills when you actually pay them.
                 </p>
 
                 {banner && (
@@ -500,7 +518,7 @@ function Ledger() {
                                     e.target.value
                                   )
                                 }
-                                placeholder="e.g. Staff salaries - Aug 1-15"
+                                placeholder="e.g. Staff salaries, Aug 1-15"
                                 className={`w-48 border rounded px-2 py-1.5 text-sm text-gray-900 ${
                                   err.detail
                                     ? "border-red-400"
@@ -561,26 +579,26 @@ function Ledger() {
                                   onClick={() =>
                                     handleRowChange(r._rowId, "type", "debit")
                                   }
-                                  className={`px-2 py-1.5 rounded text-xs font-semibold border ${
+                                  className={`px-2 py-1.5 rounded text-xs font-semibold border whitespace-nowrap ${
                                     r.type === "debit"
                                       ? "bg-green-600 text-white border-green-600"
                                       : "border-gray-300 text-gray-500"
                                   }`}
                                 >
-                                  Debit
+                                  {TYPE_LABEL.debit}
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() =>
                                     handleRowChange(r._rowId, "type", "credit")
                                   }
-                                  className={`px-2 py-1.5 rounded text-xs font-semibold border ${
+                                  className={`px-2 py-1.5 rounded text-xs font-semibold border whitespace-nowrap ${
                                     r.type === "credit"
                                       ? "bg-red-600 text-white border-red-600"
                                       : "border-gray-300 text-gray-500"
                                   }`}
                                 >
-                                  Credit
+                                  {TYPE_LABEL.credit}
                                 </button>
                               </div>
                               {(() => {
@@ -594,7 +612,8 @@ function Ledger() {
                                 if (r.type === expected) return null;
                                 return (
                                   <p className="text-[10px] text-amber-600 mt-1 leading-tight">
-                                    {cat.name} is usually {expected}
+                                    {cat.name} is usually{" "}
+                                    {TYPE_LABEL[expected]}
                                   </p>
                                 );
                               })()}
@@ -667,7 +686,8 @@ function Ledger() {
                       type="submit"
                       className="bg-red-600 text-white text-sm font-bold px-4 py-2 rounded hover:bg-red-700"
                     >
-                      Review {rows.length > 1 ? `${rows.length} Entries` : "Entry"}
+                      Review{" "}
+                      {rows.length > 1 ? `${rows.length} Entries` : "Entry"}
                     </button>
                   </div>
                 </div>
@@ -679,7 +699,7 @@ function Ledger() {
                   <span>
                     <strong>This cannot be undone.</strong> Double-check the
                     entries below before saving. Once saved, they'll appear
-                    permanently in your Ledger.
+                    permanently in your Cash Book.
                   </span>
                 </div>
 
@@ -697,8 +717,12 @@ function Ledger() {
                         <th className="py-2 px-3">Date</th>
                         <th className="py-2 px-3">Detail</th>
                         <th className="py-2 px-3">Category</th>
-                        <th className="py-2 px-3 text-right">Debit</th>
-                        <th className="py-2 px-3 text-right">Credit</th>
+                        <th className="py-2 px-3 text-right">
+                          {TYPE_LABEL.debit}
+                        </th>
+                        <th className="py-2 px-3 text-right">
+                          {TYPE_LABEL.credit}
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -723,7 +747,7 @@ function Ledger() {
                                 )}
                               </span>
                             ) : (
-                              <span className="text-gray-300">—</span>
+                              <span className="text-gray-300">-</span>
                             )}
                           </td>
                           <td className="py-2 px-3 text-right font-medium">
@@ -734,7 +758,7 @@ function Ledger() {
                                 )}
                               </span>
                             ) : (
-                              <span className="text-gray-300">—</span>
+                              <span className="text-gray-300">-</span>
                             )}
                           </td>
                         </tr>
@@ -758,7 +782,7 @@ function Ledger() {
                     className="flex items-center gap-2 bg-red-600 text-white text-sm font-bold px-4 py-2 rounded hover:bg-red-700 disabled:opacity-50"
                   >
                     {saving && <Loader2 size={14} className="animate-spin" />}
-                    {saving ? "Saving…" : "Yes, Save Permanently"}
+                    {saving ? "Saving..." : "Yes, Save Permanently"}
                   </button>
                 </div>
               </>

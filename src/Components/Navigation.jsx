@@ -51,7 +51,7 @@ const navItems = [
     children: [
       { id: "admin-dashboard", label: "Dashboard", icon: LayoutDashboard, path: "/admin" },
       { id: "admin-finance", label: "Finance", icon: PhilippinePeso, path: "/finance" },
-      { id: "admin-ledger", label: "Ledger", icon: BookCheck, path: "/ledger" },
+      { id: "admin-ledger", label: "Cash Book", icon: BookCheck, path: "/ledger" },
       { id: "admin-balance_sheet", label: "Balance Sheet", icon: SheetIcon, path: "/balance_sheet" },
       { id: "admin-income_statement", label: "Income Statement", icon: BookCheck, path: "/income_statement" },
       { id: "admin-user_management", label: "User Management", icon: Users, path: "/user_management" },

@@ -14,6 +14,7 @@ import {
   LabelList,
 } from "recharts";
 import { supabase } from "../api/supabase";
+import { toNumber, localDateKey, firstOfMonthKey } from "../lib/Finance";
 
 /* ---------------------------------------------------------------------
  * Design tokens (ISONFAM ERP)
@@ -45,11 +46,6 @@ const fmtPHP = (n) =>
 
 const fmtAxis = (v) => `₱${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`;
 
-const toNumber = (value) => {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : 0;
-};
-
 const centsToPesos = (c) => Math.max(0, toNumber(c)) / 100;
 
 const safeDate = (value) => {
@@ -66,6 +62,7 @@ const localDateBoundary = (value, endOfDay = false) => {
   date.setHours(endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0);
   return date.getTime();
 };
+
 const normalizePlatform = (p) => {
   if (!p) return "Unknown";
   const key = p.toLowerCase();
@@ -74,9 +71,10 @@ const normalizePlatform = (p) => {
   if (key === "tiktok") return "TikTok";
   return p;
 };
+
 const orderDate = (o) => o.completed_at || o.created_at || o.paid_time;
 
-// Batch an array into chunks of a max size — used to keep PostgREST
+// Batch an array into chunks of a max size. Used to keep PostgREST
 // `.in()` filter URLs from growing past server/proxy URL length limits.
 const chunkArray = (arr, size) => {
   const chunks = [];
@@ -94,7 +92,7 @@ function getStartOfWeek(d) {
 }
 
 function timeAgo(date) {
-  if (!date) return "—";
+  if (!date) return "-";
   const diffMs = Date.now() - date.getTime();
   const mins = Math.floor(diffMs / 60000);
   if (mins < 1) return "just now";
@@ -116,7 +114,7 @@ function bucketSales(orders, mode) {
 
     if (mode === "weekly") {
       const start = getStartOfWeek(d);
-      key = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
+      key = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(2, "0")}`;
       label = start.toLocaleDateString(undefined, { month: "short", day: "numeric" });
       sortKey = start.getTime();
     } else if (mode === "monthly") {
@@ -192,8 +190,10 @@ function ChangeBadge({ current, previous }) {
 function EmptyState({ onImport }) {
   return (
     <div className="flex flex-col items-center justify-center py-12 text-center">
-      <p className="text-sm font-medium text-gray-600">No sales yet</p>
-      <p className="text-xs text-gray-400 mt-1 mb-4">Import your first CSV to see data here</p>
+      <p className="text-sm font-medium text-gray-600">No sales in this range</p>
+      <p className="text-xs text-gray-400 mt-1 mb-4">
+        Adjust the dates, or import a CSV to see data here
+      </p>
       {onImport && (
         <button
           onClick={onImport}
@@ -219,8 +219,9 @@ function Sales_db({ onGoToImport }) {
   const [trendMode, setTrendMode] = useState("weekly");
   const [productSort, setProductSort] = useState("qty");
   const [lastSynced, setLastSynced] = useState(null);
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  // Default to the current month, the same as the Finance page.
+  const [dateFrom, setDateFrom] = useState(firstOfMonthKey());
+  const [dateTo, setDateTo] = useState(localDateKey());
   const [platformFilter, setPlatformFilter] = useState("all");
 
   const fetchAll = useCallback(async (isInitial = false) => {
@@ -252,7 +253,7 @@ function Sales_db({ onGoToImport }) {
     if (orderUuids.length === 0) {
       setOrderItems([]);
     } else {
-      // Fetch order_items in chunks — a single .in() call with hundreds of
+      // Fetch order_items in chunks. A single .in() call with hundreds of
       // UUIDs produces a URL long enough that Supabase/PostgREST (and most
       // proxies in front of it) reject it with a 400.
       const ORDER_ITEMS_CHUNK_SIZE = 150;
@@ -313,13 +314,13 @@ function Sales_db({ onGoToImport }) {
     }
 
     if (!dateFrom && !dateTo) return result;
-    const fromTime = localDateBoundary(dateFrom)
-    const toTime = localDateBoundary(dateTo, true)
+    const fromTime = localDateBoundary(dateFrom);
+    const toTime = localDateBoundary(dateTo, true);
     return result.filter((o) => {
       const raw = orderDate(o);
       if (!raw) return false;
-      const t = safeDate(raw)?.getTime()
-      if (t == null) return false
+      const t = safeDate(raw)?.getTime();
+      if (t == null) return false;
       if (fromTime !== null && t < fromTime) return false;
       if (toTime !== null && t > toTime) return false;
       return true;
@@ -368,9 +369,9 @@ function Sales_db({ onGoToImport }) {
     filteredOrderItems.forEach((item) => {
       const name = item.product_name || "Unknown";
       if (!map[name]) map[name] = { name, qty: 0, amount: 0 };
-      const quantity = Math.max(0, toNumber(item.quantity))
-      map[name].qty += quantity
-      map[name].amount += quantity * centsToPesos(item.unit_price)
+      const quantity = Math.max(0, toNumber(item.quantity));
+      map[name].qty += quantity;
+      map[name].amount += quantity * centsToPesos(item.unit_price);
     });
     return Object.values(map)
       .sort((a, b) => b[productSort] - a[productSort])
@@ -415,7 +416,7 @@ function Sales_db({ onGoToImport }) {
     return (
       <div className="p-6">
         <div className={`${CARD} p-6 border-red-200`}>
-          <h1 className="text-lg font-semibold text-gray-900 mb-2">Sales — Dashboard</h1>
+          <h1 className="text-lg font-semibold text-gray-900 mb-2">Sales - Dashboard</h1>
           <p className="text-sm text-red-700 mb-4">{errorMsg}</p>
           <button
             onClick={() => fetchAll(true)}
@@ -468,6 +469,7 @@ function Sales_db({ onGoToImport }) {
               onChange={(e) => setDateTo(e.target.value)}
               className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
             />
+            
           </div>
 
           <button
@@ -478,7 +480,7 @@ function Sales_db({ onGoToImport }) {
             onMouseEnter={(e) => !(loading || refreshing) && (e.currentTarget.style.background = ACCENT_HOVER)}
             onMouseLeave={(e) => (e.currentTarget.style.background = ACCENT)}
           >
-            {loading || refreshing ? "Loading…" : "Refresh"}
+            {loading || refreshing ? "Loading..." : "Refresh"}
           </button>
         </div>
       </div>
@@ -542,7 +544,7 @@ function Sales_db({ onGoToImport }) {
           ) : (
             <div className="flex items-center gap-2 mt-1">
               <p className="text-2xl font-semibold text-gray-900">
-                {trendChange ? fmtPHP(trendChange.current) : "—"}
+                {trendChange ? fmtPHP(trendChange.current) : "-"}
               </p>
               {trendChange && <ChangeBadge current={trendChange.current} previous={trendChange.previous} />}
             </div>

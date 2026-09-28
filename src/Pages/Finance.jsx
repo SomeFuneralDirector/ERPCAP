@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { supabase } from "../api/supabase";
+import { formatPeso, localDateKey, firstOfMonthKey } from "../lib/Finance";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -13,7 +14,7 @@ import {
   Legend,
 } from "recharts";
 
-/* ── Design tokens — shared with Inventory / Sales / Marketing ──────────── */
+/* Design tokens shared with Inventory, Sales, and Marketing */
 const C = {
   accent: "#B3211B",
   accentHover: "#8E1A15",
@@ -28,13 +29,6 @@ const C = {
   warningSoft: "#FBF3E7",
   warningBorder: "#F1DDB8",
 };
-
-function formatPeso(cents = 0) {
-  return (cents / 100).toLocaleString("en-PH", {
-    style: "currency",
-    currency: "PHP",
-  });
-}
 
 const fmtAxis = (v) => `₱${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`;
 
@@ -85,10 +79,8 @@ function TrendTooltip({ active, payload, label }) {
 function Finance() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [dateFrom, setDateFrom] = useState(
-    new Date(new Date().setDate(1)).toISOString().slice(0, 10)
-  );
-  const [dateTo, setDateTo] = useState(new Date().toISOString().slice(0, 10));
+  const [dateFrom, setDateFrom] = useState(firstOfMonthKey());
+  const [dateTo, setDateTo] = useState(localDateKey());
 
   const [entries, setEntries] = useState([]);
   const [error, setError] = useState("");
@@ -145,7 +137,8 @@ function Finance() {
       const amount = Number(entry.amount);
       if (!Number.isFinite(amount) || amount < 0) return;
 
-      // Ledger convention: debit entries are revenue, credit entries are expenses.
+      // Ledger convention (cash view): debit is cash in (revenue side),
+      // credit is cash out (expense side).
       const flow =
         entry.type === "debit"
           ? "revenue"
@@ -181,7 +174,7 @@ function Finance() {
 
   const { totalExpenses, totalRevenue, byCategory, monthlyTrend } = analytics;
 
-  // P&L: revenue − expenses
+  // P&L: revenue minus expenses
   const net = totalRevenue - totalExpenses;
   const isProfit = net >= 0;
 
@@ -214,7 +207,7 @@ function Finance() {
               onClick={() => loadFinanceData(false)}
               disabled={loading || refreshing}
             >
-              {loading || refreshing ? "Loading…" : "Refresh"}
+              {loading || refreshing ? "Loading..." : "Refresh"}
             </PrimaryButton>
           </div>
         </Card>
@@ -350,7 +343,7 @@ function Finance() {
         {/* By category */}
         <Card className="p-6">
           <h2 className="text-sm font-semibold text-gray-700 mb-3">
-           Utilized Money By Category
+            Utilized Money By Category
           </h2>
           {loading ? (
             <Skeleton className="h-56 w-full" />

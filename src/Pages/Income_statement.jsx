@@ -1,98 +1,99 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../api/supabase";
 import { Loader2 } from "lucide-react";
+import {
+  toNumber,
+  formatPeso,
+  localDateKey,
+  firstOfMonthKey,
+} from "../lib/Finance";
 
-function toNumber(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : 0;
-}
+// Ledger convention (cash view):
+//   Debit  = cash IN
+//   Credit = cash OUT
+//
+// Revenue  = cash in minus cash refunded   -> debit - credit
+// Expenses = cash out minus cash recovered -> credit - debit
 
-function formatPeso(cents = 0) {
-  return (toNumber(cents) / 100).toLocaleString("en-PH", {
-    style: "currency",
-    currency: "PHP",
-  });
-}
-
-function localDateKey(date = new Date()) {
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const dd = String(date.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+function StatementRows({ rows }) {
+  return (
+    <table className="w-full text-sm mb-2">
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.name} className="border-b border-gray-100">
+            <td className="py-2 text-gray-900">{r.name}</td>
+            <td className="py-2 text-right text-gray-900">
+              {formatPeso(r.amount)}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
 }
 
 function IncomeStatement() {
   const [loading, setLoading] = useState(true);
-  const [dateFrom, setDateFrom] = useState(
-    `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-01`
-  );
-  const [dateTo, setDateTo] = useState(new Date().toISOString().slice(0, 10));
+  const [dateFrom, setDateFrom] = useState(firstOfMonthKey());
+  const [dateTo, setDateTo] = useState(localDateKey());
 
   const [revenue, setRevenue] = useState([]);
   const [expenses, setExpenses] = useState([]);
 
   useEffect(() => {
-    loadIncomeStatement();
-  }, [dateFrom, dateTo]);
+    // Ignore responses from an earlier request if the dates changed again.
+    let ignore = false;
 
-  async function loadIncomeStatement() {
-    setLoading(true);
+    async function loadIncomeStatement() {
+      setLoading(true);
 
-    const { data, error } = await supabase
-      .from("ledger_entries")
-      .select("date, type, amount, ledger_categories ( name, classification )")
-      .gte("date", dateFrom)
-      .lte("date", dateTo);
+      const { data, error } = await supabase.rpc("account_balances", {
+        p_from: dateFrom,
+        p_to: dateTo,
+      });
 
-    if (error) {
-      console.error("Error loading income statement data:", error);
-      setRevenue([]);
-      setExpenses([]);
+      if (ignore) return;
+
+      if (error) {
+        console.error("Error loading income statement data:", error);
+        setRevenue([]);
+        setExpenses([]);
+        setLoading(false);
+        return;
+      }
+
+      const rows = (data || [])
+        .filter((r) => r.name && r.classification)
+        .map((r) => ({
+          name: r.name,
+          classification: r.classification.toLowerCase(),
+          debit: toNumber(r.debit),
+          credit: toNumber(r.credit),
+        }));
+
+      const revenueRows = rows
+        .filter((r) => r.classification === "revenue")
+        .map((r) => ({ name: r.name, amount: r.debit - r.credit }))
+        .filter((r) => r.amount !== 0)
+        .sort((a, b) => b.amount - a.amount);
+
+      const expenseRows = rows
+        .filter((r) => r.classification === "expense")
+        .map((r) => ({ name: r.name, amount: r.credit - r.debit }))
+        .filter((r) => r.amount !== 0)
+        .sort((a, b) => b.amount - a.amount);
+
+      setRevenue(revenueRows);
+      setExpenses(expenseRows);
       setLoading(false);
-      return;
     }
 
-    const entries = data || [];
+    loadIncomeStatement();
 
-    // Group amounts by category name, tracking debit/credit totals so
-    // we can apply the right normal-balance rule per classification.
-    const byCategory = {};
-    entries.forEach((e) => {
-      const name = e.ledger_categories?.name;
-      const classification = e.ledger_categories?.classification?.toLowerCase();
-      if (!name || !classification) return;
-      if (classification !== "revenue" && classification !== "expense") return;
-      if (e.type !== "debit" && e.type !== "credit") return;
-
-      const key = `${classification}:${name}`;
-      if (!byCategory[key]) {
-        byCategory[key] = { name, classification, debit: 0, credit: 0 };
-      }
-      const amount = Math.max(0, toNumber(e.amount));
-      if (e.type === "debit") byCategory[key].debit += amount;
-      else byCategory[key].credit += amount;
-    });
-
-    const rows = Object.values(byCategory).sort((a, b) => a.name.localeCompare(b.name));
-
-    // Revenue: normal credit balance
-    const revenueRows = rows
-      .filter((r) => r.classification === "revenue")
-      .map((r) => ({ name: r.name, amount: r.credit - r.debit }))
-      .filter((r) => r.amount !== 0)
-      .sort((a, b) => b.amount - a.amount);
-
-    // Expenses: normal debit balance
-    const expenseRows = rows
-      .filter((r) => r.classification === "expense")
-      .map((r) => ({ name: r.name, amount: r.debit - r.credit }))
-      .filter((r) => r.amount !== 0)
-      .sort((a, b) => b.amount - a.amount);
-
-    setRevenue(revenueRows);
-    setExpenses(expenseRows);
-    setLoading(false);
-  }
+    return () => {
+      ignore = true;
+    };
+  }, [dateFrom, dateTo]);
 
   const totalRevenue = revenue.reduce((s, r) => s + toNumber(r.amount), 0);
   const totalExpenses = expenses.reduce((s, r) => s + toNumber(r.amount), 0);
@@ -101,7 +102,9 @@ function IncomeStatement() {
   return (
     <div className="p-6">
       <div className="flex items-center justify-between flex-wrap gap-4 bg-white rounded-lg shadow p-6 mb-4">
-        <h1 className="text-2xl font-semibold text-gray-800">Income Statement</h1>
+        <h1 className="text-2xl font-semibold text-gray-800">
+          Income Statement
+        </h1>
         <div className="flex items-center gap-2">
           <input
             type="date"
@@ -122,7 +125,7 @@ function IncomeStatement() {
       {loading ? (
         <div className="bg-white rounded-lg shadow p-6 flex items-center gap-2 text-gray-400 text-sm justify-center">
           <Loader2 size={16} className="animate-spin" />
-          Loading income statement…
+          Loading income statement...
         </div>
       ) : (
         <div className="bg-white rounded-lg shadow p-6">
@@ -135,18 +138,7 @@ function IncomeStatement() {
               No revenue in this period.
             </p>
           ) : (
-            <table className="w-full text-sm mb-2">
-              <tbody>
-                {revenue.map((r) => (
-                  <tr key={r.name} className="border-b border-gray-100">
-                    <td className="py-2 text-gray-900">{r.name}</td>
-                    <td className="py-2 text-right text-gray-900">
-                      {formatPeso(r.amount)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <StatementRows rows={revenue} />
           )}
           <div className="flex justify-between pt-3 mb-8 border-t border-gray-200">
             <span className="font-bold text-gray-800">Total Revenue</span>
@@ -164,18 +156,7 @@ function IncomeStatement() {
               No expenses in this period.
             </p>
           ) : (
-            <table className="w-full text-sm mb-2">
-              <tbody>
-                {expenses.map((r) => (
-                  <tr key={r.name} className="border-b border-gray-100">
-                    <td className="py-2 text-gray-900">{r.name}</td>
-                    <td className="py-2 text-right text-gray-900">
-                      {formatPeso(r.amount)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <StatementRows rows={expenses} />
           )}
           <div className="flex justify-between pt-3 border-t border-gray-200">
             <span className="font-bold text-gray-800">Total Expenses</span>
