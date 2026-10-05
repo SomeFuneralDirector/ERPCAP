@@ -18,7 +18,7 @@ const linesFor = (wo) => {
       key: `${wo.id}::${i}`,
       wo,
       platform: b.platform,
-      quantity: b.quantity,
+      quantity: b.quantity, 
       concrete: true, 
     }));
   }
