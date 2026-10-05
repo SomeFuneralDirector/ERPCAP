@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -38,6 +38,7 @@ const PLATFORM_COLORS = {
 const LOW_PERFORMER_THRESHOLD = 5;
 const CAMPAIGN_ENDING_SOON_DAYS = 7;
 const TOP_N_IN_TOOLTIP = 3;
+const POLL_INTERVAL_MS = 5000;
 
 const TREND_LINE_COLOR = C.accent;
 const TREND_PEAK_COLOR = "#dc2626";
@@ -241,18 +242,40 @@ function Marketing() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
-  const fetchAll = useCallback(async (isInitial = false) => {
+  // Newest order `created_at` we've already pulled — background polls only
+  // ask for rows newer than this instead of re-fetching the whole table.
+  const lastOrderSyncAtRef = useRef(null);
+  // Last campaigns payload actually applied to state, so identical polls
+  // can skip the setState (and the re-renders/memos it would trigger).
+  const prevCampaignsJsonRef = useRef("");
+
+  /**
+   * mode: "initial" | "manual" | "poll"
+   * - "initial" and "manual" always do a full resync.
+   * - "poll" (the background interval) only asks for orders newer than the
+   *   last sync point, and skips setState entirely when nothing's new.
+   */
+  const fetchAll = useCallback(async (mode = "poll") => {
+    const isInitial = mode === "initial";
+    const fullResync = mode !== "poll";
+
     if (isInitial) {
       setInitialLoading(true);
-    } else {
+    } else if (mode === "manual") {
       setRefreshing(true);
     }
     setErrorMsg("");
 
-    const { data: completedOrders, error: ordersError } = await supabase
+    let ordersQuery = supabase
       .from("orders")
       .select("id, order_id, platform, total_amount, completed_at, created_at, paid_time, status")
       .eq("status", "COMPLETED");
+
+    if (!fullResync && lastOrderSyncAtRef.current) {
+      ordersQuery = ordersQuery.gt("created_at", lastOrderSyncAtRef.current);
+    }
+
+    const { data: fetchedOrders, error: ordersError } = await ordersQuery;
 
     if (ordersError) {
       setErrorMsg(ordersError.message);
@@ -261,78 +284,122 @@ function Marketing() {
       return;
     }
 
-    const validOrders = (completedOrders || []).filter((o) => safeDate(orderDate(o)));
-    setOrders(validOrders);
-    const orderUuids = validOrders.map((o) => o.id).filter(Boolean);
+    const newOrders = (fetchedOrders || []).filter((o) => safeDate(orderDate(o)));
 
-    const ORDER_ITEMS_CHUNK_SIZE = 150;
-    const orderUuidChunks = [];
-    for (let i = 0; i < orderUuids.length; i += ORDER_ITEMS_CHUNK_SIZE) {
-      orderUuidChunks.push(orderUuids.slice(i, i + ORDER_ITEMS_CHUNK_SIZE));
+    if (newOrders.length > 0) {
+      const newestCreatedAt = newOrders.reduce(
+        (max, o) => (o.created_at && o.created_at > max ? o.created_at : max),
+        lastOrderSyncAtRef.current || ""
+      );
+      lastOrderSyncAtRef.current = newestCreatedAt;
+
+      setOrders((prev) => {
+        if (fullResync) return newOrders;
+        const byId = new Map(prev.map((o) => [o.id, o]));
+        newOrders.forEach((o) => byId.set(o.id, o));
+        return Array.from(byId.values());
+      });
+    } else if (fullResync) {
+      setOrders([]);
     }
+    // If this was a poll with zero new orders, `orders` state is left
+    // untouched — nothing changed, so no re-render for this slice.
 
-    const [itemsChunkResults, campaignsRes] = await Promise.all([
-      orderUuidChunks.length > 0
-        ? Promise.all(
-            orderUuidChunks.map((chunk) =>
-              supabase
-                .from("order_items")
-                .select("order_uuid, order_id, platform, product_name, quantity, unit_price")
-                .in("order_uuid", chunk)
-            )
-          )
-        : Promise.resolve([]),
-      supabase
-        .from("campaigns")
-        .select("id, name, platform, discount_type, discount_value, start_date, end_date, status"),
-    ]);
+    const idsNeedingItems = newOrders.map((o) => o.id).filter(Boolean);
 
-    const firstItemsError = itemsChunkResults.find((r) => r.error)?.error || null;
-    const itemsRes = {
-      data: firstItemsError ? [] : itemsChunkResults.flatMap((r) => r.data || []),
-      error: firstItemsError,
-    };
+    if (idsNeedingItems.length > 0) {
+      const ORDER_ITEMS_CHUNK_SIZE = 150;
+      const chunks = [];
+      for (let i = 0; i < idsNeedingItems.length; i += ORDER_ITEMS_CHUNK_SIZE) {
+        chunks.push(idsNeedingItems.slice(i, i + ORDER_ITEMS_CHUNK_SIZE));
+      }
 
-    if (itemsRes.error) {
-      console.error("Error fetching order items:", itemsRes.error);
+      const itemsChunkResults = await Promise.all(
+        chunks.map((chunk) =>
+          supabase
+            .from("order_items")
+            .select("order_uuid, order_id, platform, product_name, quantity, unit_price")
+            .in("order_uuid", chunk)
+        )
+      );
+
+      const firstItemsError = itemsChunkResults.find((r) => r.error)?.error || null;
+      if (firstItemsError) {
+        console.error("Error fetching order items:", firstItemsError);
+      } else {
+        const newItems = itemsChunkResults
+          .flatMap((r) => r.data || [])
+          .filter((item) => toNumber(item.quantity) > 0);
+
+        setOrderItems((prev) => (fullResync ? newItems : [...prev, ...newItems]));
+      }
+    } else if (fullResync) {
       setOrderItems([]);
-    } else {
-      setOrderItems((itemsRes.data || []).filter((item) => toNumber(item.quantity) > 0));
     }
+
+    // Campaigns is a small table and statuses can change on existing rows
+    // (e.g. Cancelled), so it's always pulled in full — but the state update
+    // is skipped unless the payload actually differs from last time.
+    const campaignsRes = await supabase
+      .from("campaigns")
+      .select("id, name, platform, discount_type, discount_value, start_date, end_date, status");
 
     if (campaignsRes.error) {
       console.error("Error fetching campaigns:", campaignsRes.error);
-      setCampaigns([]);
+      if (fullResync) setCampaigns([]);
     } else {
-      setCampaigns((campaignsRes.data || []).filter((campaign) => campaign?.name));
+      const fresh = (campaignsRes.data || []).filter((c) => c?.name);
+      const freshJson = JSON.stringify(fresh);
+      if (freshJson !== prevCampaignsJsonRef.current) {
+        prevCampaignsJsonRef.current = freshJson;
+        setCampaigns(fresh);
+      }
     }
 
     setInitialLoading(false);
     setRefreshing(false);
   }, []);
 
+  // Polling: refetches on an interval, but only while the tab is visible —
+  // paused in background tabs, with an immediate catch-up fetch the moment
+  // the tab becomes visible again.
   useEffect(() => {
-    fetchAll(true);
+    fetchAll("initial");
 
-    const channel = supabase
-      .channel("marketing-dashboard-realtime")
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => fetchAll(false))
-      .on("postgres_changes", { event: "*", schema: "public", table: "order_items" }, () => fetchAll(false))
-      .on("postgres_changes", { event: "*", schema: "public", table: "campaigns" }, (payload) => {
-        // TEMP DEBUG — remove once realtime is confirmed working.
-        // If this never logs when a campaign is created in another tab/account,
-        // the event isn't reaching this client (check RLS / publication).
-        // If it logs but the dashboard doesn't visually update, the bug is in
-        // fetchAll / the derived state below, not in the subscription.
-        console.log("campaign event:", payload);
-        fetchAll(false);
-      })
-      .subscribe((status) => {
-        // TEMP DEBUG — confirms the channel actually subscribed.
-        console.log("marketing-dashboard-realtime status:", status);
-      });
+    let intervalId = null;
 
-    return () => supabase.removeChannel(channel);
+    const startPolling = () => {
+      if (intervalId) return;
+      intervalId = setInterval(() => {
+        fetchAll("poll");
+      }, POLL_INTERVAL_MS);
+    };
+
+    const stopPolling = () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        fetchAll("poll");
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    };
+
+    if (document.visibilityState === "visible") {
+      startPolling();
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      stopPolling();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [fetchAll]);
 
   // ── Filtered data (platform + date range) ─────────────────
@@ -556,7 +623,7 @@ function Marketing() {
           <p className="text-sm mb-4" style={{ color: C.accent }}>
             {errorMsg}
           </p>
-          <PrimaryButton onClick={() => fetchAll(true)}>Retry</PrimaryButton>
+          <PrimaryButton onClick={() => fetchAll("initial")}>Retry</PrimaryButton>
         </Card>
       </div>
     );
@@ -602,7 +669,7 @@ function Marketing() {
               />
             </div>
 
-            <PrimaryButton onClick={() => fetchAll(false)} disabled={loading || refreshing}>
+            <PrimaryButton onClick={() => fetchAll("manual")} disabled={loading || refreshing}>
               {loading || refreshing ? "Loading…" : "Refresh"}
             </PrimaryButton>
           </div>

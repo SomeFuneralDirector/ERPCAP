@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   ResponsiveContainer,
   PieChart,
@@ -58,6 +58,8 @@ const SEGMENT_BTN = (active) =>
   `px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer ${
     active ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
   }`;
+
+const POLL_INTERVAL_MS = 5000;
 
 // ─── Helpers ──────────────────────────────────────────────────
 
@@ -127,6 +129,13 @@ function topPlatform(r) {
   if (s >= l && s >= t) return "Shopee";
   if (l >= s && l >= t) return "Lazada";
   return "TikTok";
+}
+
+/** Merge freshly-fetched rows into an existing array, replacing by id. */
+function mergeById(prev, fresh) {
+  const map = new Map(prev.map((r) => [r.id, r]));
+  fresh.forEach((r) => map.set(r.id, r));
+  return Array.from(map.values());
 }
 
 // ─── Primitives ─────────────────────────────────────────────
@@ -202,31 +211,47 @@ function Inventory_db() {
   // Drill-down state
   const [breakdown, setBreakdown] = useState(null);
 
-  const fetchAll = useCallback(async (isInitial = false) => {
+  // Newest `updated_at` we've already pulled for each incrementally-synced
+  // table — background polls only ask for rows changed since these.
+  const lastInventorySyncAtRef = useRef(null);
+  const lastMaterialsSyncAtRef = useRef(null);
+  // Last applied payloads for the small, always-full-fetched pieces, so
+  // identical polls can skip the setState entirely.
+  const prevSoldJsonRef = useRef("");
+  const prevActivityKeyRef = useRef("");
+
+  /**
+   * mode: "initial" | "manual" | "poll"
+   * - "initial" and "manual" always do a full resync of inventory/materials.
+   * - "poll" (the background interval) only asks for inventory/materials
+   *   rows changed since the last sync point, and skips setState entirely
+   *   when nothing's new.
+   */
+  const fetchAll = useCallback(async (mode = "poll") => {
+    const isInitial = mode === "initial";
+    const fullResync = mode !== "poll";
+
     if (isInitial) {
       setInitialLoading(true);
-    } else {
+    } else if (mode === "manual") {
       setRefreshing(true);
     }
     setErrorMsg("");
     setMaterialsErrorMsg("");
 
-    const [invRes, ordersRes, materialsRes] = await Promise.all([
-      supabase
-        .from("inventory")
-        .select(
-          "id, stock, shopee_stock, lazada_stock, tiktok_stock, " +
-            "category, product_name, product_code, reorder_point, updated_at"
-        ),
-      supabase.from("orders").select("order_id").eq("status", "COMPLETED"),
-      supabase
-        .from("raw_materials")
-        .select(
-          "id, material_name, category, unit, current_stock, supplier, unit_cost, status, updated_at"
-        ),
-    ]);
+    // ── Inventory (incremental by updated_at on polls) ──────
+    let invQuery = supabase
+      .from("inventory")
+      .select(
+        "id, stock, shopee_stock, lazada_stock, tiktok_stock, " +
+          "category, product_name, product_code, reorder_point, updated_at"
+      );
 
-    const { data: inv, error: invError } = invRes;
+    if (!fullResync && lastInventorySyncAtRef.current) {
+      invQuery = invQuery.gt("updated_at", lastInventorySyncAtRef.current);
+    }
+
+    const { data: inv, error: invError } = await invQuery;
 
     if (invError) {
       setErrorMsg(invError.message || "Couldn't load inventory data.");
@@ -235,11 +260,30 @@ function Inventory_db() {
       return;
     }
 
-    if (ordersRes.error) {
-      console.error("Error fetching orders for platform chart:", ordersRes.error);
-      setSoldByPlatform({ shopee: 0, lazada: 0, tiktok: 0 });
+    const freshInv = inv || [];
+    if (freshInv.length > 0) {
+      const newestUpdatedAt = freshInv.reduce(
+        (max, r) => (r.updated_at && r.updated_at > max ? r.updated_at : max),
+        lastInventorySyncAtRef.current || ""
+      );
+      lastInventorySyncAtRef.current = newestUpdatedAt;
+      setRawInventory((prev) => (fullResync ? freshInv : mergeById(prev, freshInv)));
+    } else if (fullResync) {
+      setRawInventory([]);
+    }
+    // On a poll with nothing new, rawInventory is left untouched — no
+    // re-render for this slice.
+
+    // ── Sold-by-platform totals (small, always full, diffed) ─
+    const { data: completedOrders, error: ordersError } = await supabase
+      .from("orders")
+      .select("order_id")
+      .eq("status", "COMPLETED");
+
+    if (ordersError) {
+      console.error("Error fetching orders for platform chart:", ordersError);
     } else {
-      const orderIds = (ordersRes.data || []).map((o) => o.order_id).filter(Boolean);
+      const orderIds = (completedOrders || []).map((o) => o.order_id).filter(Boolean);
       const soldTotals = { shopee: 0, lazada: 0, tiktok: 0 };
 
       if (orderIds.length > 0) {
@@ -260,21 +304,47 @@ function Inventory_db() {
         }
       }
 
-      setSoldByPlatform(soldTotals);
+      const soldJson = JSON.stringify(soldTotals);
+      if (soldJson !== prevSoldJsonRef.current) {
+        prevSoldJsonRef.current = soldJson;
+        setSoldByPlatform(soldTotals);
+      }
     }
 
-    if (materialsRes.error) {
-      console.error("Error fetching raw materials:", materialsRes.error);
-      setMaterialsErrorMsg(materialsRes.error.message || "Couldn't load raw materials data.");
-      setRawMaterials([]);
+    // ── Raw materials (incremental by updated_at on polls) ───
+    let materialsQuery = supabase
+      .from("raw_materials")
+      .select(
+        "id, material_name, category, unit, current_stock, supplier, unit_cost, status, updated_at"
+      );
+
+    if (!fullResync && lastMaterialsSyncAtRef.current) {
+      materialsQuery = materialsQuery.gt("updated_at", lastMaterialsSyncAtRef.current);
+    }
+
+    const { data: materials, error: materialsError } = await materialsQuery;
+
+    if (materialsError) {
+      console.error("Error fetching raw materials:", materialsError);
+      setMaterialsErrorMsg(materialsError.message || "Couldn't load raw materials data.");
+      if (fullResync) setRawMaterials([]);
     } else {
-      setRawMaterials(materialsRes.data || []);
+      const freshMaterials = materials || [];
+      if (freshMaterials.length > 0) {
+        const newestUpdatedAt = freshMaterials.reduce(
+          (max, r) => (r.updated_at && r.updated_at > max ? r.updated_at : max),
+          lastMaterialsSyncAtRef.current || ""
+        );
+        lastMaterialsSyncAtRef.current = newestUpdatedAt;
+        setRawMaterials((prev) => (fullResync ? freshMaterials : mergeById(prev, freshMaterials)));
+      } else if (fullResync) {
+        setRawMaterials([]);
+      }
     }
 
-    setRawInventory(inv || []);
     setLastUpdated(new Date());
 
-    // Activity logs
+    // ── Recent activity (small, always full, diffed) ─────────
     const { data: logs, error: logsError } = await supabase
       .from("inventory_logs")
       .select("detail, created_at")
@@ -284,51 +354,62 @@ function Inventory_db() {
     if (logsError) {
       console.error("Error fetching logs:", logsError);
     } else if (logs) {
-      setActivity(
-        logs.map((l) => ({
-          text: l.detail || "Activity recorded",
-          time: formatLogTime(l.created_at),
-        }))
-      );
+      const activityKey = logs.map((l) => `${l.created_at}|${l.detail}`).join(",");
+      if (activityKey !== prevActivityKeyRef.current) {
+        prevActivityKeyRef.current = activityKey;
+        setActivity(
+          logs.map((l) => ({
+            text: l.detail || "Activity recorded",
+            time: formatLogTime(l.created_at),
+          }))
+        );
+      }
     }
 
     setInitialLoading(false);
     setRefreshing(false);
   }, []);
 
+  // Polling: refetches on an interval, but only while the tab is visible —
+  // paused in background tabs, with an immediate catch-up fetch the moment
+  // the tab becomes visible again.
   useEffect(() => {
-    fetchAll(true);
+    fetchAll("initial");
 
-    const channel = supabase
-      .channel("inventory-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "inventory" },
-        () => fetchAll(false)
-      )
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "inventory_logs" },
-        () => fetchAll(false)
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "orders" },
-        () => fetchAll(false)
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "order_items" },
-        () => fetchAll(false)
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "raw_materials" },
-        () => fetchAll(false)
-      )
-      .subscribe();
+    let intervalId = null;
 
-    return () => supabase.removeChannel(channel);
+    const startPolling = () => {
+      if (intervalId) return;
+      intervalId = setInterval(() => {
+        fetchAll("poll");
+      }, POLL_INTERVAL_MS);
+    };
+
+    const stopPolling = () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        fetchAll("poll");
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    };
+
+    if (document.visibilityState === "visible") {
+      startPolling();
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      stopPolling();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [fetchAll]);
 
   // ── Filtered inventory (platform + date on updated_at) ─────
@@ -651,7 +732,7 @@ function Inventory_db() {
           <p className="text-sm mb-4" style={{ color: C.accent }}>
             {errorMsg}
           </p>
-          <PrimaryButton onClick={() => fetchAll(true)}>Retry</PrimaryButton>
+          <PrimaryButton onClick={() => fetchAll("initial")}>Retry</PrimaryButton>
         </Card>
       </div>
     );
@@ -702,7 +783,7 @@ function Inventory_db() {
               />
             </div>
 
-            <PrimaryButton onClick={() => fetchAll(false)} disabled={loading || refreshing}>
+            <PrimaryButton onClick={() => fetchAll("manual")} disabled={loading || refreshing}>
               {loading || refreshing ? "Loading…" : "Refresh"}
             </PrimaryButton>
           </div>
@@ -1392,7 +1473,7 @@ function Inventory_db() {
                             )}
                           </div>
                           <span
-                            class className="text-xs font-semibold shrink-0"
+                            className="text-xs font-semibold shrink-0"
                             style={{ color: C.accent }}
                           >
                             {fmt(p.qty)} {p.unit || "units"}
