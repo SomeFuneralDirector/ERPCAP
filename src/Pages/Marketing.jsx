@@ -318,8 +318,19 @@ function Marketing() {
       .channel("marketing-dashboard-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => fetchAll(false))
       .on("postgres_changes", { event: "*", schema: "public", table: "order_items" }, () => fetchAll(false))
-      .on("postgres_changes", { event: "*", schema: "public", table: "campaigns" }, () => fetchAll(false))
-      .subscribe();
+      .on("postgres_changes", { event: "*", schema: "public", table: "campaigns" }, (payload) => {
+        // TEMP DEBUG — remove once realtime is confirmed working.
+        // If this never logs when a campaign is created in another tab/account,
+        // the event isn't reaching this client (check RLS / publication).
+        // If it logs but the dashboard doesn't visually update, the bug is in
+        // fetchAll / the derived state below, not in the subscription.
+        console.log("campaign event:", payload);
+        fetchAll(false);
+      })
+      .subscribe((status) => {
+        // TEMP DEBUG — confirms the channel actually subscribed.
+        console.log("marketing-dashboard-realtime status:", status);
+      });
 
     return () => supabase.removeChannel(channel);
   }, [fetchAll]);
