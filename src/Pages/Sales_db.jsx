@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -40,6 +40,8 @@ const SEGMENT_BTN = (active) =>
   }`;
 const PRIMARY_BTN =
   "px-3.5 py-2 rounded-md text-sm font-medium text-white transition-colors disabled:opacity-50 cursor-pointer";
+
+const POLL_INTERVAL_MS = 5000;
 
 const fmtPHP = (n) =>
   `₱${(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -224,19 +226,38 @@ function Sales_db({ onGoToImport }) {
   const [dateTo, setDateTo] = useState(localDateKey());
   const [platformFilter, setPlatformFilter] = useState("all");
 
-  const fetchAll = useCallback(async (isInitial = false) => {
+  // Newest order `created_at` already pulled — background polls only ask
+  // for rows newer than this instead of re-fetching the whole table.
+  const lastOrderSyncAtRef = useRef(null);
+
+  /**
+   * mode: "initial" | "manual" | "poll"
+   * - "initial" and "manual" always do a full resync.
+   * - "poll" (the background interval) only asks for orders newer than the
+   *   last sync point, and skips setState entirely when nothing's new.
+   */
+  const fetchAll = useCallback(async (mode = "poll") => {
+    const isInitial = mode === "initial";
+    const fullResync = mode !== "poll";
+
     if (isInitial) {
       setInitialLoading(true);
-    } else {
+    } else if (mode === "manual") {
       setRefreshing(true);
     }
     setErrorMsg("");
     setItemsWarning("");
 
-    const { data: completedOrders, error: ordersError } = await supabase
+    let ordersQuery = supabase
       .from("orders")
       .select("id, order_id, platform, total_amount, completed_at, created_at, paid_time, status")
       .eq("status", "COMPLETED");
+
+    if (!fullResync && lastOrderSyncAtRef.current) {
+      ordersQuery = ordersQuery.gt("created_at", lastOrderSyncAtRef.current);
+    }
+
+    const { data: fetchedOrders, error: ordersError } = await ordersQuery;
 
     if (ordersError) {
       setErrorMsg(ordersError.message || "Couldn't load orders.");
@@ -245,19 +266,35 @@ function Sales_db({ onGoToImport }) {
       return;
     }
 
-    const validOrders = (completedOrders || []).filter((o) => safeDate(orderDate(o)));
-    setOrders(validOrders);
+    const newOrders = (fetchedOrders || []).filter((o) => safeDate(orderDate(o)));
 
-    const orderUuids = validOrders.map((o) => o.id).filter(Boolean);
+    if (newOrders.length > 0) {
+      const newestCreatedAt = newOrders.reduce(
+        (max, o) => (o.created_at && o.created_at > max ? o.created_at : max),
+        lastOrderSyncAtRef.current || ""
+      );
+      lastOrderSyncAtRef.current = newestCreatedAt;
 
-    if (orderUuids.length === 0) {
-      setOrderItems([]);
-    } else {
+      setOrders((prev) => {
+        if (fullResync) return newOrders;
+        const byId = new Map(prev.map((o) => [o.id, o]));
+        newOrders.forEach((o) => byId.set(o.id, o));
+        return Array.from(byId.values());
+      });
+    } else if (fullResync) {
+      setOrders([]);
+    }
+    // On a poll with zero new orders, `orders` state is left untouched —
+    // nothing changed, so no re-render for this slice.
+
+    const idsNeedingItems = newOrders.map((o) => o.id).filter(Boolean);
+
+    if (idsNeedingItems.length > 0) {
       // Fetch order_items in chunks. A single .in() call with hundreds of
       // UUIDs produces a URL long enough that Supabase/PostgREST (and most
       // proxies in front of it) reject it with a 400.
       const ORDER_ITEMS_CHUNK_SIZE = 150;
-      const chunks = chunkArray(orderUuids, ORDER_ITEMS_CHUNK_SIZE);
+      const chunks = chunkArray(idsNeedingItems, ORDER_ITEMS_CHUNK_SIZE);
 
       const results = await Promise.all(
         chunks.map((chunk) =>
@@ -271,14 +308,18 @@ function Sales_db({ onGoToImport }) {
       const failed = results.find((r) => r.error);
       if (failed) {
         console.error("Error fetching order items:", failed.error);
-        setOrderItems([]);
         setItemsWarning(
           `Order items failed to load: ${failed.error.message}. Item/product totals shown may be incomplete.`
         );
       } else {
-        const items = results.flatMap((r) => r.data || []);
-        setOrderItems(items.filter((item) => toNumber(item.quantity) > 0));
+        const newItems = results
+          .flatMap((r) => r.data || [])
+          .filter((item) => toNumber(item.quantity) > 0);
+
+        setOrderItems((prev) => (fullResync ? newItems : [...prev, ...newItems]));
       }
+    } else if (fullResync) {
+      setOrderItems([]);
     }
 
     setLastSynced(new Date());
@@ -286,24 +327,46 @@ function Sales_db({ onGoToImport }) {
     setRefreshing(false);
   }, []);
 
+  // Polling: refetches on an interval, but only while the tab is visible —
+  // paused in background tabs, with an immediate catch-up fetch the moment
+  // the tab becomes visible again.
   useEffect(() => {
-    fetchAll(true);
+    fetchAll("initial");
 
-    const channel = supabase
-      .channel("sales-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "orders" },
-        () => fetchAll(false)
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "order_items" },
-        () => fetchAll(false)
-      )
-      .subscribe();
+    let intervalId = null;
 
-    return () => supabase.removeChannel(channel);
+    const startPolling = () => {
+      if (intervalId) return;
+      intervalId = setInterval(() => {
+        fetchAll("poll");
+      }, POLL_INTERVAL_MS);
+    };
+
+    const stopPolling = () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        fetchAll("poll");
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    };
+
+    if (document.visibilityState === "visible") {
+      startPolling();
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      stopPolling();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [fetchAll]);
 
   const filteredOrders = useMemo(() => {
@@ -419,7 +482,7 @@ function Sales_db({ onGoToImport }) {
           <h1 className="text-lg font-semibold text-gray-900 mb-2">Sales - Dashboard</h1>
           <p className="text-sm text-red-700 mb-4">{errorMsg}</p>
           <button
-            onClick={() => fetchAll(true)}
+            onClick={() => fetchAll("initial")}
             className={PRIMARY_BTN}
             style={{ background: ACCENT }}
             onMouseEnter={(e) => (e.currentTarget.style.background = ACCENT_HOVER)}
@@ -473,7 +536,7 @@ function Sales_db({ onGoToImport }) {
           </div>
 
           <button
-            onClick={() => fetchAll(false)}
+            onClick={() => fetchAll("manual")}
             disabled={loading || refreshing}
             className={PRIMARY_BTN}
             style={{ background: ACCENT }}

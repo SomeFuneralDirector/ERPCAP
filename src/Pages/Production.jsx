@@ -1,5 +1,5 @@
 //PRODUCTION DASHBOARD!!!!
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { PackageMinus, TimerReset } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -62,6 +62,7 @@ const DATE_RANGE_OPTIONS = [
 ];
 
 const FINISHED_GOODS_PAGE_SIZE = 6;
+const POLL_INTERVAL_MS = 5000;
 
 const CARD = "bg-white rounded-md border border-gray-200 shadow-sm";
 const SEGMENT_WRAP = "flex gap-0.5 bg-gray-100 rounded-md p-0.5";
@@ -123,6 +124,7 @@ function Production() {
   const [readyToShip, setReadyToShip] = useState([]);
   const [shippedTodayCount, setShippedTodayCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [softErrors, setSoftErrors] = useState([]);
 
@@ -133,8 +135,31 @@ function Production() {
   // Pagination for the "Finished goods running low" list
   const [finishedGoodsPage, setFinishedGoodsPage] = useState(0);
 
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
+  // Most of what this page reads changes via STATUS updates on existing
+  // rows (a work order going Pending -> Completed doesn't get a new
+  // created_at), so a created_at-based incremental fetch would silently
+  // miss exactly the changes the KPIs here depend on. Instead: every poll
+  // still fetches each table in full, but setState is skipped unless the
+  // payload actually differs from last time — same "don't re-render for
+  // nothing" benefit, without the correctness risk of a stale cursor.
+  const prevWorkOrdersJsonRef = useRef("");
+  const prevOutputJsonRef = useRef("");
+  const prevUsageJsonRef = useRef("");
+  const prevMaterialsJsonRef = useRef("");
+  const prevFinishedGoodsJsonRef = useRef("");
+  const prevReadyJsonRef = useRef("");
+  const prevShippedCountRef = useRef(-1);
+
+  /**
+   * mode: "initial" | "manual" | "poll"
+   * All three fetch the same full data — only the loading indicator
+   * differs. The diff-skip above is what keeps "poll" cheap for the UI.
+   */
+  const fetchAll = useCallback(async (mode = "poll") => {
+    const isInitial = mode === "initial";
+
+    if (isInitial) setLoading(true);
+    else if (mode === "manual") setRefreshing(true);
     setErrorMsg("");
     setSoftErrors([]);
 
@@ -178,29 +203,61 @@ function Production() {
     // and doesn't stop the rest of the dashboard from rendering.
     const softIssues = [];
 
-    if (woRes.error) setErrorMsg(woRes.error.message || "Couldn't load work orders.");
-    else setWorkOrders(woRes.data || []);
+    if (woRes.error) {
+      setErrorMsg(woRes.error.message || "Couldn't load work orders.");
+    } else {
+      const fresh = woRes.data || [];
+      const freshJson = JSON.stringify(fresh);
+      if (freshJson !== prevWorkOrdersJsonRef.current) {
+        prevWorkOrdersJsonRef.current = freshJson;
+        setWorkOrders(fresh);
+      }
+    }
 
-    if (!outputRes.error) setOutput(outputRes.data || []);
-    else {
+    if (!outputRes.error) {
+      const fresh = outputRes.data || [];
+      const freshJson = JSON.stringify(fresh);
+      if (freshJson !== prevOutputJsonRef.current) {
+        prevOutputJsonRef.current = freshJson;
+        setOutput(fresh);
+      }
+    } else {
       console.error("production_output fetch error:", outputRes.error);
       softIssues.push("Production output couldn't be loaded.");
     }
 
-    if (!usageRes.error) setUsage(usageRes.data || []);
-    else {
+    if (!usageRes.error) {
+      const fresh = usageRes.data || [];
+      const freshJson = JSON.stringify(fresh);
+      if (freshJson !== prevUsageJsonRef.current) {
+        prevUsageJsonRef.current = freshJson;
+        setUsage(fresh);
+      }
+    } else {
       console.error("raw_material_usage fetch error:", usageRes.error);
       softIssues.push("Material usage couldn't be loaded.");
     }
 
-    if (!materialsRes.error) setMaterials(materialsRes.data || []);
-    else {
+    if (!materialsRes.error) {
+      const fresh = materialsRes.data || [];
+      const freshJson = JSON.stringify(fresh);
+      if (freshJson !== prevMaterialsJsonRef.current) {
+        prevMaterialsJsonRef.current = freshJson;
+        setMaterials(fresh);
+      }
+    } else {
       console.error("raw_materials fetch error:", materialsRes.error);
       softIssues.push("Raw materials couldn't be loaded.");
     }
 
-    if (!finishedGoodsRes.error) setFinishedGoods(finishedGoodsRes.data || []);
-    else {
+    if (!finishedGoodsRes.error) {
+      const fresh = finishedGoodsRes.data || [];
+      const freshJson = JSON.stringify(fresh);
+      if (freshJson !== prevFinishedGoodsJsonRef.current) {
+        prevFinishedGoodsJsonRef.current = freshJson;
+        setFinishedGoods(fresh);
+      }
+    } else {
       console.error("inventory (finished goods) fetch error:", finishedGoodsRes.error);
       softIssues.push("Finished goods stock couldn't be loaded.");
     }
@@ -209,22 +266,70 @@ function Production() {
       console.error("production_orders (ready) fetch error:", readyRes.error);
       softIssues.push("Ready to Ship data couldn't be loaded.");
     } else {
-      setReadyToShip(readyRes.data || []);
+      const fresh = readyRes.data || [];
+      const freshJson = JSON.stringify(fresh);
+      if (freshJson !== prevReadyJsonRef.current) {
+        prevReadyJsonRef.current = freshJson;
+        setReadyToShip(fresh);
+      }
     }
 
     if (shippedRes.error) {
       console.error("production_orders (shipped) fetch error:", shippedRes.error);
       softIssues.push("Today's shipped count couldn't be loaded.");
     } else {
-      setShippedTodayCount(shippedRes.count || 0);
+      const freshCount = shippedRes.count || 0;
+      if (freshCount !== prevShippedCountRef.current) {
+        prevShippedCountRef.current = freshCount;
+        setShippedTodayCount(freshCount);
+      }
     }
 
     setSoftErrors(softIssues);
     setLoading(false);
+    setRefreshing(false);
   }, []);
 
+  // Polling: refetches on an interval, but only while the tab is visible —
+  // paused in background tabs, with an immediate catch-up fetch the moment
+  // the tab becomes visible again.
   useEffect(() => {
-    fetchAll();
+    fetchAll("initial");
+
+    let intervalId = null;
+
+    const startPolling = () => {
+      if (intervalId) return;
+      intervalId = setInterval(() => {
+        fetchAll("poll");
+      }, POLL_INTERVAL_MS);
+    };
+
+    const stopPolling = () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        fetchAll("poll");
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    };
+
+    if (document.visibilityState === "visible") {
+      startPolling();
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      stopPolling();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [fetchAll]);
 
   const activeWOs = workOrders.filter((w) => ["Pending", "In Progress"].includes(w.status));
@@ -471,7 +576,7 @@ function Production() {
           <h1 className="text-lg font-semibold text-gray-900 mb-2">Production - Dashboard</h1>
           <p className="text-sm text-red-700 mb-4">{errorMsg}</p>
           <button
-            onClick={fetchAll}
+            onClick={() => fetchAll("initial")}
             className={PRIMARY_BTN}
             style={{ background: ACCENT }}
             onMouseEnter={(e) => (e.currentTarget.style.background = ACCENT_HOVER)}
@@ -491,14 +596,14 @@ function Production() {
           <h1 className="text-lg font-semibold text-gray-900">Production - Dashboard</h1>
         </div>
         <button
-          onClick={fetchAll}
-          disabled={loading}
+          onClick={() => fetchAll("manual")}
+          disabled={loading || refreshing}
           className={`${PRIMARY_BTN} self-start md:self-auto`}
           style={{ background: ACCENT }}
-          onMouseEnter={(e) => !loading && (e.currentTarget.style.background = ACCENT_HOVER)}
+          onMouseEnter={(e) => !(loading || refreshing) && (e.currentTarget.style.background = ACCENT_HOVER)}
           onMouseLeave={(e) => (e.currentTarget.style.background = ACCENT)}
         >
-          {loading ? "Loading…" : "Refresh"}
+          {loading || refreshing ? "Loading…" : "Refresh"}
         </button>
       </div>
 
