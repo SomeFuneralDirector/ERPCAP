@@ -150,7 +150,7 @@ function Sales() {
     <div className="p-6 space-y-6">
 
       <div className="bg-white rounded-lg shadow p-6">
-        <h1 className="text-2xl font-bold text-gray-800">Sales - Transaction</h1>
+        <h1 className="text-3xl font-bold text-gray-800">Sales - Transaction</h1>
       </div>
 
       <div className="bg-white rounded-lg shadow p-6">
@@ -162,17 +162,17 @@ function Sales() {
         {/* Table header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-5">
           <div>
-            <h2 className="text-lg font-semibold text-gray-800">Completed Orders</h2>
-            <p className="text-sm text-gray-400">{totalCount} total completed orders</p>
+            <h2 className="text-xl font-semibold text-gray-800">Completed Orders</h2>
+            <p className="text-base text-gray-400">{totalCount} total completed orders</p>
           </div>
           <div className="flex gap-3 flex-wrap">
             <div className="px-4 py-2 bg-indigo-50 rounded-lg text-center">
-              <p className="text-xs text-indigo-400">Showing</p>
-              <p className="text-sm font-bold text-indigo-700">{orders.length} orders</p>
+              <p className="text-sm text-indigo-400">Showing</p>
+              <p className="text-base font-bold text-indigo-700">{orders.length} orders</p>
             </div>
             <div className="px-4 py-2 bg-green-50 rounded-lg text-center">
-              <p className="text-xs text-green-400">Page Total</p>
-              <p className="text-sm font-bold text-green-700">
+              <p className="text-sm text-green-400">Page Total</p>
+              <p className="text-base font-bold text-green-700">
                 PHP {(totalAmount / 100).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
               </p>
             </div>
@@ -182,22 +182,22 @@ function Sales() {
         {/* Filters */}
         <div className="flex flex-col md:flex-row gap-3 mb-5">
           <div className="relative flex-1">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm"> <Search size={18} /></span>
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-base"> <Search size={22} /></span>
             <input
               type="text"
               placeholder="Search order ID, recipient, tracking no…"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-300 focus:border-transparent "
+              className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-red-300 focus:border-transparent "
             />
             {search && (
               <button onClick={() => setSearch('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
             )}
           </div>
 
           <select value={filterPlatform} onChange={e => setFilterPlatform(e.target.value)}
-            className="px-3 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-red-300 bg-white cursor-pointer">
+            className="px-4 py-4 border border-gray-200 rounded-lg text-base text-gray-700 focus:outline-none focus:ring-2 focus:ring-red-300 bg-white cursor-pointer">
             <option value="all">All Platforms</option>
             <option value="shopee">Shopee</option>
             <option value="lazada">Lazada</option>
@@ -205,7 +205,7 @@ function Sales() {
           </select>
 
           <select value={sortBy} onChange={e => setSortBy(e.target.value)}
-            className="px-3 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-red-300 bg-white cursor-pointer">
+            className="px-4 py-4 border border-gray-200 rounded-lg text-base text-gray-700 focus:outline-none focus:ring-2 focus:ring-red-300 bg-white cursor-pointer">
             {SORT_OPTIONS.map(o => (
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
@@ -214,17 +214,17 @@ function Sales() {
 
         {/* Table */}
         <div className="overflow-x-auto rounded-lg border border-gray-200">
-          <table className="w-full text-sm">
+          <table className="w-full text-base">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="px-4 py-3 text-left font-semibold text-gray-600">Order ID</th>
-                <th className="px-4 py-3 text-left font-semibold text-gray-600">Platform</th>
-                <th className="px-4 py-3 text-left font-semibold text-gray-600">Recipient</th>
-                <th className="px-4 py-3 text-left font-semibold text-gray-600">Product</th>
-                <th className="px-4 py-3 text-left font-semibold text-gray-600">Qty</th>
-                <th className="px-4 py-3 text-left font-semibold text-gray-600">Total (PHP)</th>
-                <th className="px-4 py-3 text-left font-semibold text-gray-600">Completed</th>
-                <th className="px-4 py-3 text-left font-semibold text-gray-600">Tracking No.</th>
+                <th className="px-5 py-4 text-left font-semibold text-gray-600">Order ID</th>
+                <th className="px-5 py-4 text-left font-semibold text-gray-600">Platform</th>
+                <th className="px-5 py-4 text-left font-semibold text-gray-600">Recipient</th>
+                <th className="px-5 py-4 text-left font-semibold text-gray-600">Product</th>
+                <th className="px-5 py-4 text-left font-semibold text-gray-600">Qty</th>
+                <th className="px-5 py-4 text-left font-semibold text-gray-600">Total (PHP)</th>
+                <th className="px-5 py-4 text-left font-semibold text-gray-600">Completed</th>
+                <th className="px-5 py-4 text-left font-semibold text-gray-600">Tracking No.</th>
               </tr>
             </thead>
             <tbody>
@@ -232,7 +232,7 @@ function Sales() {
                 [...Array(5)].map((_, i) => (
                   <tr key={i} className="border-b border-gray-100">
                     {[...Array(COLUMN_COUNT)].map((_, j) => (
-                      <td key={j} className="px-4 py-3">
+                      <td key={j} className="px-5 py-4">
                         <div className="h-4 bg-gray-100 rounded animate-pulse w-full" />
                       </td>
                     ))}
@@ -243,7 +243,7 @@ function Sales() {
                   <td colSpan={COLUMN_COUNT} className="px-4 py-16 text-center text-gray-400">
                     <div className="text-4xl mb-3"></div>
                     <p className="font-medium text-gray-500">No completed orders found</p>
-                    <p className="text-sm mt-1">
+                    <p className="text-base mt-1">
                       {search || filterPlatform !== 'all'
                         ? 'Try adjusting your search or filters'
                         : 'Import a CSV file above to get started'}
@@ -257,22 +257,22 @@ function Sales() {
                       className={`border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors ${expandedOrder === order.order_id ? 'bg-indigo-50' : ''}`}
                       onClick={() => toggleExpand(order)}
                     >
-                      <td className="px-4 py-3 font-mono text-xs text-gray-600">{order.order_id}</td>
-                      <td className="px-4 py-3">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${PLATFORM_BADGE[order.platform] || 'bg-gray-100 text-gray-600'}`}>
+                      <td className="px-5 py-4 font-mono text-sm text-gray-600">{order.order_id}</td>
+                      <td className="px-5 py-4">
+                        <span className={`px-2 py-1 rounded-full text-sm font-medium capitalize ${PLATFORM_BADGE[order.platform] || 'bg-gray-100 text-gray-600'}`}>
                           {order.platform}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-gray-700">{order.recipient_name || '—'}</td>
-                      <td className="px-4 py-3 text-gray-700">{formatProductNames(order)}</td>
-                      <td className="px-4 py-3 text-gray-700 text-xs whitespace-nowrap">{formatProductQty(order)}</td>
-                      <td className="px-4 py-3 font-semibold text-gray-800">
+                      <td className="px-5 py-4 text-gray-700">{order.recipient_name || '—'}</td>
+                      <td className="px-5 py-4 text-gray-700">{formatProductNames(order)}</td>
+                      <td className="px-5 py-4 text-gray-700 text-sm whitespace-nowrap">{formatProductQty(order)}</td>
+                      <td className="px-5 py-4 font-semibold text-gray-800">
                         {((order.total_amount || 0) / 100).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
                       </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs">
+                      <td className="px-5 py-4 text-gray-500 text-sm">
                         {(order.completed_at || order.created_at || order.paid_time || '—').split(' ')[0]}
                       </td>
-                      <td className="px-4 py-3 font-mono text-xs text-gray-400">
+                      <td className="px-5 py-4 font-mono text-sm text-gray-400">
                         {order.tracking_no || '—'}
                       </td>
                     </tr>
@@ -280,30 +280,30 @@ function Sales() {
                     {expandedOrder === order.order_id && (
                       <tr className="bg-indigo-50 border-b border-indigo-100">
                         <td colSpan={COLUMN_COUNT} className="px-8 py-4">
-                          <p className="text-xs font-semibold text-indigo-600 mb-3 uppercase tracking-wide">Order Items</p>
+                          <p className="text-sm font-semibold text-indigo-600 mb-3 uppercase tracking-wide">Order Items</p>
                           {!orderItems[order.order_id] ? (
-                            <p className="text-sm text-gray-400">Loading items…</p>
+                            <p className="text-base text-gray-400">Loading items…</p>
                           ) : orderItems[order.order_id].length === 0 ? (
-                            <p className="text-sm text-gray-400">No items found</p>
+                            <p className="text-base text-gray-400">No items found</p>
                           ) : (
                             <div className="overflow-x-auto rounded-lg border border-indigo-200">
-                              <table className="w-full text-xs">
+                              <table className="w-full text-sm">
                                 <thead className="bg-indigo-100">
                                   <tr>
                                     {['Product', 'SKU', 'Variation', 'Qty', 'Unit Price', 'Subtotal'].map(h => (
-                                      <th key={h} className="px-3 py-2 text-left font-semibold text-indigo-700">{h}</th>
+                                      <th key={h} className="px-4 py-3.5 text-left font-semibold text-indigo-700">{h}</th>
                                     ))}
                                   </tr>
                                 </thead>
                                 <tbody className="bg-white">
                                   {orderItems[order.order_id].map((item, i) => (
                                     <tr key={i} className="border-t border-indigo-100">
-                                      <td className="px-3 py-2 text-gray-700 font-medium">{item.product_name}</td>
-                                      <td className="px-3 py-2 font-mono text-gray-500">{item.sku || '—'}</td>
-                                      <td className="px-3 py-2 text-gray-500">{item.variation || '—'}</td>
-                                      <td className="px-3 py-2 text-gray-700">{item.quantity}</td>
-                                      <td className="px-3 py-2 text-gray-700">PHP {((item.unit_price || 0) / 100).toFixed(2)}</td>
-                                      <td className="px-3 py-2 font-semibold text-gray-800">
+                                      <td className="px-4 py-3.5 text-gray-700 font-medium">{item.product_name}</td>
+                                      <td className="px-4 py-3.5 font-mono text-gray-500">{item.sku || '—'}</td>
+                                      <td className="px-4 py-3.5 text-gray-500">{item.variation || '—'}</td>
+                                      <td className="px-4 py-3.5 text-gray-700">{item.quantity}</td>
+                                      <td className="px-4 py-3.5 text-gray-700">PHP {((item.unit_price || 0) / 100).toFixed(2)}</td>
+                                      <td className="px-4 py-3.5 font-semibold text-gray-800">
                                         PHP {(((item.unit_price || 0) * item.quantity) / 100).toFixed(2)}
                                       </td>
                                     </tr>
@@ -312,7 +312,7 @@ function Sales() {
                               </table>
                             </div>
                           )}
-                          <div className="mt-3 flex flex-wrap gap-4 text-xs text-gray-500">
+                          <div className="mt-3 flex flex-wrap gap-4 text-sm text-gray-500">
                             {order.address        && <span>📍 {order.address}</span>}
                             {order.phone          && <span>📞 {order.phone}</span>}
                             {order.payment_method && <span>💳 {order.payment_method}</span>}
@@ -331,17 +331,17 @@ function Sales() {
         {/* Pagination */}
         {totalPages > 1 && (
           <div className="flex items-center justify-between mt-4 ">
-            <p className="text-sm text-gray-500 ">Page {page} of {totalPages} · {totalCount} orders</p>
+            <p className="text-base text-gray-500 ">Page {page} of {totalPages} · {totalCount} orders</p>
             <div className="flex gap-2">
               <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-                className="px-3 py-1.5 border cursor-pointer border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                className="px-4 py-2 border cursor-pointer border-gray-200 rounded-lg text-base text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
                 ← Prev
               </button>
               {[...Array(Math.min(5, totalPages))].map((_, i) => {
                 const pageNum = Math.max(1, Math.min(page - 2, totalPages - 4)) + i
                 return (
                   <button key={pageNum} onClick={() => setPage(pageNum)}
-                    className={`px-3 py-1.5 border rounded-lg text-sm transition-colors ${
+                    className={`px-4 py-2 border rounded-lg text-base transition-colors ${
                       page === pageNum ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-200 text-gray-600 hover:bg-gray-50 cursor-pointer'
                     }`}>
                     {pageNum}
@@ -349,7 +349,7 @@ function Sales() {
                 )
               })}
               <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-                className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer">
+                className="px-4 py-2 border border-gray-200 rounded-lg text-base text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer">
                 Next →
               </button>
             </div>

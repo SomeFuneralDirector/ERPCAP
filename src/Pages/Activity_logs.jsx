@@ -338,7 +338,7 @@ function Activity_logs() {
   return (
     <div className="p-6 space-y-4">
       <div className="bg-white rounded-lg shadow p-6">
-        <h1 className="text-2xl font-bold text-gray-800">Activity Logs</h1>
+        <h1 className="text-3xl font-bold text-gray-800">Activity Logs</h1>
       </div>
 
       <div className="bg-white rounded-lg shadow p-6">
@@ -349,7 +349,7 @@ function Activity_logs() {
               <button
                 key={t.key}
                 onClick={() => setActiveTab(t.key)}
-                className={`px-4 py-2 font-semibold cursor-pointer text-sm border-b-2 transition ${
+                className={`px-4 py-2 font-semibold cursor-pointer text-base border-b-2 transition ${
                   activeTab === t.key
                     ? 'border-red-600 text-red-600'
                     : 'border-transparent text-gray-500 hover:text-red-500'
@@ -365,12 +365,12 @@ function Activity_logs() {
               placeholder="Search this log…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
+              className="w-full px-4 py-3.5 border border-gray-200 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-red-300"
             />
             {search && (
               <button
                 onClick={() => setSearch('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xl leading-none"
               >
                 ×
               </button>
@@ -382,47 +382,47 @@ function Activity_logs() {
         {activeTab === 'logins' && (
           <>
             {errorMsg.logins && (
-              <p className="text-xs text-red-600 mb-3">{errorMsg.logins}</p>
+              <p className="text-sm text-red-600 mb-3">{errorMsg.logins}</p>
             )}
             {loading.logins ? (
               <div className="space-y-2">
                 {[1, 2, 3, 4].map((i) => <Skeleton key={i} />)}
               </div>
             ) : filteredLogins.length === 0 ? (
-              <p className="text-sm text-gray-400 italic py-6 text-center">
+              <p className="text-base text-gray-400 italic py-6 text-center">
                 No login activity recorded yet.
               </p>
             ) : (
               <div className="overflow-x-auto rounded-lg border border-gray-200">
-                <table className="w-full text-sm">
+                <table className="w-full text-base">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-600">User</th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-600">Device</th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-600">Status</th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-600">When</th>
+                      <th className="px-5 py-3 text-left font-semibold text-gray-600">User</th>
+                      <th className="px-5 py-3 text-left font-semibold text-gray-600">Device</th>
+                      <th className="px-5 py-3 text-left font-semibold text-gray-600">Status</th>
+                      <th className="px-5 py-3 text-left font-semibold text-gray-600">When</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredLogins.map((l) => (
                       <tr key={l.id} className="border-b border-gray-100 hover:bg-red-50/30">
-                        <td className="px-4 py-2.5 text-gray-700">{l.user_email || '—'}</td>
+                        <td className="px-5 py-3.5 text-gray-700">{l.user_email || '—'}</td>
                         <td
-                          className="px-4 py-2.5 text-gray-600 text-xs"
+                          className="px-5 py-3.5 text-gray-600 text-sm"
                           title={l.user_agent || ''}
                         >
                           {parseDevice(l.user_agent)}
                         </td>
-                        <td className="px-4 py-2.5">
+                        <td className="px-5 py-3.5">
                           <span
-                            className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${
+                            className={`px-2 py-1 rounded-full text-sm font-medium capitalize ${
                               LOGIN_STATUS_STYLES[l.status] || 'bg-gray-100 text-gray-600'
                             }`}
                           >
                             {l.status || 'unknown'}
                           </span>
                         </td>
-                        <td className="px-4 py-2.5 text-gray-500 text-xs">{formatExact(l.created_at)}</td>
+                        <td className="px-5 py-3.5 text-gray-500 text-sm">{formatExact(l.created_at)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -436,14 +436,14 @@ function Activity_logs() {
         {activeTab === 'changes' && (
           <>
             {errorMsg.changes && (
-              <p className="text-xs text-red-600 mb-3">{errorMsg.changes}</p>
+              <p className="text-sm text-red-600 mb-3">{errorMsg.changes}</p>
             )}
             {loading.changes ? (
               <div className="space-y-2">
                 {[1, 2, 3, 4].map((i) => <Skeleton key={i} />)}
               </div>
             ) : filteredChanges.length === 0 ? (
-              <p className="text-sm text-gray-400 italic py-6 text-center">
+              <p className="text-base text-gray-400 italic py-6 text-center">
                 No data changes recorded yet.
               </p>
             ) : (
@@ -460,17 +460,17 @@ function Activity_logs() {
                         onClick={() => detail && setExpandedChange(isExpanded ? null : c.id)}
                       >
                         <span
-                          className={`px-2 py-1 rounded-full text-xs font-medium capitalize shrink-0 ${
+                          className={`px-2 py-1 rounded-full text-sm font-medium capitalize shrink-0 ${
                             ACTION_STYLES[c.action] || 'bg-gray-100 text-gray-600'
                           }`}
                         >
                           {c.action || 'changed'}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm text-gray-700">
+                          <p className="text-base text-gray-700">
                             <span className="font-semibold">{c.user_email || 'Someone'}</span>{' '}
                             {c.action === 'created' ? 'created' : c.action === 'deleted' ? 'deleted' : 'updated'}{' '}
-                            <span className="font-mono text-xs bg-gray-100 px-1.5 py-0.5 rounded">
+                            <span className="font-mono text-sm bg-gray-100 px-1.5 py-0.5 rounded">
                               {c.table_name}
                             </span>
                             {c.record_label && (
@@ -480,21 +480,21 @@ function Activity_logs() {
                             )}
                           </p>
                           {c.detail && !detail && (
-                            <p className="text-xs text-gray-400 mt-0.5">{c.detail}</p>
+                            <p className="text-sm text-gray-400 mt-0.5">{c.detail}</p>
                           )}
                           {detail && (
-                            <p className="text-xs text-red-500 mt-0.5">
+                            <p className="text-sm text-red-500 mt-0.5">
                               {isExpanded ? '▾ Hide details' : '▸ Show details'}
                             </p>
                           )}
                         </div>
-                        <span className="text-xs text-gray-400 shrink-0">{formatExact(c.created_at)}</span>
+                        <span className="text-sm text-gray-400 shrink-0">{formatExact(c.created_at)}</span>
                       </div>
 
                       {isExpanded && detail && (
                         <div className="bg-gray-50 rounded-lg px-4 py-3 mb-3 -mt-1 ml-0 md:ml-14">
                           {c.action === 'updated' ? (
-                            <table className="w-full text-xs">
+                            <table className="w-full text-sm">
                               <thead>
                                 <tr className="text-gray-400 uppercase">
                                   <th className="text-left font-semibold pb-1 pr-3">Field</th>
@@ -517,7 +517,7 @@ function Activity_logs() {
                               </tbody>
                             </table>
                           ) : (
-                            <table className="w-full text-xs">
+                            <table className="w-full text-sm">
                               <tbody>
                                 {Object.entries(detail).map(([field, value]) => (
                                   <tr key={field} className="border-t border-gray-200 first:border-0">
@@ -546,30 +546,30 @@ function Activity_logs() {
         {activeTab === 'imports' && (
           <>
             {errorMsg.imports && (
-              <p className="text-xs text-red-600 mb-3">{errorMsg.imports}</p>
+              <p className="text-sm text-red-600 mb-3">{errorMsg.imports}</p>
             )}
             {loading.imports ? (
               <div className="space-y-2">
                 {[1, 2, 3, 4].map((i) => <Skeleton key={i} />)}
               </div>
             ) : filteredImports.length === 0 ? (
-              <p className="text-sm text-gray-400 italic py-6 text-center">
+              <p className="text-base text-gray-400 italic py-6 text-center">
                 No file imports recorded yet.
               </p>
             ) : (
               <div className="overflow-x-auto rounded-lg border border-gray-200">
-                <table className="w-full text-sm">
+                <table className="w-full text-base">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-600 w-8" />
-                      <th className="px-4 py-2 text-left font-semibold text-gray-600">File</th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-600">Platform</th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-600">Date Range</th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-600">Rows</th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-600">Inserted</th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-600">Skipped</th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-600">Status</th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-600">When</th>
+                      <th className="px-5 py-3 text-left font-semibold text-gray-600 w-10" />
+                      <th className="px-5 py-3 text-left font-semibold text-gray-600">File</th>
+                      <th className="px-5 py-3 text-left font-semibold text-gray-600">Platform</th>
+                      <th className="px-5 py-3 text-left font-semibold text-gray-600">Date Range</th>
+                      <th className="px-5 py-3 text-left font-semibold text-gray-600">Rows</th>
+                      <th className="px-5 py-3 text-left font-semibold text-gray-600">Inserted</th>
+                      <th className="px-5 py-3 text-left font-semibold text-gray-600">Skipped</th>
+                      <th className="px-5 py-3 text-left font-semibold text-gray-600">Status</th>
+                      <th className="px-5 py-3 text-left font-semibold text-gray-600">When</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -585,61 +585,61 @@ function Activity_logs() {
                             } ${isExpanded ? 'bg-red-50/40' : ''}`}
                             onClick={() => hasDetail && setExpandedImport(isExpanded ? null : i.id)}
                           >
-                            <td className="px-4 py-2.5 text-gray-400 text-center">
+                            <td className="px-5 py-3.5 text-gray-400 text-center">
                               {hasDetail && (
-                                <span className="text-xs">{isExpanded ? '▾' : '▸'}</span>
+                                <span className="text-sm">{isExpanded ? '▾' : '▸'}</span>
                               )}
                             </td>
-                            <td className="px-4 py-2.5 font-mono text-xs text-gray-600 truncate max-w-xs">
+                            <td className="px-5 py-3.5 font-mono text-sm text-gray-600 truncate max-w-xs">
                               {i.filename || '—'}
                             </td>
-                            <td className="px-4 py-2.5">
+                            <td className="px-5 py-3.5">
                               <span
-                                className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${
+                                className={`px-2 py-1 rounded-full text-sm font-medium capitalize ${
                                   PLATFORM_STYLES[i.platform?.toLowerCase()] || 'bg-gray-100 text-gray-600'
                                 }`}
                               >
                                 {i.platform || '—'}
                               </span>
                             </td>
-                            <td className="px-4 py-2.5 text-gray-500 text-xs">
+                            <td className="px-5 py-3.5 text-gray-500 text-sm">
                               {i.date_from || i.date_to
                                 ? `${i.date_from || '—'} → ${i.date_to || '—'}`
                                 : '—'}
                             </td>
-                            <td className="px-4 py-2.5 text-gray-700">{i.row_count ?? 0}</td>
-                            <td className="px-4 py-2.5 text-green-700 font-semibold">
+                            <td className="px-5 py-3.5 text-gray-700">{i.row_count ?? 0}</td>
+                            <td className="px-5 py-3.5 text-green-700 font-semibold">
                               {i.inserted ?? 0}
                             </td>
-                            <td className="px-4 py-2.5 text-amber-600">
+                            <td className="px-5 py-3.5 text-amber-600">
                               {i.skipped ?? 0}
                             </td>
-                            <td className="px-4 py-2.5">
+                            <td className="px-5 py-3.5">
                               <span
-                                className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${
+                                className={`px-2 py-1 rounded-full text-sm font-medium capitalize ${
                                   IMPORT_STATUS_STYLES[i.status] || 'bg-gray-100 text-gray-600'
                                 }`}
                               >
                                 {i.status || 'unknown'}
                               </span>
                             </td>
-                            <td className="px-4 py-2.5 text-gray-500 text-xs">{formatExact(i.imported_at)}</td>
+                            <td className="px-5 py-3.5 text-gray-500 text-sm">{formatExact(i.imported_at)}</td>
                           </tr>
 
                           {isExpanded && (
                             <tr className="bg-red-50/40 border-b border-red-100">
                               <td colSpan={9} className="px-8 py-4">
                                 {i.reject_reason && (
-                                  <p className="text-xs text-red-600 mb-2">
+                                  <p className="text-sm text-red-600 mb-2">
                                     <span className="font-semibold">Rejected:</span> {i.reject_reason}
                                   </p>
                                 )}
                                 {i.errors && i.errors.length > 0 && (
                                   <>
-                                    <p className="text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">
+                                    <p className="text-sm font-semibold text-gray-500 mb-1 uppercase tracking-wide">
                                       Row errors ({i.errors.length})
                                     </p>
-                                    <ul className="text-xs text-gray-600 space-y-1 list-disc list-inside">
+                                    <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
                                       {i.errors.map((err, idx) => (
                                         <li key={idx}>{err}</li>
                                       ))}
@@ -663,14 +663,14 @@ function Activity_logs() {
         {activeTab === 'archive' && (
           <>
             {archiveError && (
-              <p className="text-xs text-red-600 mb-3">{archiveError}</p>
+              <p className="text-sm text-red-600 mb-3">{archiveError}</p>
             )}
             {archiveLoading ? (
               <div className="space-y-2">
                 {[1, 2, 3, 4].map((i) => <Skeleton key={i} />)}
               </div>
             ) : filteredArchive.length === 0 ? (
-              <p className="text-sm text-gray-400 italic py-6 text-center">
+              <p className="text-base text-gray-400 italic py-6 text-center">
                 Nothing has been archived or deleted yet.
               </p>
             ) : (
@@ -680,22 +680,22 @@ function Activity_logs() {
                     const e = item.entry
                     return (
                       <div key={item.key} className="flex items-start gap-3 py-3">
-                        <span className="px-2 py-1 rounded-full text-xs font-medium capitalize shrink-0 bg-gray-100 text-gray-600">
+                        <span className="px-2 py-1 rounded-full text-sm font-medium capitalize shrink-0 bg-gray-100 text-gray-600">
                           archived
                         </span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm text-gray-700">
-                            <span className="font-mono text-xs bg-gray-100 px-1.5 py-0.5 rounded">
+                          <p className="text-base text-gray-700">
+                            <span className="font-mono text-sm bg-gray-100 px-1.5 py-0.5 rounded">
                               cash book
                             </span>{' '}
                             <span className="font-medium">{e.detail}</span>
                             {e.ledger_categories?.name && (
-                              <span className="ml-2 inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">
+                              <span className="ml-2 inline-block px-2 py-0.5 rounded-full text-sm font-semibold bg-gray-100 text-gray-500">
                                 {e.ledger_categories.name}
                               </span>
                             )}
                           </p>
-                          <p className="text-xs text-gray-400 mt-0.5">
+                          <p className="text-sm text-gray-400 mt-0.5">
                             Entry dated {e.date} ·{' '}
                             <span
                               className={
@@ -706,7 +706,7 @@ function Activity_logs() {
                             </span>
                           </p>
                         </div>
-                        <span className="text-xs text-gray-400 shrink-0">
+                        <span className="text-sm text-gray-400 shrink-0">
                           {formatExact(e.archived_at)}
                         </span>
                       </div>
@@ -724,13 +724,13 @@ function Activity_logs() {
                         } ${isExpanded ? 'bg-red-50/30' : ''}`}
                         onClick={() => detail && setExpandedChange(isExpanded ? null : c.id)}
                       >
-                        <span className="px-2 py-1 rounded-full text-xs font-medium capitalize shrink-0 bg-red-100 text-red-700">
+                        <span className="px-2 py-1 rounded-full text-sm font-medium capitalize shrink-0 bg-red-100 text-red-700">
                           deleted
                         </span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm text-gray-700">
+                          <p className="text-base text-gray-700">
                             <span className="font-semibold">{c.user_email || 'Someone'}</span> deleted{' '}
-                            <span className="font-mono text-xs bg-gray-100 px-1.5 py-0.5 rounded">
+                            <span className="font-mono text-sm bg-gray-100 px-1.5 py-0.5 rounded">
                               {c.table_name}
                             </span>
                             {c.record_label && (
@@ -740,17 +740,17 @@ function Activity_logs() {
                             )}
                           </p>
                           {detail && (
-                            <p className="text-xs text-red-500 mt-0.5">
+                            <p className="text-sm text-red-500 mt-0.5">
                               {isExpanded ? '▾ Hide deleted record' : '▸ Show deleted record'}
                             </p>
                           )}
                         </div>
-                        <span className="text-xs text-gray-400 shrink-0">{formatExact(c.created_at)}</span>
+                        <span className="text-sm text-gray-400 shrink-0">{formatExact(c.created_at)}</span>
                       </div>
 
                       {isExpanded && detail && (
                         <div className="bg-gray-50 rounded-lg px-4 py-3 mb-3 -mt-1 ml-0 md:ml-14">
-                          <table className="w-full text-xs">
+                          <table className="w-full text-sm">
                             <tbody>
                               {Object.entries(detail).map(([field, value]) => (
                                 <tr key={field} className="border-t border-gray-200 first:border-0">

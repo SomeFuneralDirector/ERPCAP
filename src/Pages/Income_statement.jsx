@@ -17,12 +17,12 @@ import {
 
 function StatementRows({ rows }) {
   return (
-    <table className="w-full text-sm mb-2">
+    <table className="w-full text-base mb-2">
       <tbody>
         {rows.map((r) => (
           <tr key={r.name} className="border-b border-gray-100">
-            <td className="py-2 text-gray-900">{r.name}</td>
-            <td className="py-2 text-right text-gray-900">
+            <td className="py-3 text-gray-900">{r.name}</td>
+            <td className="py-3 text-right text-gray-900">
               {formatPeso(r.amount)}
             </td>
           </tr>
@@ -102,7 +102,7 @@ function IncomeStatement() {
   return (
     <div className="p-6">
       <div className="flex items-center justify-between flex-wrap gap-4 bg-white rounded-lg shadow p-6 mb-4">
-        <h1 className="text-2xl font-semibold text-gray-800">
+        <h1 className="text-3xl font-semibold text-gray-800">
           Income Statement
         </h1>
         <div className="flex items-center gap-2">
@@ -110,31 +110,31 @@ function IncomeStatement() {
             type="date"
             value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)}
-            className="border border-gray-300 rounded px-2 py-1 text-sm text-gray-900"
+            className="border border-gray-300 rounded px-3 py-2 text-base text-gray-900"
           />
-          <span className="text-gray-400 text-sm">to</span>
+          <span className="text-gray-400 text-base">to</span>
           <input
             type="date"
             value={dateTo}
             onChange={(e) => setDateTo(e.target.value)}
-            className="border border-gray-300 rounded px-2 py-1 text-sm text-gray-900"
+            className="border border-gray-300 rounded px-3 py-2 text-base text-gray-900"
           />
         </div>
       </div>
 
       {loading ? (
-        <div className="bg-white rounded-lg shadow p-6 flex items-center gap-2 text-gray-400 text-sm justify-center">
-          <Loader2 size={16} className="animate-spin" />
+        <div className="bg-white rounded-lg shadow p-6 flex items-center gap-2 text-gray-400 text-base justify-center">
+          <Loader2 size={20} className="animate-spin" />
           Loading income statement...
         </div>
       ) : (
         <div className="bg-white rounded-lg shadow p-6">
           {/* Revenue */}
-          <h2 className="text-sm font-extrabold text-gray-700 uppercase mb-4">
+          <h2 className="text-base font-extrabold text-gray-700 uppercase mb-4">
             Revenue
           </h2>
           {revenue.length === 0 ? (
-            <p className="text-sm text-gray-400 mb-4">
+            <p className="text-base text-gray-400 mb-4">
               No revenue in this period.
             </p>
           ) : (
@@ -148,11 +148,11 @@ function IncomeStatement() {
           </div>
 
           {/* Expenses */}
-          <h2 className="text-sm font-extrabold text-gray-700 uppercase mb-4">
+          <h2 className="text-base font-extrabold text-gray-700 uppercase mb-4">
             Expenses
           </h2>
           {expenses.length === 0 ? (
-            <p className="text-sm text-gray-400 mb-4">
+            <p className="text-base text-gray-400 mb-4">
               No expenses in this period.
             </p>
           ) : (
@@ -167,11 +167,11 @@ function IncomeStatement() {
 
           {/* Net Income / Net Loss */}
           <div className="flex justify-between pt-4 mt-6 border-t-2 border-gray-300">
-            <span className="text-lg font-bold text-gray-800">
+            <span className="text-xl font-bold text-gray-800">
               {netIncome >= 0 ? "Net Income" : "Net Loss"}
             </span>
             <span
-              className={`text-lg font-bold ${
+              className={`text-xl font-bold ${
                 netIncome >= 0 ? "text-green-600" : "text-red-600"
               }`}
             >

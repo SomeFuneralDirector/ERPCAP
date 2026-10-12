@@ -351,26 +351,26 @@ function Ledger() {
   return (
     <div className="p-6">
       <div className="flex items-center justify-between flex-wrap gap-4 bg-white rounded-lg shadow p-6 mb-4">
-        <h1 className="text-2xl font-semibold text-gray-800">Cash Book</h1>
+        <h1 className="text-3xl font-semibold text-gray-800">Cash Book</h1>
         <div className="flex items-center gap-2 flex-wrap">
           <input
             type="date"
             value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)}
-            className="border border-gray-300 rounded px-2 py-1 text-sm cursor-pointer"
+            className="border border-gray-300 rounded px-3 py-2 text-base cursor-pointer"
           />
-          <span className="text-gray-400 text-sm">to</span>
+          <span className="text-gray-400 text-base">to</span>
           <input
             type="date"
             value={dateTo}
             onChange={(e) => setDateTo(e.target.value)}
-            className="border border-gray-300 rounded px-2 py-1 text-sm cursor-pointer"
+            className="border border-gray-300 rounded px-3 py-2 text-base cursor-pointer"
           />
           <button
             onClick={openModal}
-            className="flex items-center gap-1.5 bg-red-700 text-white text-sm font-bold px-3 py-1.5 rounded hover:bg-red-600 cursor-pointer"
+            className="flex items-center gap-1.5 bg-red-700 text-white text-base font-bold px-4 py-2 rounded hover:bg-red-600 cursor-pointer"
           >
-            <Plus size={14} />
+            <Plus size={18} />
             Add Entry
           </button>
         </div>
@@ -378,36 +378,36 @@ function Ledger() {
 
       <div className="bg-white rounded-lg shadow p-6">
         {pageError && (
-          <div className="flex items-start gap-2 rounded-lg p-3 text-sm bg-red-50 text-red-700 border border-red-200 mb-4">
-            <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+          <div className="flex items-start gap-2 rounded-lg p-3 text-base bg-red-50 text-red-700 border border-red-200 mb-4">
+            <AlertCircle size={20} className="flex-shrink-0 mt-0.5" />
             <span>{pageError}</span>
           </div>
         )}
 
         {loading ? (
-          <div className="flex items-center gap-2 text-gray-400 text-sm py-6 justify-center">
-            <Loader2 size={16} className="animate-spin" />
+          <div className="flex items-center gap-2 text-gray-400 text-base py-6 justify-center">
+            <Loader2 size={20} className="animate-spin" />
             Loading cash book...
           </div>
         ) : displayRows.length === 0 ? (
-          <p className="text-sm text-gray-400">
+          <p className="text-base text-gray-400">
             No entries in this date range.
           </p>
         ) : (
           <div className="overflow-x-auto rounded-lg border border-gray-200">
-            <table className="w-full text-sm">
+            <table className="w-full text-base">
               <thead>
-                <tr className="bg-gray-50 text-left text-xs text-gray-700 uppercase tracking-wide">
-                  <th className="py-3 px-4 font-extrabold">No</th>
-                  <th className="py-3 px-4 font-extrabold">Date</th>
-                  <th className="py-3 px-4 font-extrabold">Detail</th>
-                  <th className="py-3 px-4 font-extrabold text-right">
+                <tr className="bg-gray-50 text-left text-sm text-gray-700 uppercase tracking-wide">
+                  <th className="py-4 px-5 font-extrabold">No</th>
+                  <th className="py-4 px-5 font-extrabold">Date</th>
+                  <th className="py-4 px-5 font-extrabold">Detail</th>
+                  <th className="py-4 px-5 font-extrabold text-right">
                     {TYPE_LABEL.debit}
                   </th>
-                  <th className="py-3 px-4 font-extrabold text-right">
+                  <th className="py-4 px-5 font-extrabold text-right">
                     {TYPE_LABEL.credit}
                   </th>
-                  <th className="py-3 px-4 font-extrabold text-right">
+                  <th className="py-4 px-5 font-extrabold text-right">
                     Action
                   </th>
                 </tr>
@@ -420,21 +420,21 @@ function Ledger() {
                       i % 2 === 1 ? "bg-gray-50/50" : "bg-white"
                     }`}
                   >
-                    <td className="py-3 px-4 text-gray-400">
+                    <td className="py-4 px-5 text-gray-400">
                       {(currentPage - 1) * PAGE_SIZE + i + 1}
                     </td>
-                    <td className="py-3 px-4 whitespace-nowrap text-gray-900 font-medium">
+                    <td className="py-4 px-5 whitespace-nowrap text-gray-900 font-medium">
                       {e.date}
                     </td>
-                    <td className="py-3 px-4 text-gray-900">
+                    <td className="py-4 px-5 text-gray-900">
                       {e.detail}
                       {e.ledger_categories?.name && (
-                        <span className="ml-2 inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">
+                        <span className="ml-2 inline-block px-2 py-0.5 rounded-full text-sm font-semibold bg-gray-100 text-gray-500">
                           {e.ledger_categories.name}
                         </span>
                       )}
                     </td>
-                    <td className="py-3 px-4 text-right font-medium">
+                    <td className="py-4 px-5 text-right font-medium">
                       {e.type === "debit" ? (
                         <span className="text-green-600">
                           {formatPeso(e.amount)}
@@ -443,7 +443,7 @@ function Ledger() {
                         <span className="text-gray-300">-</span>
                       )}
                     </td>
-                    <td className="py-3 px-4 text-right font-medium">
+                    <td className="py-4 px-5 text-right font-medium">
                       {e.type === "credit" ? (
                         <span className="text-red-600">
                           {formatPeso(e.amount)}
@@ -452,10 +452,10 @@ function Ledger() {
                         <span className="text-gray-300">-</span>
                       )}
                     </td>
-                    <td className="py-3 px-4 text-right">
+                    <td className="py-4 px-5 text-right">
                       {e.isSalesWeek ? (
                         <span
-                          className="text-xs text-gray-300"
+                          className="text-sm text-gray-300"
                           title="Weekly sales totals come from automatic sale postings"
                         >
                           Auto
@@ -463,9 +463,9 @@ function Ledger() {
                       ) : (
                         <button
                           onClick={() => setArchiveTarget(e)}
-                          className="inline-flex items-center gap-1 text-xs font-semibold text-gray-500 hover:text-red-700 cursor-pointer"
+                          className="inline-flex items-center gap-1 text-sm font-semibold text-gray-500 hover:text-red-700 cursor-pointer"
                         >
-                          <Archive size={14} />
+                          <Archive size={18} />
                           Archive
                         </button>
                       )}
@@ -479,14 +479,14 @@ function Ledger() {
 
         {!loading && displayRows.length > 0 && totalPages > 1 && (
           <div className="flex items-center justify-between mt-4">
-            <p className="text-sm text-gray-500">
+            <p className="text-base text-gray-500">
               Page {currentPage} of {totalPages} · {displayRows.length} rows
             </p>
             <div className="flex gap-2">
               <button
                 onClick={() => setPage(Math.max(1, currentPage - 1))}
                 disabled={currentPage === 1}
-                className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                className="px-4 py-2 border border-gray-200 rounded-lg text-base text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 ← Prev
               </button>
@@ -497,7 +497,7 @@ function Ledger() {
                   <button
                     key={pageNum}
                     onClick={() => setPage(pageNum)}
-                    className={`px-3 py-1.5 border rounded-lg text-sm transition-colors ${
+                    className={`px-4 py-2 border rounded-lg text-base transition-colors ${
                       currentPage === pageNum
                         ? "bg-red-600 border-red-600 text-white"
                         : "border-gray-200 text-gray-600 hover:bg-gray-50"
@@ -510,7 +510,7 @@ function Ledger() {
               <button
                 onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
                 disabled={currentPage === totalPages}
-                className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                className="px-4 py-2 border border-gray-200 rounded-lg text-base text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 Next →
               </button>
@@ -521,27 +521,27 @@ function Ledger() {
 
       {archiveTarget && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-xl">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-bold text-gray-800">Archive entry?</h2>
+              <h2 className="text-xl font-bold text-gray-800">Archive entry?</h2>
               <button
                 type="button"
                 onClick={() => setArchiveTarget(null)}
                 className="text-gray-400 hover:text-red-500"
               >
-                <X size={18} />
+                <X size={22} />
               </button>
             </div>
 
-            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm mb-4">
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-base mb-4">
               <p className="text-gray-900 font-medium">{archiveTarget.detail}</p>
-              <p className="text-gray-500 text-xs mt-0.5">
+              <p className="text-gray-500 text-sm mt-0.5">
                 {archiveTarget.date} · {TYPE_LABEL[archiveTarget.type]} ·{" "}
                 {formatPeso(archiveTarget.amount)}
               </p>
             </div>
 
-            <p className="text-sm text-gray-600 mb-5">
+            <p className="text-base text-gray-600 mb-5">
               This entry will be removed from the Cash Book and stop counting
               in your reports. You can find it in Activity Logs under Archive.
             </p>
@@ -550,7 +550,7 @@ function Ledger() {
               <button
                 type="button"
                 onClick={() => setArchiveTarget(null)}
-                className="text-sm font-semibold text-gray-500 px-4 py-2 rounded hover:bg-gray-100"
+                className="text-base font-semibold text-gray-500 px-4 py-2 rounded hover:bg-gray-100"
               >
                 Cancel
               </button>
@@ -558,9 +558,9 @@ function Ledger() {
                 type="button"
                 onClick={handleArchiveConfirm}
                 disabled={archiving}
-                className="flex items-center gap-2 bg-red-600 text-white text-sm font-bold px-4 py-2 rounded hover:bg-red-700 disabled:opacity-50"
+                className="flex items-center gap-2 bg-red-600 text-white text-base font-bold px-4 py-2 rounded hover:bg-red-700 disabled:opacity-50"
               >
-                {archiving && <Loader2 size={14} className="animate-spin" />}
+                {archiving && <Loader2 size={18} className="animate-spin" />}
                 {archiving ? "Saving..." : "Yes, Archive"}
               </button>
             </div>
@@ -575,7 +575,7 @@ function Ledger() {
             className="bg-white rounded-lg shadow-xl p-6 w-full max-w-5xl max-h-[90vh] flex flex-col"
           >
             <div className="flex items-center justify-between mb-1">
-              <h2 className="text-lg font-bold text-gray-800">
+              <h2 className="text-xl font-bold text-gray-800">
                 {step === "edit" ? "Add Entries" : "Confirm Entries"}
               </h2>
               <button
@@ -583,13 +583,13 @@ function Ledger() {
                 onClick={closeModal}
                 className="text-gray-400 hover:text-red-500"
               >
-                <X size={18} />
+                <X size={22} />
               </button>
             </div>
 
             {step === "edit" ? (
               <>
-                <p className="text-xs text-gray-500 mb-4">
+                <p className="text-sm text-gray-500 mb-4">
                   Add as many rows as you need, then review before saving.
                   Money coming in (sales, loans received, owner investment) is{" "}
                   <strong>Cash In</strong>. Money going out (expenses, loan
@@ -598,16 +598,16 @@ function Ledger() {
                 </p>
 
                 {banner && (
-                  <div className="flex items-start gap-2 rounded-lg p-3 text-sm bg-red-50 text-red-700 border border-red-200 mb-4">
-                    <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+                  <div className="flex items-start gap-2 rounded-lg p-3 text-base bg-red-50 text-red-700 border border-red-200 mb-4">
+                    <AlertCircle size={20} className="flex-shrink-0 mt-0.5" />
                     <span>{banner.message}</span>
                   </div>
                 )}
 
                 <div className="overflow-y-auto flex-1 -mx-6 px-6">
-                  <table className="w-full text-sm">
+                  <table className="w-full text-base">
                     <thead>
-                      <tr className="text-left text-xs text-gray-500 uppercase border-b border-gray-200">
+                      <tr className="text-left text-sm text-gray-500 uppercase border-b border-gray-200">
                         <th className="py-2 pr-2">Date</th>
                         <th className="py-2 pr-2">Detail</th>
                         <th className="py-2 pr-2">Category</th>
@@ -635,7 +635,7 @@ function Ledger() {
                                     e.target.value
                                   )
                                 }
-                                className={`w-36 border rounded px-2 py-1.5 text-sm text-gray-900 ${
+                                className={`w-36 border rounded px-3 py-2 text-base text-gray-900 ${
                                   err.date
                                     ? "border-red-400"
                                     : "border-gray-300"
@@ -654,7 +654,7 @@ function Ledger() {
                                   )
                                 }
                                 placeholder="e.g. Staff salaries, Aug 1-15"
-                                className={`w-48 border rounded px-2 py-1.5 text-sm text-gray-900 ${
+                                className={`w-48 border rounded px-3 py-2 text-base text-gray-900 ${
                                   err.detail
                                     ? "border-red-400"
                                     : "border-gray-300"
@@ -671,7 +671,7 @@ function Ledger() {
                                     e.target.value
                                   )
                                 }
-                                className={`w-40 border rounded px-2 py-1.5 text-sm ${
+                                className={`w-40 border rounded px-3 py-2 text-base ${
                                   err.category_id
                                     ? "border-red-400"
                                     : "border-gray-300"
@@ -714,7 +714,7 @@ function Ledger() {
                                   onClick={() =>
                                     handleRowChange(r._rowId, "type", "debit")
                                   }
-                                  className={`px-2 py-1.5 rounded text-xs font-semibold border whitespace-nowrap ${
+                                  className={`px-2 py-1.5 rounded text-sm font-semibold border whitespace-nowrap ${
                                     r.type === "debit"
                                       ? "bg-green-600 text-white border-green-600"
                                       : "border-gray-300 text-gray-500"
@@ -727,7 +727,7 @@ function Ledger() {
                                   onClick={() =>
                                     handleRowChange(r._rowId, "type", "credit")
                                   }
-                                  className={`px-2 py-1.5 rounded text-xs font-semibold border whitespace-nowrap ${
+                                  className={`px-2 py-1.5 rounded text-sm font-semibold border whitespace-nowrap ${
                                     r.type === "credit"
                                       ? "bg-red-600 text-white border-red-600"
                                       : "border-gray-300 text-gray-500"
@@ -746,7 +746,7 @@ function Ledger() {
                                 );
                                 if (r.type === expected) return null;
                                 return (
-                                  <p className="text-[10px] text-amber-600 mt-1 leading-tight">
+                                  <p className="text-xs text-amber-600 mt-1 leading-tight">
                                     {cat.name} is usually{" "}
                                     {TYPE_LABEL[expected]}
                                   </p>
@@ -767,7 +767,7 @@ function Ledger() {
                                   )
                                 }
                                 placeholder="0.00"
-                                className={`w-28 border rounded px-2 py-1.5 text-sm text-gray-900 ${
+                                className={`w-28 border rounded px-3 py-2 text-base text-gray-900 ${
                                   err.amount
                                     ? "border-red-400"
                                     : "border-gray-300"
@@ -781,7 +781,7 @@ function Ledger() {
                                 disabled={rows.length === 1}
                                 className="text-gray-400 hover:text-red-500 disabled:opacity-30 disabled:cursor-not-allowed p-1.5"
                               >
-                                <Trash2 size={16} />
+                                <Trash2 size={20} />
                               </button>
                             </td>
                           </tr>
@@ -796,15 +796,15 @@ function Ledger() {
                     <button
                       type="button"
                       onClick={addRow}
-                      className="flex items-center gap-1.5 text-sm font-semibold text-red-600 hover:underline"
+                      className="flex items-center gap-1.5 text-base font-semibold text-red-600 hover:underline"
                     >
-                      <Plus size={14} />
+                      <Plus size={18} />
                       Add Row
                     </button>
                     <button
                       type="button"
                       onClick={duplicateLastRow}
-                      className="text-sm font-semibold text-gray-400 hover:text-gray-600"
+                      className="text-base font-semibold text-gray-400 hover:text-gray-600"
                     >
                       Duplicate Last
                     </button>
@@ -813,13 +813,13 @@ function Ledger() {
                     <button
                       type="button"
                       onClick={closeModal}
-                      className="text-sm font-semibold text-gray-500 px-4 py-2 rounded hover:bg-gray-100"
+                      className="text-base font-semibold text-gray-500 px-4 py-2 rounded hover:bg-gray-100"
                     >
                       Cancel
                     </button>
                     <button
                       type="submit"
-                      className="bg-red-600 text-white text-sm font-bold px-4 py-2 rounded hover:bg-red-700"
+                      className="bg-red-600 text-white text-base font-bold px-4 py-2 rounded hover:bg-red-700"
                     >
                       Review{" "}
                       {rows.length > 1 ? `${rows.length} Entries` : "Entry"}
@@ -829,8 +829,8 @@ function Ledger() {
               </>
             ) : (
               <>
-                <div className="flex items-start gap-2 rounded-lg p-3 text-sm bg-amber-50 text-amber-800 border border-amber-200 mb-4">
-                  <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+                <div className="flex items-start gap-2 rounded-lg p-3 text-base bg-amber-50 text-amber-800 border border-amber-200 mb-4">
+                  <AlertCircle size={20} className="flex-shrink-0 mt-0.5" />
                   <span>
                     <strong>Double-check the entries below before saving.</strong>{" "}
                     Entries can't be edited once saved, but you can archive an
@@ -839,16 +839,16 @@ function Ledger() {
                 </div>
 
                 {banner && (
-                  <div className="flex items-start gap-2 rounded-lg p-3 text-sm bg-red-50 text-red-700 border border-red-200 mb-4">
-                    <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+                  <div className="flex items-start gap-2 rounded-lg p-3 text-base bg-red-50 text-red-700 border border-red-200 mb-4">
+                    <AlertCircle size={20} className="flex-shrink-0 mt-0.5" />
                     <span>{banner.message}</span>
                   </div>
                 )}
 
                 <div className="overflow-y-auto flex-1 -mx-6 px-6">
-                  <table className="w-full text-sm">
+                  <table className="w-full text-base">
                     <thead>
-                      <tr className="bg-gray-50 text-left text-xs text-gray-500 uppercase border-b border-gray-200">
+                      <tr className="bg-gray-50 text-left text-sm text-gray-500 uppercase border-b border-gray-200">
                         <th className="py-2 px-3">Date</th>
                         <th className="py-2 px-3">Detail</th>
                         <th className="py-2 px-3">Category</th>
@@ -870,7 +870,7 @@ function Ledger() {
                             {r.detail}
                           </td>
                           <td className="py-2 px-3">
-                            <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">
+                            <span className="inline-block px-2 py-0.5 rounded-full text-sm font-semibold bg-gray-100 text-gray-500">
                               {categoryName(r.category_id)}
                             </span>
                           </td>
@@ -906,7 +906,7 @@ function Ledger() {
                   <button
                     type="button"
                     onClick={() => setStep("edit")}
-                    className="text-sm font-semibold text-gray-500 px-4 py-2 rounded hover:bg-gray-100"
+                    className="text-base font-semibold text-gray-500 px-4 py-2 rounded hover:bg-gray-100"
                   >
                     ← Back to Edit
                   </button>
@@ -914,9 +914,9 @@ function Ledger() {
                     type="button"
                     onClick={handleConfirmSave}
                     disabled={saving}
-                    className="flex items-center gap-2 bg-red-600 text-white text-sm font-bold px-4 py-2 rounded hover:bg-red-700 disabled:opacity-50"
+                    className="flex items-center gap-2 bg-red-600 text-white text-base font-bold px-4 py-2 rounded hover:bg-red-700 disabled:opacity-50"
                   >
-                    {saving && <Loader2 size={14} className="animate-spin" />}
+                    {saving && <Loader2 size={18} className="animate-spin" />}
                     {saving ? "Saving..." : "Save Entries"}
                   </button>
                 </div>

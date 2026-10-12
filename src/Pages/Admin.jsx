@@ -206,7 +206,7 @@ function usePagination(items, pageSize = PAGE_SIZE) {
   return { page: currentPage, setPage, totalPages, pageItems };
 }
 
-function Skeleton({ className = "h-7 w-20" }) {
+function Skeleton({ className = "h-9 w-24" }) {
   return <div className={`${className} bg-gray-100 rounded animate-pulse mt-1`} />;
 }
 
@@ -222,7 +222,7 @@ function PrimaryButton({ children, className = "", ...props }) {
   return (
     <button
       {...props}
-      className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium text-white transition-colors disabled:opacity-50 cursor-pointer ${className}`}
+      className={`inline-flex items-center gap-1.5 px-5 py-2.5 rounded-md text-base font-medium text-white transition-colors disabled:opacity-50 cursor-pointer ${className}`}
       style={{ backgroundColor: C.accent }}
       onMouseEnter={(e) => {
         if (!props.disabled) e.currentTarget.style.backgroundColor = C.accentHover;
@@ -247,15 +247,15 @@ function KpiCard({ label, value, sub, loading, tone = "gray" }) {
           : C.text;
   return (
     <Card className="p-4">
-      <p className="text-xs text-gray-500">{label}</p>
+      <p className="text-sm text-gray-500">{label}</p>
       {loading ? (
         <Skeleton className="h-8 w-24" />
       ) : (
-        <p className="text-2xl font-semibold mt-1" style={{ color: toneColor }}>
+        <p className="text-3xl font-semibold mt-1" style={{ color: toneColor }}>
           {value}
         </p>
       )}
-      {sub && <p className="text-xs mt-1 text-gray-400">{sub}</p>}
+      {sub && <p className="text-sm mt-1 text-gray-400">{sub}</p>}
     </Card>
   );
 }
@@ -264,17 +264,17 @@ function SectionCard({ title, icon: Icon, onView, children }) {
   return (
     <Card className="p-6 flex flex-col">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-          <Icon size={16} style={{ color: C.accent }} />
+        <h2 className="text-base font-semibold text-gray-700 flex items-center gap-2">
+          <Icon size={20} style={{ color: C.accent }} />
           {title}
         </h2>
         {onView && (
           <button
             onClick={onView}
-            className="text-xs font-medium flex items-center gap-1 cursor-pointer hover:underline"
+            className="text-sm font-medium flex items-center gap-1 cursor-pointer hover:underline"
             style={{ color: C.accent }}
           >
-            View all <ArrowRight size={13} />
+            View all <ArrowRight size={17} />
           </button>
         )}
       </div>
@@ -284,7 +284,7 @@ function SectionCard({ title, icon: Icon, onView, children }) {
 }
 
 function EmptyRow({ children }) {
-  return <p className="text-xs text-gray-400 py-2">{children}</p>;
+  return <p className="text-sm text-gray-400 py-2">{children}</p>;
 }
 
 function PaginationBar({ page, totalPages, onPrev, onNext }) {
@@ -294,19 +294,19 @@ function PaginationBar({ page, totalPages, onPrev, onNext }) {
       <button
         onClick={onPrev}
         disabled={page === 0}
-        className="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 disabled:opacity-30 cursor-pointer"
+        className="flex items-center gap-1 text-sm font-medium text-gray-500 hover:text-gray-700 disabled:opacity-30 cursor-pointer"
       >
-        <ChevronLeft size={14} /> Prev
+        <ChevronLeft size={18} /> Prev
       </button>
-      <span className="text-xs text-gray-400">
+      <span className="text-sm text-gray-400">
         Page {page + 1} of {totalPages}
       </span>
       <button
         onClick={onNext}
         disabled={page === totalPages - 1}
-        className="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 disabled:opacity-30 cursor-pointer"
+        className="flex items-center gap-1 text-sm font-medium text-gray-500 hover:text-gray-700 disabled:opacity-30 cursor-pointer"
       >
-        Next <ChevronRight size={14} />
+        Next <ChevronRight size={18} />
       </button>
     </div>
   );
@@ -315,7 +315,7 @@ function PaginationBar({ page, totalPages, onPrev, onNext }) {
 function StatusChip({ label, style }) {
   return (
     <span
-      className="shrink-0 px-2 py-0.5 rounded-md text-xs font-medium border"
+      className="shrink-0 px-2 py-0.5 rounded-md text-sm font-medium border"
       style={style}
     >
       {label}
@@ -688,12 +688,12 @@ function Admin() {
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#F6F6F7" }}>
-      <div className="p-6 space-y-4 max-w-[1400px] mx-auto">
+      <div className="p-6 space-y-4">
         <Card className="px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
-            <h1 className="text-lg font-semibold text-gray-900">Dashboard</h1>
+            <h1 className="text-xl font-semibold text-gray-900">Dashboard</h1>
             {lastUpdated && !loading && (
-              <p className="text-xs text-gray-400 mt-0.5">
+              <p className="text-sm text-gray-400 mt-0.5">
                 Updated{" "}
                 {lastUpdated.toLocaleTimeString([], {
                   hour: "2-digit",
@@ -709,14 +709,14 @@ function Admin() {
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
-                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
+                className="border border-gray-300 rounded-md px-3 py-2 text-base text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
               />
-              <span className="text-gray-400 text-sm">to</span>
+              <span className="text-gray-400 text-base">to</span>
               <input
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
-                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
+                className="border border-gray-300 rounded-md px-3 py-2 text-base text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
               />
             </div>
             <PrimaryButton
@@ -730,7 +730,7 @@ function Admin() {
 
         {errorMsg && (
           <div
-            className="rounded-md border px-3 py-2.5 text-xs"
+            className="rounded-md border px-4 py-4 text-sm"
             style={{
               backgroundColor: C.warningSoft,
               borderColor: C.warningBorder,
@@ -774,34 +774,34 @@ function Admin() {
           <SectionCard title="Finance" icon={TrendingUp} onView={() => goTo("finance")}>
             <div className="grid grid-cols-3 gap-3 mb-4">
               <div>
-                <p className="text-xs text-gray-400">Expenses</p>
+                <p className="text-sm text-gray-400">Expenses</p>
                 {loading ? (
                   <Skeleton />
                 ) : (
-                  <p className="text-lg font-semibold text-gray-900">
+                  <p className="text-xl font-semibold text-gray-900">
                     {fmtPeso(financeStats.expenses)}
                   </p>
                 )}
               </div>
               <div>
-                <p className="text-xs text-gray-400">Revenue</p>
+                <p className="text-sm text-gray-400">Revenue</p>
                 {loading ? (
                   <Skeleton />
                 ) : (
-                  <p className="text-lg font-semibold text-gray-900">
+                  <p className="text-xl font-semibold text-gray-900">
                     {fmtPeso(financeStats.revenue)}
                   </p>
                 )}
               </div>
               <div>
-                <p className="text-xs text-gray-400">
+                <p className="text-sm text-gray-400">
                   {financeStats.net >= 0 ? "Net income" : "Net loss"}
                 </p>
                 {loading ? (
                   <Skeleton />
                 ) : (
                   <p
-                    className="text-lg font-semibold"
+                    className="text-xl font-semibold"
                     style={{ color: financeStats.net >= 0 ? C.success : C.accent }}
                   >
                     {fmtPeso(Math.abs(financeStats.net))}
@@ -810,21 +810,21 @@ function Admin() {
               </div>
             </div>
             {loading ? (
-              <Skeleton className="h-40 w-full" />
+              <Skeleton className="h-52 w-full" />
             ) : monthlyNet.length === 0 ? (
               <EmptyRow>No ledger entries in the selected range.</EmptyRow>
             ) : (
-              <ResponsiveContainer width="100%" height={160}>
+              <ResponsiveContainer width="100%" height={210}>
                 <BarChart data={monthlyNet} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
                   <XAxis
                     dataKey="label"
-                    tick={{ fontSize: 11, fill: "#000000" }}
+                    tick={{ fontSize: 14, fill: "#000000" }}
                     axisLine={false}
                     tickLine={false}
                   />
                   <YAxis
-                    tick={{ fontSize: 11, fill: "#000000" }}
+                    tick={{ fontSize: 14, fill: "#000000" }}
                     axisLine={false}
                     tickLine={false}
                     tickFormatter={fmtAxis}
@@ -847,32 +847,32 @@ function Admin() {
           >
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div>
-                <p className="text-xs text-gray-400">In range</p>
+                <p className="text-sm text-gray-400">In range</p>
                 {loading ? (
                   <Skeleton />
                 ) : (
-                  <p className="text-lg font-semibold text-gray-900">
+                  <p className="text-xl font-semibold text-gray-900">
                     {fmtPeso(salesStats.total)}
                   </p>
                 )}
               </div>
               <div>
-                <p className="text-xs text-gray-400">Avg order value</p>
+                <p className="text-sm text-gray-400">Avg order value</p>
                 {loading ? (
                   <Skeleton />
                 ) : (
-                  <p className="text-lg font-semibold text-gray-900">
+                  <p className="text-xl font-semibold text-gray-900">
                     {fmtPeso(salesStats.avgOrder)}
                   </p>
                 )}
               </div>
             </div>
             {loading ? (
-              <Skeleton className="h-40 w-full" />
+              <Skeleton className="h-52 w-full" />
             ) : salesStats.trend.length === 0 ? (
               <EmptyRow>No completed orders in the selected range.</EmptyRow>
             ) : (
-              <ResponsiveContainer width="100%" height={160}>
+              <ResponsiveContainer width="100%" height={210}>
                 <AreaChart
                   data={salesStats.trend}
                   margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
@@ -886,12 +886,12 @@ function Admin() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
                   <XAxis
                     dataKey="label"
-                    tick={{ fontSize: 11, fill: "#000000" }}
+                    tick={{ fontSize: 14, fill: "#000000" }}
                     axisLine={false}
                     tickLine={false}
                   />
                   <YAxis
-                    tick={{ fontSize: 11, fill: "#000000" }}
+                    tick={{ fontSize: 14, fill: "#000000" }}
                     axisLine={false}
                     tickLine={false}
                     tickFormatter={fmtAxis}
@@ -916,21 +916,21 @@ function Admin() {
           >
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div>
-                <p className="text-xs text-gray-400">Products</p>
+                <p className="text-sm text-gray-400">Products</p>
                 {loading ? (
                   <Skeleton />
                 ) : (
-                  <p className="text-lg font-semibold text-gray-900">
+                  <p className="text-xl font-semibold text-gray-900">
                     {productStats.count.toLocaleString()}
                   </p>
                 )}
               </div>
               <div>
-                <p className="text-xs text-gray-400">Total stock (all platforms)</p>
+                <p className="text-sm text-gray-400">Total stock (all platforms)</p>
                 {loading ? (
                   <Skeleton />
                 ) : (
-                  <p className="text-lg font-semibold text-gray-900">
+                  <p className="text-xl font-semibold text-gray-900">
                     {productStats.totalStock.toLocaleString()}
                   </p>
                 )}
@@ -949,7 +949,7 @@ function Admin() {
                       stockValue(p.lazada_stock) +
                       stockValue(p.tiktok_stock);
                     return (
-                      <li key={p.id} className="flex items-center justify-between text-xs">
+                      <li key={p.id} className="flex items-center justify-between text-sm">
                         <span className="text-gray-700 truncate pr-2">{p.product_name}</span>
                         <StatusChip
                           label={`${total.toLocaleString()} left`}
@@ -984,21 +984,21 @@ function Admin() {
           >
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div>
-                <p className="text-xs text-gray-400">Materials tracked</p>
+                <p className="text-sm text-gray-400">Materials tracked</p>
                 {loading ? (
                   <Skeleton />
                 ) : (
-                  <p className="text-lg font-semibold text-gray-900">
+                  <p className="text-xl font-semibold text-gray-900">
                     {materialStats.count.toLocaleString()}
                   </p>
                 )}
               </div>
               <div>
-                <p className="text-xs text-gray-400">Needs attention</p>
+                <p className="text-sm text-gray-400">Needs attention</p>
                 {loading ? (
                   <Skeleton />
                 ) : (
-                  <p className="text-lg font-semibold text-gray-900">
+                  <p className="text-xl font-semibold text-gray-900">
                     {(materialStats.low.length + materialStats.out.length).toLocaleString()}
                   </p>
                 )}
@@ -1012,7 +1012,7 @@ function Admin() {
               <>
                 <ul className="space-y-1.5">
                   {materialsAttentionPage.pageItems.map((m) => (
-                    <li key={m.id} className="flex items-center justify-between text-xs">
+                    <li key={m.id} className="flex items-center justify-between text-sm">
                       <span className="text-gray-700 truncate pr-2">{m.material_name}</span>
                       <StatusChip
                         label={`${Number(m.current_stock).toLocaleString()} ${m.unit}`}
@@ -1041,11 +1041,11 @@ function Admin() {
             onView={() => goTo("marketing")}
           >
             <div className="mb-4">
-              <p className="text-xs text-gray-400">Active / upcoming</p>
+              <p className="text-sm text-gray-400">Active / upcoming</p>
               {loading ? (
                 <Skeleton />
               ) : (
-                <p className="text-lg font-semibold text-gray-900">
+                <p className="text-xl font-semibold text-gray-900">
                   {campaignStats.activeCount.toLocaleString()}
                 </p>
               )}
@@ -1057,7 +1057,7 @@ function Admin() {
             ) : (
               <ul className="space-y-2">
                 {campaignStats.active.map((c) => (
-                  <li key={c.id} className="flex items-center justify-between text-xs gap-2">
+                  <li key={c.id} className="flex items-center justify-between text-sm gap-2">
                     <div className="min-w-0">
                       <p className="text-gray-700 font-medium truncate">{c.name}</p>
                       <p className="text-gray-400">
@@ -1080,21 +1080,21 @@ function Admin() {
           <SectionCard title="Production" icon={Factory} onView={() => goTo("production_wo")}>
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div>
-                <p className="text-xs text-gray-400">Units finished</p>
+                <p className="text-sm text-gray-400">Units finished</p>
                 {loading ? (
                   <Skeleton />
                 ) : (
-                  <p className="text-lg font-semibold text-gray-900">
+                  <p className="text-xl font-semibold text-gray-900">
                     {productionStats.unitsFinished.toLocaleString()}
                   </p>
                 )}
               </div>
               <div>
-                <p className="text-xs text-gray-400">Work orders completed</p>
+                <p className="text-sm text-gray-400">Work orders completed</p>
                 {loading ? (
                   <Skeleton />
                 ) : (
-                  <p className="text-lg font-semibold text-gray-900">
+                  <p className="text-xl font-semibold text-gray-900">
                     {productionStats.finishedOrdersCount.toLocaleString()}
                   </p>
                 )}
@@ -1106,13 +1106,13 @@ function Admin() {
             ) : (
               <div className="space-y-3">
                 <div>
-                  <p className="text-xs font-semibold text-gray-500 mb-1">Due soon</p>
+                  <p className="text-sm font-semibold text-gray-500 mb-1">Due soon</p>
                   {productionStats.dueSoon.length === 0 ? (
                     <EmptyRow>No active work orders with a due date.</EmptyRow>
                   ) : (
                     <ul className="space-y-1.5">
                       {productionStats.dueSoon.map((wo) => (
-                        <li key={wo.id} className="flex items-center justify-between text-xs">
+                        <li key={wo.id} className="flex items-center justify-between text-sm">
                           <span className="text-gray-700 truncate pr-2">
                             {wo.wo_number} · {wo.product_name}
                           </span>
@@ -1131,8 +1131,8 @@ function Admin() {
                 </div>
 
                 <div>
-                  <p className="text-xs font-semibold text-gray-500 mb-1 flex items-center gap-1">
-                    <CheckCircle2 size={12} style={{ color: C.success }} />
+                  <p className="text-sm font-semibold text-gray-500 mb-1 flex items-center gap-1">
+                    <CheckCircle2 size={16} style={{ color: C.success }} />
                     Recently finished
                   </p>
                   {productionStats.recentlyFinished.length === 0 ? (
@@ -1140,7 +1140,7 @@ function Admin() {
                   ) : (
                     <ul className="space-y-1.5">
                       {productionStats.recentlyFinished.map((wo) => (
-                        <li key={wo.id} className="flex items-center justify-between text-xs">
+                        <li key={wo.id} className="flex items-center justify-between text-sm">
                           <span className="text-gray-700 truncate pr-2">
                             {wo.wo_number} · {wo.product_name}
                           </span>

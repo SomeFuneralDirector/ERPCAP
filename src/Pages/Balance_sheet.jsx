@@ -19,15 +19,15 @@ import { toNumber, formatPeso, localDateKey } from "../lib/Finance";
 
 function BalanceRows({ rows, emptyText }) {
   if (rows.length === 0) {
-    return <p className="text-sm text-gray-400">{emptyText}</p>;
+    return <p className="text-base text-gray-400">{emptyText}</p>;
   }
   return (
-    <table className="w-full text-sm">
+    <table className="w-full text-base">
       <tbody>
         {rows.map((r) => (
           <tr key={r.name} className="border-b border-gray-100">
-            <td className="py-2 text-gray-900">{r.name}</td>
-            <td className="py-2 text-right text-gray-900">
+            <td className="py-3 text-gray-900">{r.name}</td>
+            <td className="py-3 text-right text-gray-900">
               {formatPeso(r.amount)}
             </td>
           </tr>
@@ -141,28 +141,28 @@ function BalanceSheet() {
   return (
     <div className="p-6">
       <div className="flex items-center justify-between flex-wrap gap-4 bg-white rounded-lg shadow p-6 mb-4">
-        <h1 className="text-2xl font-semibold text-gray-800">Balance Sheet</h1>
+        <h1 className="text-3xl font-semibold text-gray-800">Balance Sheet</h1>
         <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-500">As of</span>
+          <span className="text-base text-gray-500">As of</span>
           <input
             type="date"
             value={asOfDate}
             onChange={(e) => setAsOfDate(e.target.value)}
-            className="border border-gray-300 rounded px-2 py-1 text-sm text-gray-900"
+            className="border border-gray-300 rounded px-3 py-2 text-base text-gray-900"
           />
         </div>
       </div>
 
       {loading ? (
-        <div className="bg-white rounded-lg shadow p-6 flex items-center gap-2 text-gray-400 text-sm justify-center">
-          <Loader2 size={16} className="animate-spin" />
+        <div className="bg-white rounded-lg shadow p-6 flex items-center gap-2 text-gray-400 text-base justify-center">
+          <Loader2 size={20} className="animate-spin" />
           Loading balance sheet...
         </div>
       ) : (
         <>
           {!isBalanced && (
-            <div className="flex items-start gap-2 rounded-lg p-3 text-sm bg-amber-50 text-amber-800 border border-amber-200 mb-4">
-              <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+            <div className="flex items-start gap-2 rounded-lg p-3 text-base bg-amber-50 text-amber-800 border border-amber-200 mb-4">
+              <AlertCircle size={20} className="flex-shrink-0 mt-0.5" />
               <span>
                 Assets ({formatPeso(totalAssets)}) don't equal Liabilities +
                 Equity ({formatPeso(totalLiabilitiesAndEquity)}). The
@@ -177,7 +177,7 @@ function BalanceSheet() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Assets */}
             <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-sm font-extrabold text-gray-700 uppercase mb-4">
+              <h2 className="text-base font-extrabold text-gray-700 uppercase mb-4">
                 Assets
               </h2>
               <BalanceRows rows={assets} emptyText="No asset entries." />
@@ -191,7 +191,7 @@ function BalanceSheet() {
 
             {/* Liabilities + Equity */}
             <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-sm font-extrabold text-gray-700 uppercase mb-4">
+              <h2 className="text-base font-extrabold text-gray-700 uppercase mb-4">
                 Liabilities
               </h2>
               <BalanceRows
@@ -207,24 +207,24 @@ function BalanceSheet() {
                 </span>
               </div>
 
-              <h2 className="text-sm font-extrabold text-gray-700 uppercase mb-4">
+              <h2 className="text-base font-extrabold text-gray-700 uppercase mb-4">
                 Equity
               </h2>
               {equity.length === 0 && netIncome === 0 ? (
-                <p className="text-sm text-gray-400">No equity entries.</p>
+                <p className="text-base text-gray-400">No equity entries.</p>
               ) : (
-                <table className="w-full text-sm">
+                <table className="w-full text-base">
                   <tbody>
                     {equity.map((r) => (
                       <tr key={r.name} className="border-b border-gray-100">
-                        <td className="py-2 text-gray-900">{r.name}</td>
-                        <td className="py-2 text-right text-gray-900">
+                        <td className="py-3 text-gray-900">{r.name}</td>
+                        <td className="py-3 text-right text-gray-900">
                           {formatPeso(r.amount)}
                         </td>
                       </tr>
                     ))}
                     <tr className="border-b border-gray-100">
-                      <td className="py-2 text-gray-900">
+                      <td className="py-3 text-gray-900">
                         Net Income (Revenue - Expenses)
                       </td>
                       <td

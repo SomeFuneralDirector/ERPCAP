@@ -48,7 +48,7 @@ function PrimaryButton({ children, className = "", ...props }) {
   return (
     <button
       {...props}
-      className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium text-white transition-colors disabled:opacity-50 cursor-pointer ${className}`}
+      className={`inline-flex items-center gap-1.5 px-5 py-2.5 rounded-md text-base font-medium text-white transition-colors disabled:opacity-50 cursor-pointer ${className}`}
       style={{ backgroundColor: C.accent }}
       onMouseEnter={(e) => {
         if (!props.disabled) e.currentTarget.style.backgroundColor = C.accentHover;
@@ -65,7 +65,7 @@ function PrimaryButton({ children, className = "", ...props }) {
 function TrendTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2 text-xs">
+    <div className="bg-white border border-gray-200 rounded-md shadow-lg px-4 py-3.5 text-sm">
       <p className="font-semibold text-gray-700 mb-1">{label}</p>
       {payload.map((p) => (
         <p key={p.dataKey} style={{ color: p.stroke }}>
@@ -180,11 +180,11 @@ function Finance() {
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#F6F6F7" }}>
-      <div className="p-6 space-y-4 max-w-[1400px] mx-auto">
+      <div className="p-6 space-y-4">
         {/* Header + date filters */}
         <Card className="px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold text-gray-900">Finance</h1>
+            <h1 className="text-3xl font-semibold text-gray-900">Finance</h1>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
@@ -193,14 +193,14 @@ function Finance() {
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
-                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
+                className="border border-gray-300 rounded-md px-3 py-2 text-base text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
               />
-              <span className="text-gray-400 text-sm">to</span>
+              <span className="text-gray-400 text-base">to</span>
               <input
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
-                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
+                className="border border-gray-300 rounded-md px-3 py-2 text-base text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
               />
             </div>
             <PrimaryButton
@@ -214,7 +214,7 @@ function Finance() {
 
         {error && (
           <div
-            className="rounded-md border px-3 py-2.5 text-xs"
+            className="rounded-md border px-4 py-4 text-sm"
             style={{
               backgroundColor: C.accentSoft,
               borderColor: C.accentSoftBorder,
@@ -228,36 +228,36 @@ function Finance() {
         {/* Summary cards */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Card className="p-4">
-            <p className="text-xs text-gray-500">Total expenses</p>
+            <p className="text-sm text-gray-500">Total expenses</p>
             {loading ? (
               <Skeleton />
             ) : (
-              <p className="text-2xl font-semibold mt-1 text-gray-900">
+              <p className="text-3xl font-semibold mt-1 text-gray-900">
                 {formatPeso(totalExpenses)}
               </p>
             )}
           </Card>
 
           <Card className="p-4">
-            <p className="text-xs text-gray-500">Total revenue</p>
+            <p className="text-sm text-gray-500">Total revenue</p>
             {loading ? (
               <Skeleton />
             ) : (
-              <p className="text-2xl font-semibold mt-1 text-gray-900">
+              <p className="text-3xl font-semibold mt-1 text-gray-900">
                 {formatPeso(totalRevenue)}
               </p>
             )}
           </Card>
 
           <Card className="p-4">
-            <p className="text-xs text-gray-500">
+            <p className="text-sm text-gray-500">
               {isProfit ? "Net income" : "Net loss"}
             </p>
             {loading ? (
               <Skeleton />
             ) : (
               <p
-                className="text-2xl font-semibold mt-1"
+                className="text-3xl font-semibold mt-1"
                 style={{ color: isProfit ? C.success : C.accent }}
               >
                 {formatPeso(Math.abs(net))}
@@ -268,15 +268,15 @@ function Finance() {
 
         {/* Trend */}
         <Card className="p-6">
-          <h2 className="text-sm font-semibold text-gray-700 mb-3">
+          <h2 className="text-base font-semibold text-gray-700 mb-3">
             Revenue vs expenses
           </h2>
           {loading ? (
-            <Skeleton className="h-56 w-full" />
+            <Skeleton className="h-72 w-full" />
           ) : monthlyTrend.length === 0 ? (
-            <p className="text-xs text-gray-400">No data for current filters.</p>
+            <p className="text-sm text-gray-400">No data for current filters.</p>
           ) : (
-            <ResponsiveContainer width="100%" height={260}>
+            <ResponsiveContainer width="100%" height={330}>
               <AreaChart
                 data={monthlyTrend}
                 margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
@@ -298,12 +298,12 @@ function Finance() {
                 />
                 <XAxis
                   dataKey="month"
-                  tick={{ fontSize: 11, fill: "#000000" }}
+                  tick={{ fontSize: 14, fill: "#000000" }}
                   axisLine={false}
                   tickLine={false}
                 />
                 <YAxis
-                  tick={{ fontSize: 11, fill: "#000000" }}
+                  tick={{ fontSize: 14, fill: "#000000" }}
                   axisLine={false}
                   tickLine={false}
                   tickFormatter={fmtAxis}
@@ -311,9 +311,9 @@ function Finance() {
                 <Tooltip content={<TrendTooltip />} />
                 <Legend
                   verticalAlign="top"
-                  height={28}
+                  height={36}
                   iconType="line"
-                  wrapperStyle={{ fontSize: 12 }}
+                  wrapperStyle={{ fontSize: 15 }}
                 />
                 <Area
                   type="monotone"
@@ -342,24 +342,24 @@ function Finance() {
 
         {/* By category */}
         <Card className="p-6">
-          <h2 className="text-sm font-semibold text-gray-700 mb-3">
+          <h2 className="text-base font-semibold text-gray-700 mb-3">
             Utilized Money By Category
           </h2>
           {loading ? (
-            <Skeleton className="h-56 w-full" />
+            <Skeleton className="h-72 w-full" />
           ) : byCategory.length === 0 ? (
-            <p className="text-xs text-gray-400">
+            <p className="text-sm text-gray-400">
               No categorized entries in this range.
             </p>
           ) : (
             <ResponsiveContainer
               width="100%"
-              height={Math.max(220, byCategory.length * 42)}
+              height={Math.max(300, byCategory.length * 56)}
             >
               <BarChart
                 data={byCategory}
                 layout="vertical"
-                margin={{ top: 0, right: 48, left: 8, bottom: 0 }}
+                margin={{ top: 0, right: 64, left: 8, bottom: 0 }}
                 barCategoryGap={12}
               >
                 <CartesianGrid
@@ -369,7 +369,7 @@ function Finance() {
                 />
                 <XAxis
                   type="number"
-                  tick={{ fontSize: 11, fill: "#000000" }}
+                  tick={{ fontSize: 14, fill: "#000000" }}
                   axisLine={false}
                   tickLine={false}
                   tickFormatter={(v) => `₱${Number(v).toLocaleString()}`}
@@ -377,15 +377,15 @@ function Finance() {
                 <YAxis
                   type="category"
                   dataKey="name"
-                  width={140}
-                  tick={{ fontSize: 11, fill: "#000000" }}
+                  width={200}
+                  tick={{ fontSize: 14, fill: "#000000" }}
                   axisLine={false}
                   tickLine={false}
                 />
                 <Tooltip
                   formatter={(v) => `₱${Number(v || 0).toLocaleString()}`}
                   contentStyle={{
-                    fontSize: 12,
+                    fontSize: 15,
                     borderRadius: 8,
                     borderColor: C.border,
                   }}
@@ -395,7 +395,7 @@ function Finance() {
                   name="Amount"
                   fill={C.accent}
                   radius={[0, 4, 4, 0]}
-                  barSize={18}
+                  barSize={26}
                 />
               </BarChart>
             </ResponsiveContainer>
