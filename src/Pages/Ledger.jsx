@@ -1,27 +1,19 @@
 //Dating LEDGER NGAYON CASH BOOK NA. ENGOT KASI KAMI
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "../api/supabase";
 import { useAuth } from "../context/AuthContext";
-import { Loader2, Plus, Trash2, X, AlertCircle } from "lucide-react";
+import { Loader2, Plus, Trash2, X, AlertCircle, Archive } from "lucide-react";
 import { formatPeso, localDateKey, firstOfMonthKey } from "../lib/Finance";
 
-// Ledger convention (cash view):
-//   Debit  = cash IN
-//   Credit = cash OUT
-//
-// The database keeps the values 'debit' and 'credit' so the reports keep
-// working. Only the labels shown on screen say Cash In and Cash Out.
 const TYPE_LABEL = { debit: "Cash In", credit: "Cash Out" };
 
 const PAGE_SIZE = 10;
+const POLL_INTERVAL_MS = 5000;
 
-// Monday to Sunday week for a YYYY-MM-DD date string, plus a display label
-// for that range. Used to collapse individual sale entries into one weekly
-// total instead of showing every order as its own row.
 function getWeekInfo(dateStr) {
   const d = new Date(dateStr + "T00:00:00");
-  const day = d.getDay(); // 0 = Sunday
+  const day = d.getDay();
   const diffToMonday = day === 0 ? -6 : 1 - day;
   const monday = new Date(d);
   monday.setDate(d.getDate() + diffToMonday);
@@ -32,16 +24,11 @@ function getWeekInfo(dateStr) {
     dt.toLocaleDateString("en-PH", { month: "short", day: "numeric" });
 
   return {
-    // Local date key. toISOString() would shift this a day back in the
-    // Philippines because it converts to UTC.
     key: localDateKey(monday),
     label: `Week of ${fmt(monday)} to ${fmt(sunday)}`,
   };
 }
 
-// Money spent or put into things you own (expenses, assets) is normally
-// Cash Out (credit). Money received (revenue, loans, owner investment) is
-// normally Cash In (debit).
 function normalType(classification) {
   return classification === "asset" || classification === "expense"
     ? "credit"
@@ -70,49 +57,97 @@ function Ledger() {
   const [entries, setEntries] = useState([]);
   const [categories, setCategories] = useState([]);
   const [page, setPage] = useState(1);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [pageError, setPageError] = useState("");
 
   const [showModal, setShowModal] = useState(false);
-  const [step, setStep] = useState("edit"); // "edit" | "confirm"
+  const [step, setStep] = useState("edit");
   const [rows, setRows] = useState([newRow()]);
   const [rowErrors, setRowErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const [banner, setBanner] = useState(null);
 
-  useEffect(() => {
-    // Ignore responses from an earlier request if the dates changed again.
-    let ignore = false;
+  const [archiveTarget, setArchiveTarget] = useState(null);
+  const [archiving, setArchiving] = useState(false);
 
-    async function loadLedger() {
-      setLoading(true);
+  const requestIdRef = useRef(0);
+  const prevEntriesJsonRef = useRef("");
+
+  const loadLedger = useCallback(
+    async (mode = "poll") => {
+      const requestId = ++requestIdRef.current;
+      if (mode === "initial") setLoading(true);
 
       const { data, error } = await supabase
         .from("ledger_entries")
         .select(
-          "id, date, detail, type, amount, ledger_categories ( name, classification )"
+          "id, date, detail, type, amount, archived, ledger_categories ( name, classification )"
         )
         .gte("date", dateFrom)
         .lte("date", dateTo)
+        .eq("archived", false)
         .order("date", { ascending: false });
 
-      if (ignore) return;
+      if (requestId !== requestIdRef.current) return;
 
       if (error) {
         console.error("Error loading ledger:", error);
-        setLoading(false);
+        if (mode === "initial") {
+          setPageError(error.message || "Couldn't load the cash book.");
+          setLoading(false);
+        }
         return;
       }
 
-      setEntries(data || []);
+      setPageError("");
+      const fresh = data || [];
+      const freshJson = JSON.stringify(fresh);
+      if (mode === "initial" || freshJson !== prevEntriesJsonRef.current) {
+        prevEntriesJsonRef.current = freshJson;
+        setEntries(fresh);
+      }
       setLoading(false);
-    }
+    },
+    [dateFrom, dateTo]
+  );
 
-    loadLedger();
+  useEffect(() => {
+    loadLedger("initial");
+
+    let intervalId = null;
+
+    const startPolling = () => {
+      if (intervalId) return;
+      intervalId = setInterval(() => {
+        loadLedger("poll");
+      }, POLL_INTERVAL_MS);
+    };
+
+    const stopPolling = () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        loadLedger("poll");
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    };
+
+    if (document.visibilityState === "visible") {
+      startPolling();
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
-      ignore = true;
+      stopPolling();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [dateFrom, dateTo, refreshKey]);
+  }, [loadLedger]);
 
   useEffect(() => {
     setPage(1);
@@ -134,8 +169,6 @@ function Ledger() {
     setCategories(data || []);
   }
 
-  // Collapse Sales Revenue entries into one row per week. Everything else
-  // (expenses, manual entries) stays as individual rows.
   const displayRows = (() => {
     const salesWeeks = {};
     const others = [];
@@ -151,6 +184,7 @@ function Ledger() {
             type: e.type,
             amount: 0,
             ledger_categories: e.ledger_categories,
+            isSalesWeek: true,
           };
         }
         salesWeeks[key].amount += e.amount;
@@ -165,10 +199,38 @@ function Ledger() {
   })();
 
   const totalPages = Math.max(1, Math.ceil(displayRows.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
   const pageRows = displayRows.slice(
-    (page - 1) * PAGE_SIZE,
-    page * PAGE_SIZE
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE
   );
+
+  async function handleArchiveConfirm() {
+    if (!archiveTarget) return;
+    setArchiving(true);
+    setPageError("");
+
+    const { error } = await supabase
+      .from("ledger_entries")
+      .update({
+        archived: true,
+        archived_at: new Date().toISOString(),
+        archived_by: user?.id ?? null,
+      })
+      .eq("id", archiveTarget.id);
+
+    setArchiving(false);
+
+    if (error) {
+      console.error("Error archiving entry:", error);
+      setPageError("Couldn't archive that entry. " + (error.message || ""));
+      setArchiveTarget(null);
+      return;
+    }
+
+    setArchiveTarget(null);
+    loadLedger("initial");
+  }
 
   function openModal() {
     setRows([newRow()]);
@@ -209,9 +271,6 @@ function Ledger() {
       prev.map((r) => {
         if (r._rowId !== rowId) return r;
         const updated = { ...r, [field]: value };
-        // When the category changes, suggest the usual Cash In or Cash Out
-        // direction for it. This prevents an expense from being saved as
-        // Cash In by accident, which would flip its sign in every report.
         if (field === "category_id") {
           const cat = categories.find((c) => c.id === value);
           if (cat) updated.type = normalType(cat.classification);
@@ -282,7 +341,7 @@ function Ledger() {
 
     setShowModal(false);
     setStep("edit");
-    setRefreshKey((k) => k + 1);
+    loadLedger("initial");
   }
 
   function categoryName(categoryId) {
@@ -293,7 +352,7 @@ function Ledger() {
     <div className="p-6">
       <div className="flex items-center justify-between flex-wrap gap-4 bg-white rounded-lg shadow p-6 mb-4">
         <h1 className="text-2xl font-semibold text-gray-800">Cash Book</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <input
             type="date"
             value={dateFrom}
@@ -318,6 +377,13 @@ function Ledger() {
       </div>
 
       <div className="bg-white rounded-lg shadow p-6">
+        {pageError && (
+          <div className="flex items-start gap-2 rounded-lg p-3 text-sm bg-red-50 text-red-700 border border-red-200 mb-4">
+            <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+            <span>{pageError}</span>
+          </div>
+        )}
+
         {loading ? (
           <div className="flex items-center gap-2 text-gray-400 text-sm py-6 justify-center">
             <Loader2 size={16} className="animate-spin" />
@@ -341,6 +407,9 @@ function Ledger() {
                   <th className="py-3 px-4 font-extrabold text-right">
                     {TYPE_LABEL.credit}
                   </th>
+                  <th className="py-3 px-4 font-extrabold text-right">
+                    Action
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -352,7 +421,7 @@ function Ledger() {
                     }`}
                   >
                     <td className="py-3 px-4 text-gray-400">
-                      {(page - 1) * PAGE_SIZE + i + 1}
+                      {(currentPage - 1) * PAGE_SIZE + i + 1}
                     </td>
                     <td className="py-3 px-4 whitespace-nowrap text-gray-900 font-medium">
                       {e.date}
@@ -383,6 +452,24 @@ function Ledger() {
                         <span className="text-gray-300">-</span>
                       )}
                     </td>
+                    <td className="py-3 px-4 text-right">
+                      {e.isSalesWeek ? (
+                        <span
+                          className="text-xs text-gray-300"
+                          title="Weekly sales totals come from automatic sale postings"
+                        >
+                          Auto
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => setArchiveTarget(e)}
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-gray-500 hover:text-red-700 cursor-pointer"
+                        >
+                          <Archive size={14} />
+                          Archive
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -393,25 +480,25 @@ function Ledger() {
         {!loading && displayRows.length > 0 && totalPages > 1 && (
           <div className="flex items-center justify-between mt-4">
             <p className="text-sm text-gray-500">
-              Page {page} of {totalPages} · {displayRows.length} rows
+              Page {currentPage} of {totalPages} · {displayRows.length} rows
             </p>
             <div className="flex gap-2">
               <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1}
+                onClick={() => setPage(Math.max(1, currentPage - 1))}
+                disabled={currentPage === 1}
                 className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 ← Prev
               </button>
               {[...Array(Math.min(5, totalPages))].map((_, i) => {
                 const pageNum =
-                  Math.max(1, Math.min(page - 2, totalPages - 4)) + i;
+                  Math.max(1, Math.min(currentPage - 2, totalPages - 4)) + i;
                 return (
                   <button
                     key={pageNum}
                     onClick={() => setPage(pageNum)}
                     className={`px-3 py-1.5 border rounded-lg text-sm transition-colors ${
-                      page === pageNum
+                      currentPage === pageNum
                         ? "bg-red-600 border-red-600 text-white"
                         : "border-gray-200 text-gray-600 hover:bg-gray-50"
                     }`}
@@ -421,8 +508,8 @@ function Ledger() {
                 );
               })}
               <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
+                onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
+                disabled={currentPage === totalPages}
                 className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 Next →
@@ -432,7 +519,55 @@ function Ledger() {
         )}
       </div>
 
-      {/* Bulk add entries modal */}
+      {archiveTarget && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-bold text-gray-800">Archive entry?</h2>
+              <button
+                type="button"
+                onClick={() => setArchiveTarget(null)}
+                className="text-gray-400 hover:text-red-500"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm mb-4">
+              <p className="text-gray-900 font-medium">{archiveTarget.detail}</p>
+              <p className="text-gray-500 text-xs mt-0.5">
+                {archiveTarget.date} · {TYPE_LABEL[archiveTarget.type]} ·{" "}
+                {formatPeso(archiveTarget.amount)}
+              </p>
+            </div>
+
+            <p className="text-sm text-gray-600 mb-5">
+              This entry will be removed from the Cash Book and stop counting
+              in your reports. You can find it in Activity Logs under Archive.
+            </p>
+
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setArchiveTarget(null)}
+                className="text-sm font-semibold text-gray-500 px-4 py-2 rounded hover:bg-gray-100"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleArchiveConfirm}
+                disabled={archiving}
+                className="flex items-center gap-2 bg-red-600 text-white text-sm font-bold px-4 py-2 rounded hover:bg-red-700 disabled:opacity-50"
+              >
+                {archiving && <Loader2 size={14} className="animate-spin" />}
+                {archiving ? "Saving..." : "Yes, Archive"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <form
@@ -697,9 +832,9 @@ function Ledger() {
                 <div className="flex items-start gap-2 rounded-lg p-3 text-sm bg-amber-50 text-amber-800 border border-amber-200 mb-4">
                   <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
                   <span>
-                    <strong>This cannot be undone.</strong> Double-check the
-                    entries below before saving. Once saved, they'll appear
-                    permanently in your Cash Book.
+                    <strong>Double-check the entries below before saving.</strong>{" "}
+                    Entries can't be edited once saved, but you can archive an
+                    entry from the Cash Book if it was recorded by mistake.
                   </span>
                 </div>
 
@@ -782,7 +917,7 @@ function Ledger() {
                     className="flex items-center gap-2 bg-red-600 text-white text-sm font-bold px-4 py-2 rounded hover:bg-red-700 disabled:opacity-50"
                   >
                     {saving && <Loader2 size={14} className="animate-spin" />}
-                    {saving ? "Saving..." : "Yes, Save Permanently"}
+                    {saving ? "Saving..." : "Save Entries"}
                   </button>
                 </div>
               </>
