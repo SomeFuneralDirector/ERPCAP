@@ -76,7 +76,7 @@ function SecondaryButton({ children, className = "", ...props }) {
   return (
     <button
       {...props}
-      className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-50 cursor-pointer ${className}`}
+      className={`inline-flex items-center gap-1.5 px-5 py-2.5 rounded-md text-base font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-50 cursor-pointer ${className}`}
     >
       {children}
     </button>
@@ -231,15 +231,15 @@ function Marketing_io() {
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#F6F6F7" }}>
-      <div className="p-6 space-y-4 max-w-[1400px] mx-auto">
+      <div className="p-6 space-y-4">
         {/* Header */}
         <Card className="px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold text-gray-900">
+            <h1 className="text-3xl font-semibold text-gray-900">
               Marketing - Inventory Overview
             </h1>
             {refreshing && (
-              <p className="text-xs text-gray-400 mt-0.5">Syncing…</p>
+              <p className="text-sm text-gray-400 mt-0.5">Syncing…</p>
             )}
           </div>
           <div className="flex items-center gap-2 self-start md:self-auto">
@@ -254,7 +254,7 @@ function Marketing_io() {
 
         {errorMsg && (
           <div
-            className="rounded-md border px-3 py-2.5 text-xs"
+            className="rounded-md border px-4 py-4 text-sm"
             style={{
               backgroundColor: C.accentSoft,
               borderColor: C.accentSoftBorder,
@@ -275,7 +275,7 @@ function Marketing_io() {
           </Card>
         ) : products.length === 0 ? (
           <Card className="p-5">
-            <p className="text-xs text-gray-400 text-center py-8">
+            <p className="text-sm text-gray-400 text-center py-8">
               No completed orders yet. Once orders come in through the Sales page,
               product sales data will show up here.
             </p>
@@ -290,7 +290,7 @@ function Marketing_io() {
                   placeholder="Search product…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none"
+                  className="w-full px-4 py-3.5 border border-gray-300 rounded-md text-base focus:outline-none"
                   onFocus={(e) => {
                     e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`;
                     e.target.style.borderColor = C.accent;
@@ -303,7 +303,7 @@ function Marketing_io() {
                 {search && (
                   <button
                     onClick={() => setSearch("")}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none cursor-pointer"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xl leading-none cursor-pointer"
                   >
                     ×
                   </button>
@@ -316,7 +316,7 @@ function Marketing_io() {
                     <button
                       key={cat}
                       onClick={() => setCategoryFilter(cat)}
-                      className="px-4 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer border"
+                      className="px-5 py-2.5 rounded-md text-base font-medium transition-colors cursor-pointer border"
                       style={
                         active
                           ? {
@@ -341,49 +341,49 @@ function Marketing_io() {
             {/* Product Sales Table — red header like Inventory */}
             <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full text-sm border-collapse">
+                <table className="w-full text-base border-collapse">
                   <thead>
                     <tr className="bg-red-900 text-white">
-                      <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide">
+                      <th className="px-4 py-4 text-left text-sm font-semibold tracking-wide">
                         PRODUCT
                       </th>
-                      <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide">
+                      <th className="px-4 py-4 text-left text-sm font-semibold tracking-wide">
                         CATEGORY
                       </th>
-                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
+                      <th className="px-4 py-4 text-center text-sm font-semibold tracking-wide">
                         <span className="inline-flex items-center gap-1.5">
                           <span
-                            className="w-2 h-2 rounded-sm inline-block"
+                            className="w-3 h-3 rounded-sm inline-block"
                             style={{ backgroundColor: C.shopee }}
                           />
                           SHOPEE
                         </span>
                       </th>
-                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
+                      <th className="px-4 py-4 text-center text-sm font-semibold tracking-wide">
                         <span className="inline-flex items-center gap-1.5">
                           <span
-                            className="w-2 h-2 rounded-sm inline-block"
+                            className="w-3 h-3 rounded-sm inline-block"
                             style={{ backgroundColor: C.lazada }}
                           />
                           LAZADA
                         </span>
                       </th>
-                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
+                      <th className="px-4 py-4 text-center text-sm font-semibold tracking-wide">
                         <span className="inline-flex items-center gap-1.5">
                           <span
-                            className="w-2 h-2 rounded-sm inline-block"
+                            className="w-3 h-3 rounded-sm inline-block"
                             style={{ backgroundColor: C.tiktok }}
                           />
                           TIKTOK
                         </span>
                       </th>
-                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
+                      <th className="px-4 py-4 text-center text-sm font-semibold tracking-wide">
                         TOTAL SOLD
                       </th>
-                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
+                      <th className="px-4 py-4 text-center text-sm font-semibold tracking-wide">
                         IN STOCK
                       </th>
-                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
+                      <th className="px-4 py-4 text-center text-sm font-semibold tracking-wide">
                         REVENUE
                       </th>
                     </tr>
@@ -395,10 +395,10 @@ function Marketing_io() {
                           colSpan={8}
                           className="px-4 py-14 text-center text-gray-400"
                         >
-                          <p className="text-sm font-medium text-gray-500">
+                          <p className="text-base font-medium text-gray-500">
                             No products found
                           </p>
-                          <p className="text-xs text-gray-400 mt-1">
+                          <p className="text-sm text-gray-400 mt-1">
                             Try a different search term or category.
                           </p>
                         </td>
@@ -418,28 +418,28 @@ function Marketing_io() {
                                 : rowBg
                             }
                           >
-                            <td className="px-3 py-2 text-xs text-gray-800 font-medium">
+                            <td className="px-4 py-3.5 text-sm text-gray-800 font-medium">
                               {p.name}
                             </td>
-                            <td className="px-3 py-2 text-xs text-gray-500">
+                            <td className="px-4 py-3.5 text-sm text-gray-500">
                               {p.category}
                             </td>
-                            <td className="px-3 py-2 text-center text-xs text-gray-700">
+                            <td className="px-4 py-3.5 text-center text-sm text-gray-700">
                               {fmt(p.shopee)}
                             </td>
-                            <td className="px-3 py-2 text-center text-xs text-gray-700">
+                            <td className="px-4 py-3.5 text-center text-sm text-gray-700">
                               {fmt(p.lazada)}
                             </td>
-                            <td className="px-3 py-2 text-center text-xs text-gray-700">
+                            <td className="px-4 py-3.5 text-center text-sm text-gray-700">
                               {fmt(p.tiktok)}
                             </td>
                             <td
-                              className="px-3 py-2 text-center text-xs font-semibold"
+                              className="px-4 py-3.5 text-center text-sm font-semibold"
                               style={{ color: C.accent }}
                             >
                               {fmt(p.total)}
                             </td>
-                            <td className="px-3 py-2 text-center text-xs">
+                            <td className="px-4 py-3.5 text-center text-sm">
                               {p.stock !== null ? (
                                 <span
                                   className={
@@ -454,7 +454,7 @@ function Marketing_io() {
                                   {fmt(p.stock)}
                                   {lowStock && (
                                     <span
-                                      className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                                      className="text-xs px-1.5 py-0.5 rounded font-medium"
                                       style={{
                                         color: C.accent,
                                         backgroundColor: "#fff",
@@ -469,7 +469,7 @@ function Marketing_io() {
                                 <span className="text-gray-400">—</span>
                               )}
                             </td>
-                            <td className="px-3 py-2 text-center text-xs text-gray-600">
+                            <td className="px-4 py-3.5 text-center text-sm text-gray-600">
                               {fmtPHP(p.revenue)}
                             </td>
                           </tr>

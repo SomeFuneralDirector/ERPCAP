@@ -46,7 +46,7 @@ const TREND_GRID_COLOR = "#f3f4f6";
 
 const SEGMENT_WRAP = "flex gap-0.5 bg-gray-100 rounded-md p-0.5";
 const SEGMENT_BTN = (active) =>
-  `px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer ${
+  `px-4 py-2 text-sm font-medium rounded transition-colors cursor-pointer ${
     active ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
   }`;
 
@@ -139,7 +139,7 @@ function PrimaryButton({ children, className = "", ...props }) {
   return (
     <button
       {...props}
-      className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium text-white transition-colors disabled:opacity-50 cursor-pointer ${className}`}
+      className={`inline-flex items-center gap-1.5 px-5 py-2.5 rounded-md text-base font-medium text-white transition-colors disabled:opacity-50 cursor-pointer ${className}`}
       style={{ backgroundColor: C.accent }}
       onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = C.accentHover)}
       onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = C.accent)}
@@ -168,7 +168,7 @@ function TrendDot(props) {
           y={cy - 16}
           textAnchor="middle"
           fill={TREND_PEAK_COLOR}
-          fontSize={13}
+          fontSize={16}
           fontWeight={600}
         >
           {fmt(payload.total)}
@@ -183,12 +183,12 @@ function TrendTooltip({ active, payload, label }) {
   const row = payload[0].payload;
   const topSellers = row.topSellers || [];
   return (
-    <div className="bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2 text-xs min-w-[190px]">
+    <div className="bg-white border border-gray-200 rounded-md shadow-lg px-4 py-3.5 text-sm min-w-[240px]">
       <p className="font-semibold text-gray-700 mb-1">{label}</p>
       <p className="text-gray-500 mb-2">{fmt(row.total)} units sold</p>
       {topSellers.length > 0 && (
         <div className="space-y-1">
-          <p className="text-gray-400 uppercase tracking-wide" style={{ fontSize: "10px" }}>
+          <p className="text-gray-400 uppercase tracking-wide" style={{ fontSize: "13px" }}>
             Top {topSellers.length} sellers
           </p>
           {topSellers.map((p, idx) => {
@@ -197,7 +197,7 @@ function TrendTooltip({ active, payload, label }) {
               <div key={p.name} className="flex items-center justify-between gap-3">
                 <span className="flex items-center gap-1.5 text-gray-700 truncate">
                   <span
-                    className="w-4 h-4 shrink-0 flex items-center justify-center rounded-full text-white text-[10px] font-bold"
+                    className="w-6 h-6 shrink-0 flex items-center justify-center rounded-full text-white text-xs font-bold"
                     style={{ backgroundColor: C.accent }}
                   >
                     {idx + 1}
@@ -214,7 +214,7 @@ function TrendTooltip({ active, payload, label }) {
       )}
       {row.activeCampaigns && row.activeCampaigns.length > 0 && (
         <div className="mt-2 pt-2 border-t border-gray-100">
-          <p className="text-gray-400 uppercase tracking-wide" style={{ fontSize: "10px" }}>
+          <p className="text-gray-400 uppercase tracking-wide" style={{ fontSize: "13px" }}>
             Campaigns this month
           </p>
           {row.activeCampaigns.map((c) => (
@@ -618,9 +618,9 @@ function Marketing() {
   if (errorMsg && orders.length === 0 && !loading) {
     return (
       <div className="min-h-screen p-6" style={{ backgroundColor: "#F6F6F7" }}>
-        <Card className="p-6 max-w-[1400px] mx-auto" style={{ borderColor: C.accentSoftBorder }}>
-          <h1 className="text-2xl font-semibold text-gray-900 mb-2">Marketing - Dashboard</h1>
-          <p className="text-sm mb-4" style={{ color: C.accent }}>
+        <Card className="p-6" style={{ borderColor: C.accentSoftBorder }}>
+          <h1 className="text-3xl font-semibold text-gray-900 mb-2">Marketing - Dashboard</h1>
+          <p className="text-base mb-4" style={{ color: C.accent }}>
             {errorMsg}
           </p>
           <PrimaryButton onClick={() => fetchAll("initial")}>Retry</PrimaryButton>
@@ -631,11 +631,11 @@ function Marketing() {
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#F6F6F7" }}>
-      <div className="p-6 space-y-4 max-w-[1400px] mx-auto">
+      <div className="p-6 space-y-4">
         {/* Header + filters */}
         <Card className="px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold text-gray-900">Marketing - Dashboard</h1>
+            <h1 className="text-3xl font-semibold text-gray-900">Marketing - Dashboard</h1>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
@@ -658,14 +658,14 @@ function Marketing() {
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
-                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
+                className="border border-gray-300 rounded-md px-3 py-2 text-base text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
               />
-              <span className="text-gray-400 text-sm">to</span>
+              <span className="text-gray-400 text-base">to</span>
               <input
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
-                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
+                className="border border-gray-300 rounded-md px-3 py-2 text-base text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
               />
             </div>
 
@@ -677,7 +677,7 @@ function Marketing() {
 
         {errorMsg && orders.length > 0 && (
           <div
-            className="rounded-md border px-3 py-2.5 text-xs"
+            className="rounded-md border px-4 py-4 text-sm"
             style={{
               backgroundColor: C.warningSoft,
               borderColor: C.warningBorder,
@@ -691,22 +691,22 @@ function Marketing() {
         {/* Summary cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Card className="p-4">
-            <p className="text-xs text-gray-500">Total Sales</p>
+            <p className="text-sm text-gray-500">Total Sales</p>
             {loading ? (
               <Skeleton />
             ) : (
-              <p className="text-2xl font-semibold mt-1 text-gray-900">{fmtCurrency(totalSales)}</p>
+              <p className="text-3xl font-semibold mt-1 text-gray-900">{fmtCurrency(totalSales)}</p>
             )}
-            <p className="text-xs mt-1 text-gray-400">{fmt(filteredOrders.length)} completed orders</p>
+            <p className="text-sm mt-1 text-gray-400">{fmt(filteredOrders.length)} completed orders</p>
           </Card>
 
           <Card className="p-4">
-            <p className="text-xs text-gray-500">Top Platform</p>
+            <p className="text-sm text-gray-500">Top Platform</p>
             {loading ? (
               <Skeleton />
             ) : (
               <p
-                className="text-2xl font-semibold mt-1"
+                className="text-3xl font-semibold mt-1"
                 style={{
                   color: topPlatform ? PLATFORM_COLORS[topPlatform.platform] : "#374151",
                 }}
@@ -714,19 +714,19 @@ function Marketing() {
                 {topPlatform ? topPlatform.platform : "—"}
               </p>
             )}
-            <p className="text-xs mt-1 text-gray-400">by sales</p>
+            <p className="text-sm mt-1 text-gray-400">by sales</p>
           </Card>
 
           <Card className="p-4">
-            <p className="text-xs text-gray-500">Active Campaigns</p>
+            <p className="text-sm text-gray-500">Active Campaigns</p>
             {loading ? (
               <Skeleton />
             ) : (
-              <p className="text-2xl font-semibold mt-1" style={{ color: C.accent }}>
+              <p className="text-3xl font-semibold mt-1" style={{ color: C.accent }}>
                 {fmt(activeCampaigns.length)}
               </p>
             )}
-            <p className="text-xs mt-1 text-gray-400">
+            <p className="text-sm mt-1 text-gray-400">
               {endingSoonCampaigns.length > 0
                 ? `${fmt(endingSoonCampaigns.length)} ending soon`
                 : "running or upcoming"}
@@ -734,38 +734,38 @@ function Marketing() {
           </Card>
 
           <Card className="p-4">
-            <p className="text-xs text-gray-500">Low Performers</p>
+            <p className="text-sm text-gray-500">Low Performers</p>
             {loading ? (
               <Skeleton />
             ) : (
-              <p className="text-2xl font-semibold mt-1" style={{ color: C.warning }}>
+              <p className="text-3xl font-semibold mt-1" style={{ color: C.warning }}>
                 {fmt(lowPerformers.length)}
               </p>
             )}
-            <p className="text-xs mt-1 text-gray-400">≤ {LOW_PERFORMER_THRESHOLD} units sold</p>
+            <p className="text-sm mt-1 text-gray-400">≤ {LOW_PERFORMER_THRESHOLD} units sold</p>
           </Card>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {/* Sales by platform */}
           <Card className="p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">Sales by platform</h2>
+            <h2 className="text-base font-semibold text-gray-700 mb-3">Sales by platform</h2>
             {loading ? (
-              <Skeleton className="h-48 w-full" />
+              <Skeleton className="h-60 w-full" />
             ) : platformSales.length === 0 ? (
-              <p className="text-xs text-gray-400">No sales data yet.</p>
+              <p className="text-sm text-gray-400">No sales data yet.</p>
             ) : (
-              <ResponsiveContainer width="100%" height={200}>
+              <ResponsiveContainer width="100%" height={260}>
                 <BarChart data={platformSales} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
                   <XAxis
                     dataKey="platform"
-                    tick={{ fontSize: 11, fill: "#6B7280" }}
+                    tick={{ fontSize: 14, fill: "#6B7280" }}
                     axisLine={false}
                     tickLine={false}
                   />
                   <YAxis
-                    tick={{ fontSize: 11, fill: "#6B7280" }}
+                    tick={{ fontSize: 14, fill: "#6B7280" }}
                     axisLine={false}
                     tickLine={false}
                     tickFormatter={(v) => fmt(v)}
@@ -783,7 +783,7 @@ function Marketing() {
 
           {/* Top products */}
           <Card className="p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">Top products</h2>
+            <h2 className="text-base font-semibold text-gray-700 mb-3">Top products</h2>
             {loading ? (
               <div className="space-y-2">
                 {[1, 2, 3].map((i) => (
@@ -791,21 +791,21 @@ function Marketing() {
                 ))}
               </div>
             ) : products.length === 0 ? (
-              <p className="text-xs text-gray-400">No sales data yet.</p>
+              <p className="text-sm text-gray-400">No sales data yet.</p>
             ) : (
               <ul className="divide-y divide-gray-100">
                 {products.slice(0, 5).map((p, idx) => (
                   <li key={p.name} className="flex items-center justify-between py-2 first:pt-0">
-                    <span className="flex items-center gap-2 text-sm text-gray-700 truncate">
+                    <span className="flex items-center gap-2 text-base text-gray-700 truncate">
                       <span
-                        className="w-5 h-5 shrink-0 flex items-center justify-center rounded-full text-white text-xs font-bold"
+                        className="w-6 h-6 shrink-0 flex items-center justify-center rounded-full text-white text-sm font-bold"
                         style={{ backgroundColor: C.accent }}
                       >
                         {idx + 1}
                       </span>
                       <span className="truncate">{p.name}</span>
                     </span>
-                    <span className="text-gray-500 text-xs shrink-0 ml-2">{fmt(p.qty)} sold</span>
+                    <span className="text-gray-500 text-sm shrink-0 ml-2">{fmt(p.qty)} sold</span>
                   </li>
                 ))}
               </ul>
@@ -815,13 +815,13 @@ function Marketing() {
 
         {/* Seasonal trend */}
         <Card className="p-6">
-          <h2 className="text-sm font-semibold text-gray-700 mb-3">Trend</h2>
+          <h2 className="text-base font-semibold text-gray-700 mb-3">Trend</h2>
           {loading ? (
-            <Skeleton className="h-64 w-full" />
+            <Skeleton className="h-80 w-full" />
           ) : monthlyTrend.length === 0 ? (
-            <p className="text-xs text-gray-400">No sales data yet.</p>
+            <p className="text-sm text-gray-400">No sales data yet.</p>
           ) : (
-            <ResponsiveContainer width="100%" height={300}>
+            <ResponsiveContainer width="100%" height={380}>
               <AreaChart data={monthlyTrend} margin={{ top: 24, right: 16, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
@@ -832,12 +832,12 @@ function Marketing() {
                 <CartesianGrid strokeDasharray="3 3" stroke={TREND_GRID_COLOR} vertical={false} />
                 <XAxis
                   dataKey="month"
-                  tick={{ fontSize: 11, fill: "#6B7280" }}
+                  tick={{ fontSize: 14, fill: "#6B7280" }}
                   axisLine={false}
                   tickLine={false}
                 />
                 <YAxis
-                  tick={{ fontSize: 11, fill: "#6B7280" }}
+                  tick={{ fontSize: 14, fill: "#6B7280" }}
                   axisLine={false}
                   tickLine={false}
                   tickFormatter={(v) => fmt(v)}
@@ -860,14 +860,14 @@ function Marketing() {
         {/* Top products for a specific month */}
         <Card className="p-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
-            <h2 className="text-sm font-semibold text-gray-700">Top products by month</h2>
+            <h2 className="text-base font-semibold text-gray-700">Top products by month</h2>
             {!loading && availableMonths.length > 0 && (
               <div className="flex gap-2 flex-wrap">
                 {availableMonths.map((key) => (
                   <button
                     key={key}
                     onClick={() => setSelectedMonth(key)}
-                    className={`px-3 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                    className={`px-3 py-1 rounded-md text-sm font-medium transition-colors cursor-pointer ${
                       (selectedMonth || availableMonths[0]) === key
                         ? "text-white"
                         : "bg-gray-100 text-gray-600 hover:bg-gray-200"
@@ -891,25 +891,25 @@ function Marketing() {
               ))}
             </div>
           ) : availableMonths.length === 0 ? (
-            <p className="text-xs text-gray-400">No sales data yet.</p>
+            <p className="text-sm text-gray-400">No sales data yet.</p>
           ) : selectedMonthProducts.length === 0 ? (
-            <p className="text-xs text-gray-400">
+            <p className="text-sm text-gray-400">
               No sales recorded for {monthLabel(selectedMonth || availableMonths[0])}.
             </p>
           ) : (
             <ul className="divide-y divide-gray-100">
               {selectedMonthProducts.map((p, idx) => (
                 <li key={p.name} className="flex items-center justify-between py-2 first:pt-0">
-                  <span className="flex items-center gap-2 text-sm text-gray-700 truncate">
+                  <span className="flex items-center gap-2 text-base text-gray-700 truncate">
                     <span
-                      className="w-5 h-5 shrink-0 flex items-center justify-center rounded-full text-white text-xs font-bold"
+                      className="w-6 h-6 shrink-0 flex items-center justify-center rounded-full text-white text-sm font-bold"
                       style={{ backgroundColor: C.accent }}
                     >
                       {idx + 1}
                     </span>
                     <span className="truncate">{p.name}</span>
                   </span>
-                  <span className="text-gray-500 text-xs shrink-0 ml-2">{fmt(p.qty)} sold</span>
+                  <span className="text-gray-500 text-sm shrink-0 ml-2">{fmt(p.qty)} sold</span>
                 </li>
               ))}
             </ul>
@@ -918,7 +918,7 @@ function Marketing() {
 
         {/* Active campaigns snapshot */}
         <Card className="p-6">
-          <h2 className="text-sm font-semibold text-gray-700 mb-3">Active &amp; upcoming campaigns</h2>
+          <h2 className="text-base font-semibold text-gray-700 mb-3">Active &amp; upcoming campaigns</h2>
           {loading ? (
             <div className="space-y-2">
               {[1, 2].map((i) => (
@@ -926,20 +926,20 @@ function Marketing() {
               ))}
             </div>
           ) : activeCampaigns.length === 0 ? (
-            <p className="text-xs text-gray-400">No active or upcoming campaigns.</p>
+            <p className="text-sm text-gray-400">No active or upcoming campaigns.</p>
           ) : (
             <div className="divide-y divide-gray-100">
               {activeCampaigns.map((c) => (
                 <div key={c.id} className="flex items-center justify-between py-2.5">
                   <div>
-                    <p className="text-xs font-medium text-gray-700">{c.name}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">
+                    <p className="text-sm font-medium text-gray-700">{c.name}</p>
+                    <p className="text-sm text-gray-400 mt-0.5">
                       {c.platform}
                       {c.end_date && ` · ends ${new Date(c.end_date).toLocaleDateString()}`}
                     </p>
                   </div>
                   <span
-                    className="px-2 py-0.5 rounded-md text-xs font-medium border"
+                    className="px-2 py-0.5 rounded-md text-sm font-medium border"
                     style={
                       c.derivedStatus === "Active"
                         ? {

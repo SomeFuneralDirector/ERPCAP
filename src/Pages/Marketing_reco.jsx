@@ -317,20 +317,20 @@ function RecommendationCard({ rec }) {
     <div className={`rounded-lg border p-4 ${meta.card}`}>
       <div className="flex items-start gap-3">
         <div className={`p-1.5 rounded-lg ${meta.badge} shrink-0`}>
-          <Icon size={16} />
+          <Icon size={20} />
         </div>
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-sm font-bold text-gray-800">{rec.title}</p>
-            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${meta.badge}`}>{meta.label}</span>
+            <p className="text-base font-bold text-gray-800">{rec.title}</p>
+            <span className={`px-2 py-0.5 rounded-full text-sm font-semibold ${meta.badge}`}>{meta.label}</span>
           </div>
-          {rec.subtitle && <p className="text-xs text-gray-400 mt-0.5">{rec.subtitle}</p>}
+          {rec.subtitle && <p className="text-sm text-gray-400 mt-0.5">{rec.subtitle}</p>}
         </div>
       </div>
 
-      <p className="text-sm text-gray-700 mt-3 leading-relaxed">{rec.message}</p>
+      <p className="text-base text-gray-700 mt-3 leading-relaxed">{rec.message}</p>
 
-      <div className="flex flex-wrap gap-4 mt-3 pt-3 border-t border-gray-200/60 text-xs text-gray-500">
+      <div className="flex flex-wrap gap-4 mt-3 pt-3 border-t border-gray-200/60 text-sm text-gray-500">
         {rec.metrics.map((m) => (
           <span key={m.label}>
             {m.label}: <b className="text-gray-700">{m.value}</b>
@@ -435,19 +435,19 @@ function Marketing_reco() {
     <div className="p-6 space-y-4">
       <div className="bg-white rounded-lg shadow p-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Marketing - Recommendations</h1>
+          <h1 className="text-3xl font-bold text-gray-800">Marketing - Recommendations</h1>
         </div>
         <button
           onClick={fetchAll}
           disabled={loading}
-          className="px-4 py-2 bg-red-700 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors disabled:opacity-50 cursor-pointer self-start md:self-auto"
+          className="px-4 py-2 bg-red-700 text-white rounded-lg text-base font-medium hover:bg-red-600 transition-colors disabled:opacity-50 cursor-pointer self-start md:self-auto"
         >
           {loading ? "↻ Analyzing…" : "↻ Refresh"}
         </button>
       </div>
 
       {errorMsg && (
-        <div className="bg-white border border-red-300 text-red-600 rounded-lg shadow p-4 text-sm">{errorMsg}</div>
+        <div className="bg-white border border-red-300 text-red-600 rounded-lg shadow p-4 text-base">{errorMsg}</div>
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
@@ -457,8 +457,8 @@ function Marketing_reco() {
             typeFilter === "all" ? "ring-2 ring-red-400" : ""
           }`}
         >
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">All</p>
-          <p className="text-2xl font-bold mt-1 text-gray-800">{loading ? "…" : recommendations.length}</p>
+          <p className="text-sm font-semibold uppercase tracking-wide text-gray-400">All</p>
+          <p className="text-3xl font-bold mt-1 text-gray-800">{loading ? "…" : recommendations.length}</p>
         </button>
         {Object.entries(TYPE_META).map(([type, meta]) => (
           <button
@@ -468,8 +468,8 @@ function Marketing_reco() {
               typeFilter === type ? "ring-2 ring-red-400" : ""
             }`}
           >
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 truncate">{meta.label}</p>
-            <p className="text-2xl font-bold mt-1 text-gray-800">{loading ? "…" : countsByType[type] || 0}</p>
+            <p className="text-sm font-semibold uppercase tracking-wide text-gray-400 truncate">{meta.label}</p>
+            <p className="text-3xl font-bold mt-1 text-gray-800">{loading ? "…" : countsByType[type] || 0}</p>
           </button>
         ))}
       </div>
@@ -477,21 +477,21 @@ function Marketing_reco() {
       <div className="bg-white rounded-lg shadow px-4 py-3">
         <div className="relative">
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-            <Search size={16} />
+            <Search size={20} />
           </span>
           <input
             type="text"
             placeholder="Search product or campaign name…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
+            className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-red-300"
           />
         </div>
       </div>
 
       <div className="space-y-3">
         {loading ? (
-          <div className="bg-white rounded-lg shadow p-8 text-center text-gray-400 text-sm">
+          <div className="bg-white rounded-lg shadow p-8 text-center text-gray-400 text-base">
             Analyzing sales, inventory, and campaign data…
           </div>
         ) : filtered.length === 0 ? (
