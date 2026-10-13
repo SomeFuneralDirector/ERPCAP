@@ -691,16 +691,7 @@ function Admin() {
       <div className="p-6 space-y-4">
         <Card className="px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold text-gray-900">Dashboard</h1>
-            {lastUpdated && !loading && (
-              <p className="text-sm text-gray-400 mt-0.5">
-                Updated{" "}
-                {lastUpdated.toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </p>
-            )}
+            <h1 className="text-3xl font-semibold text-gray-900">Dashboard</h1>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
