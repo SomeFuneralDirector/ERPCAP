@@ -1,6 +1,5 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '../api/supabase'
-import { formatPeso } from '../lib/Finance'
 
 const TABS = [
   { key: 'logins', label: 'Login History' },
@@ -10,10 +9,6 @@ const TABS = [
 ]
 
 const PAGE_SIZE = 20
-const ARCHIVE_LIMIT = 50
-const POLL_INTERVAL_MS = 5000
-
-const CASH_TYPE_LABEL = { debit: 'Cash In', credit: 'Cash Out' }
 
 const LOGIN_STATUS_STYLES = {
   success: 'bg-green-100 text-green-700',
@@ -88,175 +83,81 @@ function Activity_logs() {
   const [logins, setLogins] = useState([])
   const [changes, setChanges] = useState([])
   const [imports, setImports] = useState([])
-  const [archivedEntries, setArchivedEntries] = useState([])
 
-  const [loading, setLoading] = useState({
-    logins: true,
-    changes: true,
-    imports: true,
-    archive: true,
-  })
-  const [errorMsg, setErrorMsg] = useState({
-    logins: '',
-    changes: '',
-    imports: '',
-    archive: '',
-  })
+  const [loading, setLoading] = useState({ logins: true, changes: true, imports: true })
+  const [errorMsg, setErrorMsg] = useState({ logins: '', changes: '', imports: '' })
   const [search, setSearch] = useState('')
   const [expandedImport, setExpandedImport] = useState(null)
   const [expandedChange, setExpandedChange] = useState(null)
 
-  // Last payload applied to state for each log, so an identical poll skips
-  // the setState and the re-render that comes with it.
-  const prevJsonRef = useRef({ logins: '', changes: '', imports: '', archive: '' })
+  const fetchLogins = useCallback(async () => {
+    setLoading((p) => ({ ...p, logins: true }))
+    const { data, error } = await supabase
+      .from('login_logs')
+      .select('id, user_email, user_agent, status, created_at')
+      .order('created_at', { ascending: false })
+      .limit(PAGE_SIZE)
 
-  const applyIfChanged = useCallback((key, fresh, setter, force = false) => {
-    const json = JSON.stringify(fresh)
-    if (force || json !== prevJsonRef.current[key]) {
-      prevJsonRef.current[key] = json
-      setter(fresh)
+    if (error) {
+      setErrorMsg((p) => ({ ...p, logins: error.message }))
+    } else {
+      setLogins(data || [])
+      setErrorMsg((p) => ({ ...p, logins: '' }))
     }
+    setLoading((p) => ({ ...p, logins: false }))
   }, [])
 
-  // mode: 'initial' shows the skeletons and always applies the result.
-  // 'poll' is silent and only applies the result if it changed. Each log
-  // only loads its latest rows, so refetching them is cheap.
-  const fetchLogins = useCallback(
-    async (mode = 'poll') => {
-      if (mode === 'initial') setLoading((p) => ({ ...p, logins: true }))
-      const { data, error } = await supabase
-        .from('login_logs')
-        .select('id, user_email, user_agent, status, created_at')
-        .order('created_at', { ascending: false })
-        .limit(PAGE_SIZE)
+  const fetchChanges = useCallback(async () => {
+    setLoading((p) => ({ ...p, changes: true }))
+    const { data, error } = await supabase
+      .from('data_change_logs')
+      .select('id, user_email, table_name, record_label, action, detail, created_at')
+      .order('created_at', { ascending: false })
+      .limit(PAGE_SIZE)
 
-      if (error) {
-        setErrorMsg((p) => ({ ...p, logins: error.message }))
-      } else {
-        applyIfChanged('logins', data || [], setLogins, mode === 'initial')
-        setErrorMsg((p) => (p.logins ? { ...p, logins: '' } : p))
-      }
-      setLoading((p) => (p.logins ? { ...p, logins: false } : p))
-    },
-    [applyIfChanged]
-  )
+    if (error) {
+      setErrorMsg((p) => ({ ...p, changes: error.message }))
+    } else {
+      setChanges(data || [])
+      setErrorMsg((p) => ({ ...p, changes: '' }))
+    }
+    setLoading((p) => ({ ...p, changes: false }))
+  }, [])
 
-  const fetchChanges = useCallback(
-    async (mode = 'poll') => {
-      if (mode === 'initial') setLoading((p) => ({ ...p, changes: true }))
-      const { data, error } = await supabase
-        .from('data_change_logs')
-        .select('id, user_email, table_name, record_label, action, detail, created_at')
-        .order('created_at', { ascending: false })
-        .limit(PAGE_SIZE)
+  const fetchImports = useCallback(async () => {
+    setLoading((p) => ({ ...p, imports: true }))
+    const { data, error } = await supabase
+      .from('import_logs')
+      .select(
+        'id, platform, filename, file_hash, date_from, date_to, row_count, ' +
+        'inserted, skipped, errors, status, reject_reason, imported_at, imported_by'
+      )
+      .order('imported_at', { ascending: false })
+      .limit(PAGE_SIZE)
 
-      if (error) {
-        setErrorMsg((p) => ({ ...p, changes: error.message }))
-      } else {
-        applyIfChanged('changes', data || [], setChanges, mode === 'initial')
-        setErrorMsg((p) => (p.changes ? { ...p, changes: '' } : p))
-      }
-      setLoading((p) => (p.changes ? { ...p, changes: false } : p))
-    },
-    [applyIfChanged]
-  )
+    if (error) {
+      setErrorMsg((p) => ({ ...p, imports: error.message }))
+    } else {
+      setImports(data || [])
+      setErrorMsg((p) => ({ ...p, imports: '' }))
+    }
+    setLoading((p) => ({ ...p, imports: false }))
+  }, [])
 
-  const fetchImports = useCallback(
-    async (mode = 'poll') => {
-      if (mode === 'initial') setLoading((p) => ({ ...p, imports: true }))
-      const { data, error } = await supabase
-        .from('import_logs')
-        .select(
-          'id, platform, filename, file_hash, date_from, date_to, row_count, ' +
-          'inserted, skipped, errors, status, reject_reason, imported_at, imported_by'
-        )
-        .order('imported_at', { ascending: false })
-        .limit(PAGE_SIZE)
-
-      if (error) {
-        setErrorMsg((p) => ({ ...p, imports: error.message }))
-      } else {
-        applyIfChanged('imports', data || [], setImports, mode === 'initial')
-        setErrorMsg((p) => (p.imports ? { ...p, imports: '' } : p))
-      }
-      setLoading((p) => (p.imports ? { ...p, imports: false } : p))
-    },
-    [applyIfChanged]
-  )
-
-  // Cash Book entries that were archived from the Cash Book page.
-  const fetchArchivedEntries = useCallback(
-    async (mode = 'poll') => {
-      if (mode === 'initial') setLoading((p) => ({ ...p, archive: true }))
-      const { data, error } = await supabase
-        .from('ledger_entries')
-        .select('id, date, detail, type, amount, archived_at, ledger_categories ( name )')
-        .eq('archived', true)
-        .order('archived_at', { ascending: false })
-        .limit(ARCHIVE_LIMIT)
-
-      if (error) {
-        setErrorMsg((p) => ({ ...p, archive: error.message }))
-      } else {
-        applyIfChanged('archive', data || [], setArchivedEntries, mode === 'initial')
-        setErrorMsg((p) => (p.archive ? { ...p, archive: '' } : p))
-      }
-      setLoading((p) => (p.archive ? { ...p, archive: false } : p))
-    },
-    [applyIfChanged]
-  )
-
-  const loadAll = useCallback(
-    (mode) => {
-      fetchLogins(mode)
-      fetchChanges(mode)
-      fetchImports(mode)
-      fetchArchivedEntries(mode)
-    },
-    [fetchLogins, fetchChanges, fetchImports, fetchArchivedEntries]
-  )
-
-  // Polling: refetches on an interval, but only while the tab is visible.
-  // It pauses in background tabs and catches up the moment the tab is
-  // visible again.
   useEffect(() => {
-    loadAll('initial')
+    fetchLogins()
+    fetchChanges()
+    fetchImports()
 
-    let intervalId = null
+    const channel = supabase
+      .channel('activity-logs-realtime')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'login_logs' }, fetchLogins)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'data_change_logs' }, fetchChanges)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'import_logs' }, fetchImports)
+      .subscribe()
 
-    const startPolling = () => {
-      if (intervalId) return
-      intervalId = setInterval(() => {
-        loadAll('poll')
-      }, POLL_INTERVAL_MS)
-    }
-
-    const stopPolling = () => {
-      if (intervalId) {
-        clearInterval(intervalId)
-        intervalId = null
-      }
-    }
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        loadAll('poll')
-        startPolling()
-      } else {
-        stopPolling()
-      }
-    }
-
-    if (document.visibilityState === 'visible') {
-      startPolling()
-    }
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-
-    return () => {
-      stopPolling()
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-    }
-  }, [loadAll])
+    return () => supabase.removeChannel(channel)
+  }, [fetchLogins, fetchChanges, fetchImports])
 
   const q = search.trim().toLowerCase()
 
@@ -288,52 +189,22 @@ function Activity_logs() {
       )
     : imports
 
-  // Archive = deleted records across the system (from data_change_logs)
-  // plus Cash Book entries that were archived, newest first.
-  const archiveItems = useMemo(() => {
-    const deleted = changes
-      .filter((c) => c.action === 'deleted')
-      .map((c) => ({
-        kind: 'deleted',
-        key: `del-${c.id}`,
-        time: c.created_at,
-        record: c,
-      }))
-    const archived = archivedEntries.map((e) => ({
-      kind: 'archived',
-      key: `arc-${e.id}`,
-      time: e.archived_at || e.date,
-      entry: e,
-    }))
-    return [...deleted, ...archived].sort(
-      (a, b) => new Date(b.time) - new Date(a.time)
-    )
-  }, [changes, archivedEntries])
+  // Archive = everything that's been deleted across the system, pulled from
+  // the same data_change_logs feed that powers the Data Changes tab.
+  const archivedRecords = useMemo(
+    () => changes.filter((c) => c.action === 'deleted'),
+    [changes]
+  )
 
   const filteredArchive = q
-    ? archiveItems.filter((item) => {
-        if (item.kind === 'deleted') {
-          const c = item.record
-          return (
-            c.user_email?.toLowerCase().includes(q) ||
-            c.table_name?.toLowerCase().includes(q) ||
-            c.record_label?.toLowerCase().includes(q) ||
-            c.detail?.toLowerCase().includes(q)
-          )
-        }
-        const e = item.entry
-        return (
-          'cash book'.includes(q) ||
-          e.detail?.toLowerCase().includes(q) ||
-          e.ledger_categories?.name?.toLowerCase().includes(q) ||
-          CASH_TYPE_LABEL[e.type]?.toLowerCase().includes(q) ||
-          e.date?.includes(q)
-        )
-      })
-    : archiveItems
-
-  const archiveLoading = loading.changes || loading.archive
-  const archiveError = errorMsg.changes || errorMsg.archive
+    ? archivedRecords.filter(
+        (c) =>
+          c.user_email?.toLowerCase().includes(q) ||
+          c.table_name?.toLowerCase().includes(q) ||
+          c.record_label?.toLowerCase().includes(q) ||
+          c.detail?.toLowerCase().includes(q)
+      )
+    : archivedRecords
 
   return (
     <div className="p-6 space-y-4">
@@ -659,17 +530,23 @@ function Activity_logs() {
           </>
         )}
 
-        {/* ── Archive (archived Cash Book entries + deleted records) ── */}
+        {/* ── Archive (deleted records) ── */}
         {activeTab === 'archive' && (
           <>
+<<<<<<< HEAD
             {archiveError && (
               <p className="text-sm text-red-600 mb-3">{archiveError}</p>
+=======
+            {errorMsg.changes && (
+              <p className="text-xs text-red-600 mb-3">{errorMsg.changes}</p>
+>>>>>>> parent of ed478fd (di ko na push yesterday)
             )}
-            {archiveLoading ? (
+            {loading.changes ? (
               <div className="space-y-2">
                 {[1, 2, 3, 4].map((i) => <Skeleton key={i} />)}
               </div>
             ) : filteredArchive.length === 0 ? (
+<<<<<<< HEAD
               <p className="text-base text-gray-400 italic py-6 text-center">
                 Nothing has been archived or deleted yet.
               </p>
@@ -714,10 +591,18 @@ function Activity_logs() {
                   }
 
                   const c = item.record
+=======
+              <p className="text-sm text-gray-400 italic py-6 text-center">
+                Nothing has been deleted yet.
+              </p>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {filteredArchive.map((c) => {
+>>>>>>> parent of ed478fd (di ko na push yesterday)
                   const detail = parseDetail(c.detail)
                   const isExpanded = expandedChange === c.id
                   return (
-                    <div key={item.key}>
+                    <div key={c.id}>
                       <div
                         className={`flex items-start gap-3 py-3 ${
                           detail ? 'cursor-pointer' : ''

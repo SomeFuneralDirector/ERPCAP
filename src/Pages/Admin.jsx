@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ResponsiveContainer,
@@ -110,7 +110,6 @@ const MATERIAL_STATUS_STYLES = {
 };
 
 const PAGE_SIZE = 5;
-const POLL_INTERVAL_MS = 5000;
 
 const fmtPeso = (pesos) =>
   `₱${(pesos ?? 0).toLocaleString("en-PH", {
@@ -352,31 +351,8 @@ function Admin() {
     [navigate]
   );
 
-  // Newest order `created_at` already pulled — polls only ask for orders
-  // newer than this. Orders are append-only once COMPLETED, so a
-  // created_at cursor is safe here (same approach as Sales_db).
-  const lastOrderSyncAtRef = useRef(null);
-  // Everything else is status-driven (campaign Cancelled, work order
-  // Pending -> Completed, material Low -> Out) or already bounded by the
-  // date range, so it's fetched in full each poll but only applied to
-  // state when the payload actually differs from last time.
-  const prevLedgerJsonRef = useRef("");
-  const prevProductsJsonRef = useRef("");
-  const prevMaterialsJsonRef = useRef("");
-  const prevCampaignsJsonRef = useRef("");
-  const prevWorkOrdersJsonRef = useRef("");
-
-  /**
-   * mode: "initial" | "manual" | "poll"
-   * - "initial" and "manual" always do a full resync of orders.
-   * - "poll" only asks for orders newer than the last sync point.
-   * Every other table is fetched in full on every mode and diffed.
-   */
   const loadDashboard = useCallback(
-    async (mode = "poll") => {
-      const isInitial = mode === "initial";
-      const fullResync = mode !== "poll";
-
+    async (isInitial = false) => {
       if (!dateFrom || !dateTo || dateFrom > dateTo) {
         setErrorMsg("Invalid date range.");
         setLoading(false);
@@ -385,17 +361,8 @@ function Admin() {
       }
 
       if (isInitial) setLoading(true);
-      else if (mode === "manual") setRefreshing(true);
+      else setRefreshing(true);
       setErrorMsg("");
-
-      let ordersQuery = supabase
-        .from("orders")
-        .select("id, platform, total_amount, completed_at, created_at, paid_time, status")
-        .eq("status", "COMPLETED");
-
-      if (!fullResync && lastOrderSyncAtRef.current) {
-        ordersQuery = ordersQuery.gt("created_at", lastOrderSyncAtRef.current);
-      }
 
       const [ledgerRes, productsRes, materialsRes, campaignsRes, ordersRes, workOrdersRes] =
         await Promise.all([
@@ -413,7 +380,10 @@ function Admin() {
           supabase
             .from("campaigns")
             .select("id, name, platform, discount_type, discount_value, start_date, end_date, status"),
-          ordersQuery,
+          supabase
+            .from("orders")
+            .select("id, platform, total_amount, completed_at, created_at, paid_time, status")
+            .eq("status", "COMPLETED"),
           supabase
             .from("work_orders")
             .select(
@@ -436,72 +406,12 @@ function Admin() {
         );
       }
 
-      if (!ledgerRes.error) {
-        const fresh = (ledgerRes.data || []).filter((e) => e?.date);
-        const freshJson = JSON.stringify(fresh);
-        if (freshJson !== prevLedgerJsonRef.current) {
-          prevLedgerJsonRef.current = freshJson;
-          setLedgerEntries(fresh);
-        }
-      }
-
-      if (!productsRes.error) {
-        const fresh = productsRes.data || [];
-        const freshJson = JSON.stringify(fresh);
-        if (freshJson !== prevProductsJsonRef.current) {
-          prevProductsJsonRef.current = freshJson;
-          setProducts(fresh);
-        }
-      }
-
-      if (!materialsRes.error) {
-        const fresh = materialsRes.data || [];
-        const freshJson = JSON.stringify(fresh);
-        if (freshJson !== prevMaterialsJsonRef.current) {
-          prevMaterialsJsonRef.current = freshJson;
-          setMaterials(fresh);
-        }
-      }
-
-      if (!campaignsRes.error) {
-        const fresh = campaignsRes.data || [];
-        const freshJson = JSON.stringify(fresh);
-        if (freshJson !== prevCampaignsJsonRef.current) {
-          prevCampaignsJsonRef.current = freshJson;
-          setCampaigns(fresh);
-        }
-      }
-
-      if (!ordersRes.error) {
-        const newOrders = (ordersRes.data || []).filter((o) => toDate(orderDate(o)));
-
-        if (newOrders.length > 0) {
-          const newestCreatedAt = newOrders.reduce(
-            (max, o) => (o.created_at && o.created_at > max ? o.created_at : max),
-            lastOrderSyncAtRef.current || ""
-          );
-          lastOrderSyncAtRef.current = newestCreatedAt;
-
-          setOrders((prev) => {
-            if (fullResync) return newOrders;
-            const byId = new Map(prev.map((o) => [o.id, o]));
-            newOrders.forEach((o) => byId.set(o.id, o));
-            return Array.from(byId.values());
-          });
-        } else if (fullResync) {
-          setOrders([]);
-        }
-        // Poll with zero new orders: state untouched, no re-render.
-      }
-
-      if (!workOrdersRes.error) {
-        const fresh = workOrdersRes.data || [];
-        const freshJson = JSON.stringify(fresh);
-        if (freshJson !== prevWorkOrdersJsonRef.current) {
-          prevWorkOrdersJsonRef.current = freshJson;
-          setWorkOrders(fresh);
-        }
-      }
+      setLedgerEntries((ledgerRes.data || []).filter((e) => e?.date));
+      setProducts(productsRes.data || []);
+      setMaterials(materialsRes.data || []);
+      setCampaigns(campaignsRes.data || []);
+      setOrders((ordersRes.data || []).filter((o) => toDate(orderDate(o))));
+      setWorkOrders(workOrdersRes.data || []);
 
       setLastUpdated(new Date());
       setLoading(false);
@@ -510,47 +420,32 @@ function Admin() {
     [dateFrom, dateTo]
   );
 
-  // Polling: refetches on an interval, but only while the tab is visible —
-  // paused in background tabs, with an immediate catch-up fetch the moment
-  // the tab becomes visible again. Changing the date range recreates
-  // loadDashboard, which re-runs this effect and does a fresh full load.
   useEffect(() => {
-    loadDashboard("initial");
+    loadDashboard(true);
 
-    let intervalId = null;
+    const channel = supabase
+      .channel("admin-dashboard-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "ledger_entries" }, () =>
+        loadDashboard(false)
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "inventory" }, () =>
+        loadDashboard(false)
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "raw_materials" }, () =>
+        loadDashboard(false)
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "campaigns" }, () =>
+        loadDashboard(false)
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () =>
+        loadDashboard(false)
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "work_orders" }, () =>
+        loadDashboard(false)
+      )
+      .subscribe();
 
-    const startPolling = () => {
-      if (intervalId) return;
-      intervalId = setInterval(() => {
-        loadDashboard("poll");
-      }, POLL_INTERVAL_MS);
-    };
-
-    const stopPolling = () => {
-      if (intervalId) {
-        clearInterval(intervalId);
-        intervalId = null;
-      }
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        loadDashboard("poll");
-        startPolling();
-      } else {
-        stopPolling();
-      }
-    };
-
-    if (document.visibilityState === "visible") {
-      startPolling();
-    }
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    return () => {
-      stopPolling();
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
+    return () => supabase.removeChannel(channel);
   }, [loadDashboard]);
 
   // Ledger convention — matches the Finance page: debit entries are
@@ -711,7 +606,7 @@ function Admin() {
               />
             </div>
             <PrimaryButton
-              onClick={() => loadDashboard("manual")}
+              onClick={() => loadDashboard(false)}
               disabled={loading || refreshing}
             >
               {loading || refreshing ? "Loading…" : "Refresh"}
