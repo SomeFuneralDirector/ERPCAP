@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
 import LOGINBG1 from '../assets/LOGINBG1.jpg';
 import IFLOGO from '../assets/IFLOGO.jpeg';
 import logotry from '../assets/logo.jpg'
@@ -12,6 +13,7 @@ function Login() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [lockedUntil, setLockedUntil] = useState(null); // Date | null
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [submitting, setSubmitting] = useState(false);
@@ -187,15 +189,26 @@ function Login() {
               <label className="text-sm font-medium text-red-700">
                 Password
               </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                disabled={isLocked || submitting}
-                className="mt-1 w-full px-4 py-3 rounded-lg bg-white/10 backdrop-blur-sm border border-red-500 text-gray/500 placeholder-gray focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition disabled:opacity-60"
-                placeholder="Enter your password"
-              />
+              <div className="relative mt-1">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  disabled={isLocked || submitting}
+                  className="w-full pl-4 pr-12 py-3 rounded-lg bg-white/10 backdrop-blur-sm border border-red-500 text-gray/500 placeholder-gray focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition disabled:opacity-60"
+                  placeholder="Enter your password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  disabled={isLocked || submitting}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  className="absolute inset-y-0 right-0 flex items-center px-3 text-red-700 hover:text-red-900 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                </button>
+              </div>
             </div>
 
             {isLocked && (

@@ -533,8 +533,8 @@ function Activity_logs() {
         {/* ── Archive (deleted records) ── */}
         {activeTab === 'archive' && (
           <>
-            {archiveError && (
-              <p className="text-sm text-red-600 mb-3">{archiveError}</p>
+            {errorMsg.changes && (
+              <p className="text-sm text-red-600 mb-3">{errorMsg.changes}</p>
             )}
             {loading.changes ? (
               <div className="space-y-2">
@@ -546,45 +546,7 @@ function Activity_logs() {
               </p>
             ) : (
               <div className="divide-y divide-gray-100">
-                {filteredArchive.map((item) => {
-                  if (item.kind === 'archived') {
-                    const e = item.entry
-                    return (
-                      <div key={item.key} className="flex items-start gap-3 py-3">
-                        <span className="px-2 py-1 rounded-full text-sm font-medium capitalize shrink-0 bg-gray-100 text-gray-600">
-                          archived
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-base text-gray-700">
-                            <span className="font-mono text-sm bg-gray-100 px-1.5 py-0.5 rounded">
-                              cash book
-                            </span>{' '}
-                            <span className="font-medium">{e.detail}</span>
-                            {e.ledger_categories?.name && (
-                              <span className="ml-2 inline-block px-2 py-0.5 rounded-full text-sm font-semibold bg-gray-100 text-gray-500">
-                                {e.ledger_categories.name}
-                              </span>
-                            )}
-                          </p>
-                          <p className="text-sm text-gray-400 mt-0.5">
-                            Entry dated {e.date} ·{' '}
-                            <span
-                              className={
-                                e.type === 'debit' ? 'text-green-600' : 'text-red-600'
-                              }
-                            >
-                              {CASH_TYPE_LABEL[e.type] || e.type} {formatPeso(e.amount)}
-                            </span>
-                          </p>
-                        </div>
-                        <span className="text-sm text-gray-400 shrink-0">
-                          {formatExact(e.archived_at)}
-                        </span>
-                      </div>
-                    )
-                  }
-
-                  const c = item.record
+                {filteredArchive.map((c) => {
                   const detail = parseDetail(c.detail)
                   const isExpanded = expandedChange === c.id
                   return (
@@ -616,7 +578,9 @@ function Activity_logs() {
                             </p>
                           )}
                         </div>
-                        <span className="text-sm text-gray-400 shrink-0">{formatExact(c.created_at)}</span>
+                        <span className="text-sm text-gray-400 shrink-0">
+                          {formatExact(c.created_at)}
+                        </span>
                       </div>
 
                       {isExpanded && detail && (
@@ -628,7 +592,9 @@ function Activity_logs() {
                                   <td className="py-1 pr-3 font-mono text-gray-500 align-top whitespace-nowrap">
                                     {field}
                                   </td>
-                                  <td className="py-1 text-gray-700 break-all">{formatValue(value)}</td>
+                                  <td className="py-1 text-gray-700 break-all">
+                                    {formatValue(value)}
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
