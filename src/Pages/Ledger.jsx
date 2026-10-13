@@ -292,13 +292,8 @@ function Ledger() {
   return (
     <div className="p-6">
       <div className="flex items-center justify-between flex-wrap gap-4 bg-white rounded-lg shadow p-6 mb-4">
-<<<<<<< HEAD
         <h1 className="text-3xl font-semibold text-gray-800">Cash Book</h1>
         <div className="flex items-center gap-2 flex-wrap">
-=======
-        <h1 className="text-2xl font-semibold text-gray-800">Cash Book</h1>
-        <div className="flex items-center gap-2">
->>>>>>> parent of ed478fd (di ko na push yesterday)
           <input
             type="date"
             value={dateFrom}
@@ -323,7 +318,6 @@ function Ledger() {
       </div>
 
       <div className="bg-white rounded-lg shadow p-6">
-<<<<<<< HEAD
         {pageError && (
           <div className="flex items-start gap-2 rounded-lg p-3 text-base bg-red-50 text-red-700 border border-red-200 mb-4">
             <AlertCircle size={20} className="flex-shrink-0 mt-0.5" />
@@ -331,8 +325,6 @@ function Ledger() {
           </div>
         )}
 
-=======
->>>>>>> parent of ed478fd (di ko na push yesterday)
         {loading ? (
           <div className="flex items-center gap-2 text-gray-400 text-base py-6 justify-center">
             <Loader2 size={20} className="animate-spin" />
@@ -356,12 +348,9 @@ function Ledger() {
                   <th className="py-4 px-5 font-extrabold text-right">
                     {TYPE_LABEL.credit}
                   </th>
-<<<<<<< HEAD
                   <th className="py-4 px-5 font-extrabold text-right">
                     Action
                   </th>
-=======
->>>>>>> parent of ed478fd (di ko na push yesterday)
                 </tr>
               </thead>
               <tbody>
@@ -372,13 +361,8 @@ function Ledger() {
                       i % 2 === 1 ? "bg-gray-50/50" : "bg-white"
                     }`}
                   >
-<<<<<<< HEAD
                     <td className="py-4 px-5 text-gray-400">
                       {(currentPage - 1) * PAGE_SIZE + i + 1}
-=======
-                    <td className="py-3 px-4 text-gray-400">
-                      {(page - 1) * PAGE_SIZE + i + 1}
->>>>>>> parent of ed478fd (di ko na push yesterday)
                     </td>
                     <td className="py-4 px-5 whitespace-nowrap text-gray-900 font-medium">
                       {e.date}
@@ -409,7 +393,6 @@ function Ledger() {
                         <span className="text-gray-300">-</span>
                       )}
                     </td>
-<<<<<<< HEAD
                     <td className="py-4 px-5 text-right">
                       {e.isSalesWeek ? (
                         <span
@@ -428,8 +411,6 @@ function Ledger() {
                         </button>
                       )}
                     </td>
-=======
->>>>>>> parent of ed478fd (di ko na push yesterday)
                   </tr>
                 ))}
               </tbody>
@@ -439,7 +420,6 @@ function Ledger() {
 
         {!loading && displayRows.length > 0 && totalPages > 1 && (
           <div className="flex items-center justify-between mt-4">
-<<<<<<< HEAD
             <p className="text-base text-gray-500">
               Page {currentPage} of {totalPages} · {displayRows.length} rows
             </p>
@@ -448,16 +428,6 @@ function Ledger() {
                 onClick={() => setPage(Math.max(1, currentPage - 1))}
                 disabled={currentPage === 1}
                 className="px-4 py-2 border border-gray-200 rounded-lg text-base text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-=======
-            <p className="text-sm text-gray-500">
-              Page {page} of {totalPages} · {displayRows.length} rows
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
->>>>>>> parent of ed478fd (di ko na push yesterday)
               >
                 ← Prev
               </button>
@@ -468,13 +438,8 @@ function Ledger() {
                   <button
                     key={pageNum}
                     onClick={() => setPage(pageNum)}
-<<<<<<< HEAD
                     className={`px-4 py-2 border rounded-lg text-base transition-colors ${
                       currentPage === pageNum
-=======
-                    className={`px-3 py-1.5 border rounded-lg text-sm transition-colors ${
-                      page === pageNum
->>>>>>> parent of ed478fd (di ko na push yesterday)
                         ? "bg-red-600 border-red-600 text-white"
                         : "border-gray-200 text-gray-600 hover:bg-gray-50"
                     }`}
@@ -484,15 +449,9 @@ function Ledger() {
                 );
               })}
               <button
-<<<<<<< HEAD
                 onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
                 disabled={currentPage === totalPages}
                 className="px-4 py-2 border border-gray-200 rounded-lg text-base text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-=======
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
-                className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
->>>>>>> parent of ed478fd (di ko na push yesterday)
               >
                 Next →
               </button>
@@ -501,7 +460,6 @@ function Ledger() {
         )}
       </div>
 
-<<<<<<< HEAD
       {archiveTarget && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-xl">
@@ -551,9 +509,6 @@ function Ledger() {
         </div>
       )}
 
-=======
-      {/* Bulk add entries modal */}
->>>>>>> parent of ed478fd (di ko na push yesterday)
       {showModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <form
@@ -902,13 +857,8 @@ function Ledger() {
                     disabled={saving}
                     className="flex items-center gap-2 bg-red-600 text-white text-base font-bold px-4 py-2 rounded hover:bg-red-700 disabled:opacity-50"
                   >
-<<<<<<< HEAD
                     {saving && <Loader2 size={18} className="animate-spin" />}
                     {saving ? "Saving..." : "Save Entries"}
-=======
-                    {saving && <Loader2 size={14} className="animate-spin" />}
-                    {saving ? "Saving..." : "Yes, Save Permanently"}
->>>>>>> parent of ed478fd (di ko na push yesterday)
                   </button>
                 </div>
               </>

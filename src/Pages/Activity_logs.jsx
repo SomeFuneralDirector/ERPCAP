@@ -533,20 +533,14 @@ function Activity_logs() {
         {/* ── Archive (deleted records) ── */}
         {activeTab === 'archive' && (
           <>
-<<<<<<< HEAD
             {archiveError && (
               <p className="text-sm text-red-600 mb-3">{archiveError}</p>
-=======
-            {errorMsg.changes && (
-              <p className="text-xs text-red-600 mb-3">{errorMsg.changes}</p>
->>>>>>> parent of ed478fd (di ko na push yesterday)
             )}
             {loading.changes ? (
               <div className="space-y-2">
                 {[1, 2, 3, 4].map((i) => <Skeleton key={i} />)}
               </div>
             ) : filteredArchive.length === 0 ? (
-<<<<<<< HEAD
               <p className="text-base text-gray-400 italic py-6 text-center">
                 Nothing has been archived or deleted yet.
               </p>
@@ -591,14 +585,6 @@ function Activity_logs() {
                   }
 
                   const c = item.record
-=======
-              <p className="text-sm text-gray-400 italic py-6 text-center">
-                Nothing has been deleted yet.
-              </p>
-            ) : (
-              <div className="divide-y divide-gray-100">
-                {filteredArchive.map((c) => {
->>>>>>> parent of ed478fd (di ko na push yesterday)
                   const detail = parseDetail(c.detail)
                   const isExpanded = expandedChange === c.id
                   return (
