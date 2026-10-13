@@ -68,11 +68,32 @@ const toNumber = (value) => {
 
 const centsToPesos = (c) => Math.max(0, toNumber(c)) / 100;
 
+// orders.created_at / completed_at are TEXT columns holding two formats:
+// "MM/DD/YYYY HH:mm" (spreadsheet imports) and ISO "YYYY-MM-DD HH:mm:ss".
+// Parse the first one explicitly instead of relying on new Date() guessing.
 const safeDate = (value) => {
   if (!value) return null;
-  const date = new Date(value);
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  const m = String(value).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2}))?/);
+  const date = m
+    ? new Date(+m[3], +m[1] - 1, +m[2], +(m[4] || 0), +(m[5] || 0))
+    : new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
 };
+
+// PostgREST returns at most 1000 rows per request, so a plain .select()
+// silently truncates once there are more orders than that. Page through all.
+const PAGE_SIZE = 1000;
+async function fetchAllRows(buildQuery) {
+  const rows = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await buildQuery().range(from, from + PAGE_SIZE - 1);
+    if (error) return { data: [], error };
+    rows.push(...(data || []));
+    if (!data || data.length < PAGE_SIZE) break;
+  }
+  return { data: rows, error: null };
+}
 
 /** Local midnight / end-of-day boundaries for date-string filters (YYYY-MM-DD). */
 const localDateBoundary = (value, endOfDay = false) => {
@@ -266,16 +287,19 @@ function Marketing() {
     }
     setErrorMsg("");
 
-    let ordersQuery = supabase
-      .from("orders")
-      .select("id, order_id, platform, total_amount, completed_at, created_at, paid_time, status")
-      .eq("status", "COMPLETED");
-
-    if (!fullResync && lastOrderSyncAtRef.current) {
-      ordersQuery = ordersQuery.gt("created_at", lastOrderSyncAtRef.current);
-    }
-
-    const { data: fetchedOrders, error: ordersError } = await ordersQuery;
+    // Cursor is imported_at (a real timestamptz). created_at is TEXT in mixed
+    // formats, so ".gt('created_at', ...)" compared strings and missed rows.
+    const { data: fetchedOrders, error: ordersError } = await fetchAllRows(() => {
+      let q = supabase
+        .from("orders")
+        .select("id, order_id, platform, total_amount, completed_at, created_at, paid_time, status, imported_at")
+        .eq("status", "COMPLETED")
+        .order("id");
+      if (!fullResync && lastOrderSyncAtRef.current) {
+        q = q.gt("imported_at", lastOrderSyncAtRef.current);
+      }
+      return q;
+    });
 
     if (ordersError) {
       setErrorMsg(ordersError.message);
@@ -288,7 +312,7 @@ function Marketing() {
 
     if (newOrders.length > 0) {
       const newestCreatedAt = newOrders.reduce(
-        (max, o) => (o.created_at && o.created_at > max ? o.created_at : max),
+        (max, o) => (o.imported_at && o.imported_at > max ? o.imported_at : max),
         lastOrderSyncAtRef.current || ""
       );
       lastOrderSyncAtRef.current = newestCreatedAt;
@@ -316,10 +340,13 @@ function Marketing() {
 
       const itemsChunkResults = await Promise.all(
         chunks.map((chunk) =>
-          supabase
-            .from("order_items")
-            .select("order_uuid, order_id, platform, product_name, quantity, unit_price")
-            .in("order_uuid", chunk)
+          fetchAllRows(() =>
+            supabase
+              .from("order_items")
+              .select("id, order_uuid, order_id, platform, product_name, quantity, unit_price")
+              .in("order_uuid", chunk)
+              .order("id")
+          )
         )
       );
 
@@ -465,12 +492,17 @@ function Marketing() {
     const map = {};
     filteredOrderItems.forEach((row) => {
       const name = row.product_name || "Unnamed Product";
-      if (!map[name]) map[name] = { name, qty: 0, sales: 0 };
+      if (!map[name]) map[name] = { name, qty: 0, sales: 0, orderSet: new Set() };
       const qty = Math.max(0, toNumber(row.quantity));
       map[name].qty += qty;
       map[name].sales += qty * centsToPesos(row.unit_price);
+      map[name].orderSet.add(row.order_uuid);
     });
-    return Object.values(map).sort((a, b) => b.qty - a.qty);
+    // Ties are common (e.g. three products on 15 units): break them by sales,
+    // then name, so the #1 slot is stable instead of "whichever came first".
+    return Object.values(map)
+      .map(({ orderSet, ...p }) => ({ ...p, orders: orderSet.size }))
+      .sort((a, b) => b.qty - a.qty || b.sales - a.sales || a.name.localeCompare(b.name));
   }, [filteredOrderItems]);
 
   const lowPerformers = useMemo(
@@ -497,7 +529,10 @@ function Marketing() {
       if (!months[key]) months[key] = {};
       const name = row.product_name || "Unnamed Product";
       const qty = Math.max(0, toNumber(row.quantity));
-      months[key][name] = (months[key][name] || 0) + qty;
+      const cell = months[key][name] || { qty: 0, orderSet: new Set() };
+      cell.qty += qty;
+      cell.orderSet.add(row.order_uuid);
+      months[key][name] = cell;
     });
     return months;
   }, [filteredOrderItems, orderDateById]);
@@ -521,8 +556,8 @@ function Marketing() {
         : availableMonths[0];
     if (!key || !monthlyProductTotals[key]) return [];
     return Object.entries(monthlyProductTotals[key])
-      .map(([name, qty]) => ({ name, qty }))
-      .sort((a, b) => b.qty - a.qty)
+      .map(([name, c]) => ({ name, qty: c.qty, orders: c.orderSet.size }))
+      .sort((a, b) => b.qty - a.qty || a.name.localeCompare(b.name))
       .slice(0, 5);
   }, [selectedMonth, availableMonths, monthlyProductTotals]);
 
@@ -561,8 +596,8 @@ function Marketing() {
     const rows = monthsAscending.map((key) => {
       const totals = monthlyProductTotals[key] || {};
       const sorted = Object.entries(totals)
-        .map(([name, qty]) => ({ name, qty }))
-        .sort((a, b) => b.qty - a.qty);
+        .map(([name, c]) => ({ name, qty: c.qty }))
+        .sort((a, b) => b.qty - a.qty || a.name.localeCompare(b.name));
       const total = sorted.reduce((sum, p) => sum + p.qty, 0);
       const topSellers = sorted.slice(0, TOP_N_IN_TOOLTIP);
       const [year, month] = key.split("-");
@@ -783,7 +818,10 @@ function Marketing() {
 
           {/* Top products */}
           <Card className="p-6">
-            <h2 className="text-base font-semibold text-gray-700 mb-3">Top products</h2>
+            <h2 className="text-base font-semibold text-gray-700 mb-1">Top products</h2>
+            <p className="text-sm text-gray-400 mb-3">
+              Units sold across the selected date range (all months combined)
+            </p>
             {loading ? (
               <div className="space-y-2">
                 {[1, 2, 3].map((i) => (
@@ -805,7 +843,9 @@ function Marketing() {
                       </span>
                       <span className="truncate">{p.name}</span>
                     </span>
-                    <span className="text-gray-500 text-sm shrink-0 ml-2">{fmt(p.qty)} sold</span>
+                    <span className="text-gray-500 text-sm shrink-0 ml-2">
+                      {fmt(p.qty)} units · {fmt(p.orders)} {p.orders === 1 ? "order" : "orders"}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -909,7 +949,9 @@ function Marketing() {
                     </span>
                     <span className="truncate">{p.name}</span>
                   </span>
-                  <span className="text-gray-500 text-sm shrink-0 ml-2">{fmt(p.qty)} sold</span>
+                  <span className="text-gray-500 text-sm shrink-0 ml-2">
+                    {fmt(p.qty)} units · {fmt(p.orders)} {p.orders === 1 ? "order" : "orders"}
+                  </span>
                 </li>
               ))}
             </ul>

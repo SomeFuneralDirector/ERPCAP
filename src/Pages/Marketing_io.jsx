@@ -37,6 +37,19 @@ const fmtPHP = (n) =>
 
 const ORDER_ITEMS_CHUNK_SIZE = 150;
 
+// PostgREST caps a single response at 1000 rows; page through everything.
+const PAGE_SIZE = 1000;
+async function fetchAllRows(buildQuery) {
+  const rows = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await buildQuery().range(from, from + PAGE_SIZE - 1);
+    if (error) return { data: [], error };
+    rows.push(...(data || []));
+    if (!data || data.length < PAGE_SIZE) break;
+  }
+  return { data: rows, error: null };
+}
+
 async function fetchOrderItemsInChunks(orderUuids) {
   const chunks = [];
   for (let i = 0; i < orderUuids.length; i += ORDER_ITEMS_CHUNK_SIZE) {
@@ -47,12 +60,15 @@ async function fetchOrderItemsInChunks(orderUuids) {
 
   const results = await Promise.all(
     chunks.map((chunk) =>
-      supabase
-        .from("order_items")
-        .select(
-          "order_uuid, order_id, platform, product_name, sku, quantity, unit_price"
-        )
-        .in("order_uuid", chunk)
+      fetchAllRows(() =>
+        supabase
+          .from("order_items")
+          .select(
+            "id, order_uuid, order_id, platform, product_name, sku, quantity, unit_price"
+          )
+          .in("order_uuid", chunk)
+          .order("id")
+      )
     )
   );
 
@@ -91,6 +107,8 @@ function Marketing_io() {
   const [errorMsg, setErrorMsg] = useState("");
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
+  // "All" | "Top" | "Low"
+  const [performanceFilter, setPerformanceFilter] = useState("All");
 
   const fetchData = useCallback(async (isInitial = false) => {
     if (isInitial) {
@@ -100,10 +118,13 @@ function Marketing_io() {
     }
     setErrorMsg("");
 
-    const { data: completedOrders, error: ordersError } = await supabase
-      .from("orders")
-      .select("id, order_id")
-      .eq("status", "COMPLETED");
+    const { data: completedOrders, error: ordersError } = await fetchAllRows(() =>
+      supabase
+        .from("orders")
+        .select("id, order_id")
+        .eq("status", "COMPLETED")
+        .order("id")
+    );
 
     if (ordersError) {
       setErrorMsg(ordersError.message);
@@ -179,6 +200,23 @@ function Marketing_io() {
 
   const products = useMemo(() => {
     const map = {};
+
+    // Seed with every inventory product so items with ZERO sales
+    // can be flagged as low performing too.
+    inventory.forEach((item) => {
+      const name = item.product_name;
+      if (!name || map[name]) return;
+      map[name] = {
+        id: name,
+        name,
+        shopee: 0,
+        lazada: 0,
+        tiktok: 0,
+        revenue: 0,
+        total: 0,
+      };
+    });
+
     orderItems.forEach((row) => {
       const name = row.product_name || "Unnamed Product";
       if (!map[name]) {
@@ -208,7 +246,7 @@ function Marketing_io() {
       category: inventoryByName[p.name]?.category ?? "—",
       stock: inventoryByName[p.name]?.stock ?? null,
     }));
-  }, [orderItems, inventoryByName]);
+  }, [orderItems, inventory, inventoryByName]);
 
   // Fixed gender categories like Inventory (All / Men / Women)
   const categoryOptions = ["All", "Men", "Women"];
@@ -223,9 +261,27 @@ function Marketing_io() {
     });
   }, [products, categoryFilter, search]);
 
+  // Average units sold per product: the dividing line between
+  // "top selling" (at/above average, with sales) and "low performing" (below average).
+  const avgSold = useMemo(() => {
+    if (products.length === 0) return 0;
+    return products.reduce((sum, p) => sum + p.total, 0) / products.length;
+  }, [products]);
+
   const sortedProductTable = useMemo(() => {
-    return [...filteredProducts].sort((a, b) => b.total - a.total);
-  }, [filteredProducts]);
+    let list = filteredProducts;
+    if (performanceFilter === "Top") {
+      list = list.filter((p) => p.total > 0 && p.total >= avgSold);
+      return [...list].sort((a, b) => b.total - a.total || b.revenue - a.revenue);
+    }
+    if (performanceFilter === "Low") {
+      list = list.filter((p) => p.total < avgSold);
+      return [...list].sort((a, b) => a.total - b.total || a.revenue - b.revenue);
+    }
+    return [...list].sort(
+      (a, b) => b.total - a.total || b.revenue - a.revenue || a.name.localeCompare(b.name)
+    );
+  }, [filteredProducts, performanceFilter, avgSold]);
 
   const loading = initialLoading;
 
@@ -332,6 +388,40 @@ function Marketing_io() {
                       }
                     >
                       {cat}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex gap-2 shrink-0">
+                {[
+                  { key: "Top", label: "Top Selling" },
+                  { key: "Low", label: "Low Performing" },
+                ].map(({ key, label }) => {
+                  const active = performanceFilter === key;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() =>
+                        setPerformanceFilter(active ? "All" : key)
+                      }
+                      className="px-5 py-2.5 rounded-md text-base font-medium transition-colors cursor-pointer border"
+                      style={
+                        active
+                          ? {
+                              backgroundColor:
+                                key === "Top" ? C.success : C.warning,
+                              borderColor:
+                                key === "Top" ? C.success : C.warning,
+                              color: "#fff",
+                            }
+                          : {
+                              backgroundColor: "#fff",
+                              borderColor: "#D1D5DB",
+                              color: "#142947",
+                            }
+                      }
+                    >
+                      {label}
                     </button>
                   );
                 })}

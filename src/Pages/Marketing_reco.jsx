@@ -27,11 +27,28 @@ const toNumber = (v) => {
 
 const centsToPesos = (c) => Math.max(0, toNumber(c)) / 100;
 
+// orders.created_at / completed_at are TEXT in two formats: "MM/DD/YYYY HH:mm"
+// and ISO "YYYY-MM-DD HH:mm:ss". Parse the first explicitly.
 const safeDate = (v) => {
   if (!v) return null;
-  const d = new Date(v);
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v;
+  const m = String(v).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2}))?/);
+  const d = m ? new Date(+m[3], +m[1] - 1, +m[2], +(m[4] || 0), +(m[5] || 0)) : new Date(v);
   return Number.isNaN(d.getTime()) ? null : d;
 };
+
+// PostgREST caps a single response at 1000 rows; page through everything.
+const PAGE_SIZE = 1000;
+async function fetchAllRows(buildQuery) {
+  const rows = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await buildQuery().range(from, from + PAGE_SIZE - 1);
+    if (error) return { data: [], error };
+    rows.push(...(data || []));
+    if (!data || data.length < PAGE_SIZE) break;
+  }
+  return { data: rows, error: null };
+}
 
 const fmtPHP = (n) => `₱${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
@@ -355,17 +372,20 @@ function Marketing_reco() {
     setLoading(true);
     setErrorMsg("");
 
-    const cutoffIso = new Date(Date.now() - DATA_WINDOW_DAYS * 86_400_000).toISOString();
+    const cutoff = Date.now() - DATA_WINDOW_DAYS * 86_400_000;
 
-    // Single query: order_items joined (inner) to orders, filtered server-side
-    // on order status + a recency window. This avoids ever building a huge
-    // `order_uuid IN (...)` filter, which is what was causing the 400s.
+    // Single joined query (avoids a huge `order_uuid IN (...)` filter). The
+    // recency window is applied below in JS: created_at is TEXT in mixed
+    // formats, so a server-side .gte() compared strings and silently dropped
+    // every "MM/DD/YYYY" row. Paged because PostgREST caps responses at 1000.
     const [itemsRes, inventoryRes, campaignsRes] = await Promise.all([
-      supabase
-        .from("order_items")
-        .select("order_uuid, order_id, platform, product_name, sku, quantity, unit_price, orders!inner(completed_at, created_at, paid_time, status)")
-        .eq("orders.status", "COMPLETED")
-        .gte("orders.created_at", cutoffIso),
+      fetchAllRows(() =>
+        supabase
+          .from("order_items")
+          .select("id, order_uuid, order_id, platform, product_name, sku, quantity, unit_price, orders!inner(completed_at, created_at, paid_time, status)")
+          .eq("orders.status", "COMPLETED")
+          .order("id")
+      ),
       supabase.from("inventory").select("product_name, category, shopee_stock, lazada_stock, tiktok_stock"),
       supabase.from("campaigns").select("id, name, platform, discount_type, discount_value, start_date, end_date, status"),
     ]);
@@ -381,7 +401,7 @@ function Marketing_reco() {
     (itemsRes.data || []).forEach((item) => {
       const o = item.orders;
       const date = safeDate(o?.completed_at || o?.created_at || o?.paid_time);
-      if (!date) return;
+      if (!date || date.getTime() < cutoff) return;
       dateMap[item.order_uuid] = date;
       if (toNumber(item.quantity) > 0) validItems.push(item);
     });
