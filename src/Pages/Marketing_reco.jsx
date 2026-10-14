@@ -11,6 +11,20 @@ import {
 } from "lucide-react";
 import { supabase } from "../api/supabase";
 
+/* ── Design tokens — shared with Inventory / Sales / Marketing pages ───── */
+const C = {
+  accent: "#B3211B",
+  accentHover: "#8E1A15",
+  accentSoft: "#FBEAE9",
+  accentSoftBorder: "#F3C9C7",
+  success: "#15803D",
+  successSoft: "#EEF6EF",
+  successBorder: "#CDE7D2",
+  warning: "#A15C07",
+  warningSoft: "#FBF3E7",
+  warningBorder: "#F1DDB8",
+};
+
 const normalizePlatform = (p) => {
   if (!p) return "Unknown";
   const key = p.toLowerCase();
@@ -89,14 +103,26 @@ const THRESHOLDS = {
 // sales-trend window plus the longest campaign baseline we'd compare against.
 const DATA_WINDOW_DAYS = 180;
 
+// Recommendation types use only the shared app palette (accent red, amber,
+// green, plus the Men / Women / Unisex category colours and neutral gray).
+const TONES = {
+  warning: { color: C.warning, soft: C.warningSoft, border: C.warningBorder },
+  success: { color: C.success, soft: C.successSoft, border: C.successBorder },
+  accent: { color: C.accent, soft: C.accentSoft, border: C.accentSoftBorder },
+  blue: { color: "#1D4E89", soft: "#EBF1F8", border: "#C9D8EA" },
+  plum: { color: "#8b2976", soft: "#F7EBF4", border: "#E6C8DF" },
+  slate: { color: "#475569", soft: "#F1F5F9", border: "#D5DDE6" },
+  gray: { color: "#6B6B70", soft: "#F5F5F6", border: "#E4E4E7" },
+};
+
 const TYPE_META = {
-  promo_candidate: { label: "Promo Candidate", icon: Megaphone, badge: "bg-orange-100 text-orange-700", card: "border-orange-200 bg-orange-50/40" },
-  rising_star: { label: "Rising Star", icon: TrendingUp, badge: "bg-emerald-100 text-emerald-700", card: "border-emerald-200 bg-emerald-50/40" },
-  declining: { label: "Declining", icon: TrendingDown, badge: "bg-pink-100 text-pink-700", card: "border-pink-200 bg-pink-50/40" },
-  platform_gap: { label: "Platform Gap", icon: ArrowLeftRight, badge: "bg-indigo-100 text-indigo-700", card: "border-indigo-200 bg-indigo-50/40" },
-  dead_stock: { label: "Dead Stock", icon: PackageX, badge: "bg-gray-200 text-gray-700", card: "border-gray-300 bg-gray-50" },
-  campaign_lift_low: { label: "Campaign Underperforming", icon: BarChart3, badge: "bg-purple-100 text-purple-700", card: "border-purple-200 bg-purple-50/40" },
-  campaign_too_early: { label: "Awaiting Data", icon: Clock, badge: "bg-blue-100 text-blue-700", card: "border-blue-200 bg-blue-50/40" },
+  promo_candidate: { label: "Promo Candidate", icon: Megaphone, tone: TONES.warning },
+  rising_star: { label: "Rising Star", icon: TrendingUp, tone: TONES.success },
+  declining: { label: "Declining", icon: TrendingDown, tone: TONES.accent },
+  platform_gap: { label: "Platform Gap", icon: ArrowLeftRight, tone: TONES.blue },
+  dead_stock: { label: "Dead Stock", icon: PackageX, tone: TONES.gray },
+  campaign_lift_low: { label: "Campaign Underperforming", icon: BarChart3, tone: TONES.plum },
+  campaign_too_early: { label: "Awaiting Data", icon: Clock, tone: TONES.slate },
 };
 
 const SEVERITY_ORDER = {
@@ -331,23 +357,34 @@ function RecommendationCard({ rec }) {
   const Icon = meta.icon;
 
   return (
-    <div className={`rounded-lg border p-4 ${meta.card}`}>
+    <div
+      className="rounded-lg border p-4"
+      style={{ borderColor: meta.tone.border, backgroundColor: meta.tone.soft }}
+    >
       <div className="flex items-start gap-3">
-        <div className={`p-1.5 rounded-lg ${meta.badge} shrink-0`}>
-          <Icon size={20} />
+        <div
+          className="p-1.5 rounded-lg shrink-0"
+          style={{ color: meta.tone.color, backgroundColor: "#fff" }}
+        >
+          <Icon size={16} />
         </div>
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-base font-bold text-gray-800">{rec.title}</p>
-            <span className={`px-2 py-0.5 rounded-full text-sm font-semibold ${meta.badge}`}>{meta.label}</span>
+            <p className="text-sm font-bold text-gray-800">{rec.title}</p>
+            <span
+              className="px-2 py-0.5 rounded-full text-xs font-semibold border"
+              style={{ color: meta.tone.color, backgroundColor: "#fff", borderColor: meta.tone.border }}
+            >
+              {meta.label}
+            </span>
           </div>
-          {rec.subtitle && <p className="text-sm text-gray-400 mt-0.5">{rec.subtitle}</p>}
+          {rec.subtitle && <p className="text-xs text-gray-400 mt-0.5">{rec.subtitle}</p>}
         </div>
       </div>
 
-      <p className="text-base text-gray-700 mt-3 leading-relaxed">{rec.message}</p>
+      <p className="text-sm text-gray-700 mt-3 leading-relaxed">{rec.message}</p>
 
-      <div className="flex flex-wrap gap-4 mt-3 pt-3 border-t border-gray-200/60 text-sm text-gray-500">
+      <div className="flex flex-wrap gap-4 mt-3 pt-3 border-t border-gray-200/60 text-xs text-gray-500">
         {rec.metrics.map((m) => (
           <span key={m.label}>
             {m.label}: <b className="text-gray-700">{m.value}</b>
@@ -455,41 +492,39 @@ function Marketing_reco() {
     <div className="p-6 space-y-4">
       <div className="bg-white rounded-lg shadow p-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold text-gray-800">Marketing - Recommendations</h1>
+          <h1 className="text-2xl font-semibold text-gray-800">Marketing - Recommendations</h1>
         </div>
-        <button
-          onClick={fetchAll}
-          disabled={loading}
-          className="px-4 py-2 bg-red-700 text-white rounded-lg text-base font-medium hover:bg-red-600 transition-colors disabled:opacity-50 cursor-pointer self-start md:self-auto"
-        >
-          {loading ? "↻ Analyzing…" : "↻ Refresh"}
-        </button>
       </div>
 
       {errorMsg && (
-        <div className="bg-white border border-red-300 text-red-600 rounded-lg shadow p-4 text-base">{errorMsg}</div>
+        <div
+          className="rounded-lg border shadow p-4 text-sm"
+          style={{ backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder, color: C.accent }}
+        >
+          {errorMsg}
+        </div>
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
         <button
           onClick={() => setTypeFilter("all")}
           className={`bg-white rounded-lg shadow p-3 text-left transition-all cursor-pointer ${
-            typeFilter === "all" ? "ring-2 ring-red-400" : ""
+            typeFilter === "all" ? "ring-2 ring-[#B3211B]" : "hover:bg-gray-50"
           }`}
         >
-          <p className="text-sm font-semibold uppercase tracking-wide text-gray-400">All</p>
-          <p className="text-3xl font-bold mt-1 text-gray-800">{loading ? "…" : recommendations.length}</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">All</p>
+          <p className="text-2xl font-bold mt-1 text-gray-800">{loading ? "…" : recommendations.length}</p>
         </button>
         {Object.entries(TYPE_META).map(([type, meta]) => (
           <button
             key={type}
             onClick={() => setTypeFilter(type)}
             className={`bg-white rounded-lg shadow p-3 text-left transition-all cursor-pointer ${
-              typeFilter === type ? "ring-2 ring-red-400" : ""
+              typeFilter === type ? "ring-2 ring-[#B3211B]" : "hover:bg-gray-50"
             }`}
           >
-            <p className="text-sm font-semibold uppercase tracking-wide text-gray-400 truncate">{meta.label}</p>
-            <p className="text-3xl font-bold mt-1 text-gray-800">{loading ? "…" : countsByType[type] || 0}</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 truncate">{meta.label}</p>
+            <p className="text-2xl font-bold mt-1 text-gray-800">{loading ? "…" : countsByType[type] || 0}</p>
           </button>
         ))}
       </div>
@@ -497,21 +532,29 @@ function Marketing_reco() {
       <div className="bg-white rounded-lg shadow px-4 py-3">
         <div className="relative">
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-            <Search size={20} />
+            <Search size={16} />
           </span>
           <input
             type="text"
             placeholder="Search product or campaign name…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-red-300"
+            className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none"
+            onFocus={(e) => {
+              e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`;
+              e.target.style.borderColor = C.accent;
+            }}
+            onBlur={(e) => {
+              e.target.style.boxShadow = "none";
+              e.target.style.borderColor = "#D1D5DB";
+            }}
           />
         </div>
       </div>
 
       <div className="space-y-3">
         {loading ? (
-          <div className="bg-white rounded-lg shadow p-8 text-center text-gray-400 text-base">
+          <div className="bg-white rounded-lg shadow p-8 text-center text-gray-400 text-sm">
             Analyzing sales, inventory, and campaign data…
           </div>
         ) : filtered.length === 0 ? (

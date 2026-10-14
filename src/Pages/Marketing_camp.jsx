@@ -61,7 +61,7 @@ const DISCOUNT_TYPES = [
 const VALUE_LESS_TYPES = ["Free Shipping", "Buy 1 Take 1"];
 
 const inputBase =
-  "w-full border border-gray-300 rounded-md px-4 py-3.5 text-base text-gray-800 placeholder-gray-400 focus:outline-none transition-colors";
+  "w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:outline-none transition-colors";
 
 function emptyForm() {
   return {
@@ -109,7 +109,7 @@ function PrimaryButton({ children, className = "", ...props }) {
   return (
     <button
       {...props}
-      className={`inline-flex items-center gap-1.5 px-5 py-2.5 rounded-md text-base font-medium text-white transition-colors disabled:opacity-50 cursor-pointer ${className}`}
+      className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium text-white transition-colors disabled:opacity-50 cursor-pointer ${className}`}
       style={{ backgroundColor: C.accent }}
       onMouseEnter={(e) => {
         if (!props.disabled) e.currentTarget.style.backgroundColor = C.accentHover;
@@ -127,7 +127,7 @@ function SecondaryButton({ children, className = "", ...props }) {
   return (
     <button
       {...props}
-      className={`inline-flex items-center gap-1.5 px-5 py-2.5 rounded-md text-base font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-50 cursor-pointer ${className}`}
+      className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-50 cursor-pointer ${className}`}
     >
       {children}
     </button>
@@ -138,7 +138,7 @@ function StatusBadge({ status }) {
   const style = STATUS_STYLES[status] || STATUS_STYLES.Ended;
   return (
     <span
-      className={`inline-flex px-2 py-0.5 rounded-md text-sm font-medium border ${
+      className={`inline-flex px-2 py-0.5 rounded-md text-xs font-medium border ${
         status === "Cancelled" ? "line-through" : ""
       }`}
       style={style}
@@ -151,8 +151,8 @@ function StatusBadge({ status }) {
 function PlatformBadge({ platform }) {
   const color = PLATFORM_COLORS[platform] || "#6B7280";
   return (
-    <span className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-700">
-      <span className="w-3 h-3 rounded-sm inline-block shrink-0" style={{ backgroundColor: color }} />
+    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-700">
+      <span className="w-2 h-2 rounded-sm inline-block shrink-0" style={{ backgroundColor: color }} />
       {platform}
     </span>
   );
@@ -331,27 +331,22 @@ function Marketing_campaigns() {
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#F6F6F7" }}>
-      <div className="p-6 space-y-4">
+      <div className="p-6 space-y-4 max-w-[1400px] mx-auto">
         {/* Header */}
         <Card className="px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold text-gray-900">Marketing - Campaigns</h1>
-            {refreshing && <p className="text-sm text-gray-400 mt-0.5">Syncing…</p>}
+            <h1 className="text-2xl font-semibold text-gray-900">Marketing - Campaigns</h1>
+            {refreshing && <p className="text-xs text-gray-400 mt-0.5">Syncing…</p>}
           </div>
           <div className="flex items-center gap-2 self-start md:self-auto">
             <PrimaryButton onClick={openCreateForm}>+ New Campaign</PrimaryButton>
-            <SecondaryButton
-              onClick={() => fetchCampaigns(false)}
-              disabled={loading || refreshing}
-            >
-              {loading || refreshing ? "Loading…" : "Refresh"}
-            </SecondaryButton>
+            
           </div>
         </Card>
 
         {errorMsg && (
           <div
-            className="rounded-md border px-4 py-4 text-sm"
+            className="rounded-md border px-3 py-2.5 text-xs"
             style={{
               backgroundColor: C.accentSoft,
               borderColor: C.accentSoftBorder,
@@ -368,10 +363,10 @@ function Marketing_campaigns() {
           <div className="px-5 pt-4 flex gap-1 border-b border-gray-200">
             <button
               onClick={() => setActiveTab("active")}
-              className={`px-4 py-2.5 text-base font-medium border-b-2 -mb-px transition-colors cursor-pointer ${
+              className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer ${
                 activeTab === "active"
                   ? "border-transparent text-white"
-                  : "border-transparent text-gray-500 hover:text-gray-700"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
               }`}
               style={
                 activeTab === "active"
@@ -386,10 +381,10 @@ function Marketing_campaigns() {
             </button>
             <button
               onClick={() => setActiveTab("history")}
-              className={`px-4 py-2.5 text-base font-medium border-b-2 -mb-px transition-colors cursor-pointer ${
+              className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer ${
                 activeTab === "history"
                   ? "border-transparent"
-                  : "border-transparent text-gray-500 hover:text-gray-700"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
               }`}
               style={
                 activeTab === "history"
@@ -411,22 +406,22 @@ function Marketing_campaigns() {
               ))}
             </div>
           ) : displayedCampaigns.length === 0 ? (
-            <p className="text-sm text-gray-400 py-8 text-center">
+            <p className="text-xs text-gray-400 py-8 text-center">
               No {activeTab === "active" ? "active or upcoming" : "ended or cancelled"}{" "}
               campaigns yet.
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-base text-left border-collapse">
+              <table className="w-full text-sm text-left border-collapse">
                 <thead>
                   <tr className="bg-red-900 text-white">
-                    <th className="px-5 py-2.5 text-sm font-semibold tracking-wide">CAMPAIGN</th>
-                    <th className="px-5 py-2.5 text-sm font-semibold tracking-wide">PLATFORM</th>
-                    <th className="px-5 py-2.5 text-sm font-semibold tracking-wide">OFFER</th>
-                    <th className="px-5 py-2.5 text-sm font-semibold tracking-wide">START</th>
-                    <th className="px-5 py-2.5 text-sm font-semibold tracking-wide">END</th>
-                    <th className="px-5 py-2.5 text-sm font-semibold tracking-wide">STATUS</th>
-                    <th className="px-5 py-2.5 text-sm font-semibold tracking-wide">ACTIONS</th>
+                    <th className="px-5 py-2.5 text-xs font-semibold tracking-wide">CAMPAIGN</th>
+                    <th className="px-5 py-2.5 text-xs font-semibold tracking-wide">PLATFORM</th>
+                    <th className="px-5 py-2.5 text-xs font-semibold tracking-wide">OFFER</th>
+                    <th className="px-5 py-2.5 text-xs font-semibold tracking-wide">START</th>
+                    <th className="px-5 py-2.5 text-xs font-semibold tracking-wide">END</th>
+                    <th className="px-5 py-2.5 text-xs font-semibold tracking-wide">STATUS</th>
+                    <th className="px-5 py-2.5 text-xs font-semibold tracking-wide">ACTIONS</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -459,22 +454,24 @@ function Marketing_campaigns() {
                           <div className="flex items-center gap-3">
                             <button
                               onClick={() => setViewCampaign(c)}
-                              className="text-sm font-medium cursor-pointer hover:underline"
+                              className="text-xs font-medium cursor-pointer hover:underline"
                               style={{ color: C.accent }}
+                              onMouseEnter={(e) => (e.currentTarget.style.color = C.accentHover)}
+                              onMouseLeave={(e) => (e.currentTarget.style.color = C.accent)}
                             >
                               View
                             </button>
                             {status === "Cancelled" ? (
                               <button
                                 onClick={() => handleReactivate(c)}
-                                className="text-sm font-medium text-gray-500 hover:text-gray-700 hover:underline cursor-pointer"
+                                className="text-xs font-medium text-gray-500 hover:text-gray-700 hover:underline cursor-pointer"
                               >
                                 Reactivate
                               </button>
                             ) : status !== "Ended" ? (
                               <button
                                 onClick={() => handleCancel(c)}
-                                className="text-sm font-medium text-gray-400 hover:underline cursor-pointer"
+                                className="text-xs font-medium text-gray-400 hover:underline cursor-pointer"
                                 onMouseEnter={(e) =>
                                   (e.currentTarget.style.color = C.accent)
                                 }
@@ -499,12 +496,12 @@ function Marketing_campaigns() {
         {/* Create Campaign Modal */}
         {isFormOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-            <div className="bg-white rounded-lg shadow-xl border border-gray-200 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="bg-white rounded-lg shadow-xl border border-gray-200 w-full max-w-lg max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
-                <h2 className="text-base font-semibold text-gray-900">New Campaign</h2>
+                <h2 className="text-sm font-semibold text-gray-900">New Campaign</h2>
                 <button
                   onClick={closeForm}
-                  className="text-gray-400 hover:text-gray-600 transition-colors cursor-pointer text-base font-semibold"
+                  className="text-gray-400 hover:text-gray-600 transition-colors cursor-pointer text-sm font-semibold"
                 >
                   ✕
                 </button>
@@ -513,7 +510,7 @@ function Marketing_campaigns() {
               <form onSubmit={handleCreateCampaign}>
                 <div className="px-5 py-4 space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-600 mb-1">
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
                       Campaign Name <span style={{ color: C.accent }}>*</span>
                     </label>
                     <input
@@ -531,7 +528,7 @@ function Marketing_campaigns() {
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-sm font-medium text-gray-600 mb-1">
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
                         Platform
                       </label>
                       <select
@@ -547,7 +544,7 @@ function Marketing_campaigns() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-600 mb-1">
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
                         Offer Type
                       </label>
                       <select
@@ -567,7 +564,7 @@ function Marketing_campaigns() {
 
                   {!VALUE_LESS_TYPES.includes(formData.discount_type) && (
                     <div>
-                      <label className="block text-sm font-medium text-gray-600 mb-1">
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
                         {formData.discount_type === "Percentage Off"
                           ? "Discount (%)"
                           : "Discount Amount (₱)"}{" "}
@@ -589,7 +586,7 @@ function Marketing_campaigns() {
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-sm font-medium text-gray-600 mb-1">
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
                         Start Date
                       </label>
                       <input
@@ -601,7 +598,7 @@ function Marketing_campaigns() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-600 mb-1">
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
                         End Date
                       </label>
                       <input
@@ -615,7 +612,7 @@ function Marketing_campaigns() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-600 mb-1">
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
                       Promotional Notes
                     </label>
                     <textarea
@@ -676,34 +673,34 @@ function ViewCampaignModal({ campaign, onClose, onCancel, onReactivate, onNotesU
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-lg shadow-xl border border-gray-200 w-full max-w-xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-lg shadow-xl border border-gray-200 w-full max-w-md max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
           <div className="flex items-center gap-2 min-w-0">
-            <h2 className="text-base font-semibold text-gray-900 truncate">{campaign.name}</h2>
+            <h2 className="text-sm font-semibold text-gray-900 truncate">{campaign.name}</h2>
             <StatusBadge status={status} />
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors cursor-pointer text-base font-semibold shrink-0 ml-2"
+            className="text-gray-400 hover:text-gray-600 transition-colors cursor-pointer text-sm font-semibold shrink-0 ml-2"
           >
             ✕
           </button>
         </div>
 
         <div className="px-5 py-4 space-y-4">
-          <dl className="text-base space-y-3">
+          <dl className="text-sm space-y-3">
             <div className="flex justify-between items-center">
-              <dt className="text-sm text-gray-500">Platform</dt>
+              <dt className="text-xs text-gray-500">Platform</dt>
               <dd>
                 <PlatformBadge platform={campaign.platform} />
               </dd>
             </div>
             <div className="flex justify-between items-center">
-              <dt className="text-sm text-gray-500">Offer</dt>
+              <dt className="text-xs text-gray-500">Offer</dt>
               <dd className="text-gray-800 font-medium">{formatDiscount(campaign)}</dd>
             </div>
             <div className="flex justify-between items-center">
-              <dt className="text-sm text-gray-500">Start Date</dt>
+              <dt className="text-xs text-gray-500">Start Date</dt>
               <dd className="text-gray-800">
                 {campaign.start_date
                   ? new Date(campaign.start_date).toLocaleDateString()
@@ -711,7 +708,7 @@ function ViewCampaignModal({ campaign, onClose, onCancel, onReactivate, onNotesU
               </dd>
             </div>
             <div className="flex justify-between items-center">
-              <dt className="text-sm text-gray-500">End Date</dt>
+              <dt className="text-xs text-gray-500">End Date</dt>
               <dd className="text-gray-800">
                 {campaign.end_date
                   ? new Date(campaign.end_date).toLocaleDateString()
@@ -723,14 +720,14 @@ function ViewCampaignModal({ campaign, onClose, onCancel, onReactivate, onNotesU
           {status === "Cancelled" ? (
             <button
               onClick={() => onReactivate(campaign)}
-              className="w-full px-4 py-3.5 rounded-md text-base font-medium text-gray-700 border border-gray-300 hover:bg-gray-50 transition-colors cursor-pointer"
+              className="w-full px-3 py-2 rounded-md text-sm font-medium text-gray-700 border border-gray-300 hover:bg-gray-50 transition-colors cursor-pointer"
             >
               Reactivate Campaign
             </button>
           ) : status !== "Ended" ? (
             <button
               onClick={() => onCancel(campaign)}
-              className="w-full px-4 py-3.5 rounded-md text-base font-medium border transition-colors cursor-pointer"
+              className="w-full px-3 py-2 rounded-md text-sm font-medium border transition-colors cursor-pointer hover:brightness-95"
               style={{
                 color: C.accent,
                 borderColor: C.accentSoftBorder,
@@ -742,7 +739,7 @@ function ViewCampaignModal({ campaign, onClose, onCancel, onReactivate, onNotesU
           ) : null}
 
           <div>
-            <label className="block text-sm font-medium text-gray-600 mb-1">
+            <label className="block text-xs font-medium text-gray-600 mb-1">
               Promotional Notes
             </label>
             <textarea

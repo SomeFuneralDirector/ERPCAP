@@ -88,17 +88,6 @@ function Card({ children, className = "" }) {
   );
 }
 
-function SecondaryButton({ children, className = "", ...props }) {
-  return (
-    <button
-      {...props}
-      className={`inline-flex items-center gap-1.5 px-5 py-2.5 rounded-md text-base font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-50 cursor-pointer ${className}`}
-    >
-      {children}
-    </button>
-  );
-}
-
 function Marketing_io() {
   const [orderItems, setOrderItems] = useState([]);
   const [inventory, setInventory] = useState([]);
@@ -287,30 +276,22 @@ function Marketing_io() {
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#F6F6F7" }}>
-      <div className="p-6 space-y-4">
+      <div className="p-6 space-y-4 max-w-[1400px] mx-auto">
         {/* Header */}
         <Card className="px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-semibold text-gray-900">
+            <h1 className="text-2xl font-semibold text-gray-900">
               Marketing - Inventory Overview
             </h1>
             {refreshing && (
               <p className="text-sm text-gray-400 mt-0.5">Syncing…</p>
             )}
           </div>
-          <div className="flex items-center gap-2 self-start md:self-auto">
-            <SecondaryButton
-              onClick={() => fetchData(false)}
-              disabled={loading || refreshing}
-            >
-              {loading || refreshing ? "Loading…" : "Refresh"}
-            </SecondaryButton>
-          </div>
         </Card>
 
         {errorMsg && (
           <div
-            className="rounded-md border px-4 py-4 text-sm"
+            className="rounded-md border px-3 py-3 text-sm"
             style={{
               backgroundColor: C.accentSoft,
               borderColor: C.accentSoftBorder,
@@ -346,7 +327,7 @@ function Marketing_io() {
                   placeholder="Search product…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="w-full px-4 py-3.5 border border-gray-300 rounded-md text-base focus:outline-none"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-base focus:outline-none"
                   onFocus={(e) => {
                     e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`;
                     e.target.style.borderColor = C.accent;
@@ -359,7 +340,7 @@ function Marketing_io() {
                 {search && (
                   <button
                     onClick={() => setSearch("")}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xl leading-none cursor-pointer"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none cursor-pointer"
                   >
                     ×
                   </button>
@@ -372,7 +353,9 @@ function Marketing_io() {
                     <button
                       key={cat}
                       onClick={() => setCategoryFilter(cat)}
-                      className="px-5 py-2.5 rounded-md text-base font-medium transition-colors cursor-pointer border"
+                      className={`px-4 py-2 rounded-md text-base font-medium transition-colors cursor-pointer border ${
+                        active ? "hover:brightness-90" : "bg-white border-gray-300 text-[#142947] hover:bg-gray-50"
+                      }`}
                       style={
                         active
                           ? {
@@ -380,11 +363,7 @@ function Marketing_io() {
                               borderColor: C.accent,
                               color: "#fff",
                             }
-                          : {
-                              backgroundColor: "#fff",
-                              borderColor: "#D1D5DB",
-                              color: "#142947",
-                            }
+                          : undefined
                       }
                     >
                       {cat}
@@ -404,7 +383,9 @@ function Marketing_io() {
                       onClick={() =>
                         setPerformanceFilter(active ? "All" : key)
                       }
-                      className="px-5 py-2.5 rounded-md text-base font-medium transition-colors cursor-pointer border"
+                      className={`px-4 py-2 rounded-md text-base font-medium transition-colors cursor-pointer border ${
+                        active ? "hover:brightness-90" : "bg-white border-gray-300 text-[#142947] hover:bg-gray-50"
+                      }`}
                       style={
                         active
                           ? {
@@ -414,11 +395,7 @@ function Marketing_io() {
                                 key === "Top" ? C.success : C.warning,
                               color: "#fff",
                             }
-                          : {
-                              backgroundColor: "#fff",
-                              borderColor: "#D1D5DB",
-                              color: "#142947",
-                            }
+                          : undefined
                       }
                     >
                       {label}
@@ -434,46 +411,46 @@ function Marketing_io() {
                 <table className="w-full text-base border-collapse">
                   <thead>
                     <tr className="bg-red-900 text-white">
-                      <th className="px-4 py-4 text-left text-sm font-semibold tracking-wide">
+                      <th className="px-3 py-3 text-left text-sm font-semibold tracking-wide">
                         PRODUCT
                       </th>
-                      <th className="px-4 py-4 text-left text-sm font-semibold tracking-wide">
+                      <th className="px-3 py-3 text-left text-sm font-semibold tracking-wide">
                         CATEGORY
                       </th>
-                      <th className="px-4 py-4 text-center text-sm font-semibold tracking-wide">
+                      <th className="px-3 py-3 text-center text-sm font-semibold tracking-wide">
                         <span className="inline-flex items-center gap-1.5">
                           <span
-                            className="w-3 h-3 rounded-sm inline-block"
+                            className="w-2.5 h-2.5 rounded-sm inline-block"
                             style={{ backgroundColor: C.shopee }}
                           />
                           SHOPEE
                         </span>
                       </th>
-                      <th className="px-4 py-4 text-center text-sm font-semibold tracking-wide">
+                      <th className="px-3 py-3 text-center text-sm font-semibold tracking-wide">
                         <span className="inline-flex items-center gap-1.5">
                           <span
-                            className="w-3 h-3 rounded-sm inline-block"
+                            className="w-2.5 h-2.5 rounded-sm inline-block"
                             style={{ backgroundColor: C.lazada }}
                           />
                           LAZADA
                         </span>
                       </th>
-                      <th className="px-4 py-4 text-center text-sm font-semibold tracking-wide">
+                      <th className="px-3 py-3 text-center text-sm font-semibold tracking-wide">
                         <span className="inline-flex items-center gap-1.5">
                           <span
-                            className="w-3 h-3 rounded-sm inline-block"
+                            className="w-2.5 h-2.5 rounded-sm inline-block"
                             style={{ backgroundColor: C.tiktok }}
                           />
                           TIKTOK
                         </span>
                       </th>
-                      <th className="px-4 py-4 text-center text-sm font-semibold tracking-wide">
+                      <th className="px-3 py-3 text-center text-sm font-semibold tracking-wide">
                         TOTAL SOLD
                       </th>
-                      <th className="px-4 py-4 text-center text-sm font-semibold tracking-wide">
+                      <th className="px-3 py-3 text-center text-sm font-semibold tracking-wide">
                         IN STOCK
                       </th>
-                      <th className="px-4 py-4 text-center text-sm font-semibold tracking-wide">
+                      <th className="px-3 py-3 text-center text-sm font-semibold tracking-wide">
                         REVENUE
                       </th>
                     </tr>
@@ -508,28 +485,28 @@ function Marketing_io() {
                                 : rowBg
                             }
                           >
-                            <td className="px-4 py-3.5 text-sm text-gray-800 font-medium">
+                            <td className="px-3 py-2.5 text-sm text-gray-800 font-medium">
                               {p.name}
                             </td>
-                            <td className="px-4 py-3.5 text-sm text-gray-500">
+                            <td className="px-3 py-2.5 text-sm text-gray-500">
                               {p.category}
                             </td>
-                            <td className="px-4 py-3.5 text-center text-sm text-gray-700">
+                            <td className="px-3 py-2.5 text-center text-sm text-gray-700">
                               {fmt(p.shopee)}
                             </td>
-                            <td className="px-4 py-3.5 text-center text-sm text-gray-700">
+                            <td className="px-3 py-2.5 text-center text-sm text-gray-700">
                               {fmt(p.lazada)}
                             </td>
-                            <td className="px-4 py-3.5 text-center text-sm text-gray-700">
+                            <td className="px-3 py-2.5 text-center text-sm text-gray-700">
                               {fmt(p.tiktok)}
                             </td>
                             <td
-                              className="px-4 py-3.5 text-center text-sm font-semibold"
+                              className="px-3 py-2.5 text-center text-sm font-semibold"
                               style={{ color: C.accent }}
                             >
                               {fmt(p.total)}
                             </td>
-                            <td className="px-4 py-3.5 text-center text-sm">
+                            <td className="px-3 py-2.5 text-center text-sm">
                               {p.stock !== null ? (
                                 <span
                                   className={
@@ -559,7 +536,7 @@ function Marketing_io() {
                                 <span className="text-gray-400">—</span>
                               )}
                             </td>
-                            <td className="px-4 py-3.5 text-center text-sm text-gray-600">
+                            <td className="px-3 py-2.5 text-center text-sm text-gray-600">
                               {fmtPHP(p.revenue)}
                             </td>
                           </tr>

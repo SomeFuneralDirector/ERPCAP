@@ -35,11 +35,11 @@ const PLATFORM_COLORS = {
 const CARD = "bg-white rounded-md border border-gray-200 shadow-sm";
 const SEGMENT_WRAP = "flex gap-0.5 bg-gray-100 rounded-md p-0.5";
 const SEGMENT_BTN = (active) =>
-  `px-4 py-2 text-sm font-medium rounded transition-colors cursor-pointer ${
+  `px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer ${
     active ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
   }`;
 const PRIMARY_BTN =
-  "px-3.5 py-2 rounded-md text-base font-medium text-white transition-colors disabled:opacity-50 cursor-pointer";
+  "px-3.5 py-2 rounded-md text-sm font-medium text-white transition-colors disabled:opacity-50 cursor-pointer";
 
 const POLL_INTERVAL_MS = 5000;
 
@@ -156,14 +156,14 @@ function useCountUp(target, duration = 500) {
   return value;
 }
 
-function Skeleton({ className = "h-9 w-20" }) {
+function Skeleton({ className = "h-7 w-16" }) {
   return <div className={`${className} bg-gray-100 rounded animate-pulse mt-1`} />;
 }
 
 function CurrencyTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-white border border-gray-200 rounded-md shadow-md px-4 py-3.5 text-sm">
+    <div className="bg-white border border-gray-200 rounded-md shadow-md px-3 py-2 text-xs">
       <p className="font-semibold text-gray-700 mb-1">{label}</p>
       {payload.map((p) => (
         <p key={p.dataKey} style={{ color: p.color || p.fill }}>
@@ -180,7 +180,7 @@ function ChangeBadge({ current, previous }) {
   const isUp = pct >= 0;
   return (
     <span
-      className={`inline-flex items-center gap-0.5 text-sm font-medium px-1.5 py-0.5 rounded ${
+      className={`inline-flex items-center gap-0.5 text-xs font-medium px-1.5 py-0.5 rounded ${
         isUp ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
       }`}
     >
@@ -192,8 +192,8 @@ function ChangeBadge({ current, previous }) {
 function EmptyState({ onImport }) {
   return (
     <div className="flex flex-col items-center justify-center py-12 text-center">
-      <p className="text-base font-medium text-gray-600">No sales in this range</p>
-      <p className="text-sm text-gray-400 mt-1 mb-4">
+      <p className="text-sm font-medium text-gray-600">No sales in this range</p>
+      <p className="text-xs text-gray-400 mt-1 mb-4">
         Adjust the dates, or import a CSV to see data here
       </p>
       {onImport && (
@@ -479,8 +479,8 @@ function Sales_db({ onGoToImport }) {
     return (
       <div className="p-6">
         <div className={`${CARD} p-6 border-red-200`}>
-          <h1 className="text-xl font-semibold text-gray-900 mb-2">Sales - Dashboard</h1>
-          <p className="text-base text-red-700 mb-4">{errorMsg}</p>
+          <h1 className="text-lg font-semibold text-gray-900 mb-2">Sales - Dashboard</h1>
+          <p className="text-sm text-red-700 mb-4">{errorMsg}</p>
           <button
             onClick={() => fetchAll("initial")}
             className={PRIMARY_BTN}
@@ -499,9 +499,9 @@ function Sales_db({ onGoToImport }) {
     <div className="p-6 space-y-4">
       <div className={`${CARD} p-5 flex flex-col md:flex-row md:items-center justify-between gap-3`}>
         <div>
-          <h1 className="text-xl font-semibold text-gray-900">Sales - Dashboard</h1>
+          <h1 className="text-lg font-semibold text-gray-900">Sales - Dashboard</h1>
           {lastSynced && !loading && (
-            <p className="text-sm text-gray-400 mt-0.5">Synced {timeAgo(lastSynced)}</p>
+            <p className="text-xs text-gray-400 mt-0.5">Synced {timeAgo(lastSynced)}</p>
           )}
         </div>
 
@@ -523,96 +523,86 @@ function Sales_db({ onGoToImport }) {
               type="date"
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
-              className="border border-gray-300 rounded-md px-3 py-2 text-base text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
+              className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
             />
-            <span className="text-gray-400 text-base">to</span>
+            <span className="text-gray-400 text-sm">to</span>
             <input
               type="date"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
-              className="border border-gray-300 rounded-md px-3 py-2 text-base text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
+              className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
             />
             
           </div>
 
-          <button
-            onClick={() => fetchAll("manual")}
-            disabled={loading || refreshing}
-            className={PRIMARY_BTN}
-            style={{ background: ACCENT }}
-            onMouseEnter={(e) => !(loading || refreshing) && (e.currentTarget.style.background = ACCENT_HOVER)}
-            onMouseLeave={(e) => (e.currentTarget.style.background = ACCENT)}
-          >
-            {loading || refreshing ? "Loading..." : "Refresh"}
-          </button>
         </div>
       </div>
 
       {errorMsg && orders.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-md p-3 text-sm">
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-md p-3 text-xs">
           Last refresh failed: {errorMsg}
         </div>
       )}
       {itemsWarning && (
-        <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-md p-3 text-sm">
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-md p-3 text-xs">
           {itemsWarning}
         </div>
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className={`${CARD} p-5`}>
-          <p className="text-sm font-semibold uppercase tracking-wide text-gray-500">Total Sales</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Total Sales</p>
           {loading ? (
             <Skeleton />
           ) : (
             <div className="flex items-center gap-2 mt-1">
-              <p className="text-3xl font-semibold text-gray-900">{fmtPHP(animatedTotalSales)}</p>
+              <p className="text-2xl font-semibold text-gray-900">{fmtPHP(animatedTotalSales)}</p>
               {periodComparison.totalPrev != null && (
                 <ChangeBadge current={periodComparison.totalCurr} previous={periodComparison.totalPrev} />
               )}
             </div>
           )}
-          <p className="text-sm mt-1 text-gray-400">{filteredOrders.length} completed orders</p>
+          <p className="text-xs mt-1 text-gray-400">{filteredOrders.length} completed orders</p>
         </div>
 
         <div className={`${CARD} p-5`}>
-          <p className="text-sm font-semibold uppercase tracking-wide text-gray-500">Avg Order Value</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Avg Order Value</p>
           {loading ? (
             <Skeleton />
           ) : (
             <div className="flex items-center gap-2 mt-1">
-              <p className="text-3xl font-semibold text-gray-900">{fmtPHP(animatedAvgOrder)}</p>
+              <p className="text-2xl font-semibold text-gray-900">{fmtPHP(animatedAvgOrder)}</p>
               {periodComparison.avgPrev != null && (
                 <ChangeBadge current={periodComparison.avgCurr} previous={periodComparison.avgPrev} />
               )}
             </div>
           )}
-          <p className="text-sm mt-1 text-gray-400">per completed order</p>
+          <p className="text-xs mt-1 text-gray-400">per completed order</p>
         </div>
 
         <div className={`${CARD} p-5`}>
-          <p className="text-sm font-semibold uppercase tracking-wide text-gray-500">Items Sold</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Items Sold</p>
           {loading ? (
             <Skeleton />
           ) : (
-            <p className="text-3xl font-semibold mt-1 text-gray-900">{Math.round(animatedItemsSold).toLocaleString()}</p>
+            <p className="text-2xl font-semibold mt-1 text-gray-900">{Math.round(animatedItemsSold).toLocaleString()}</p>
           )}
-          <p className="text-sm mt-1 text-gray-400">units across all orders</p>
+          <p className="text-xs mt-1 text-gray-400">units across all orders</p>
         </div>
 
         <div className={`${CARD} p-5`}>
-          <p className="text-sm font-semibold uppercase tracking-wide text-gray-500">Latest Period</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Latest Period</p>
           {loading ? (
             <Skeleton />
           ) : (
             <div className="flex items-center gap-2 mt-1">
-              <p className="text-3xl font-semibold text-gray-900">
+              <p className="text-2xl font-semibold text-gray-900">
                 {trendChange ? fmtPHP(trendChange.current) : "-"}
               </p>
               {trendChange && <ChangeBadge current={trendChange.current} previous={trendChange.previous} />}
             </div>
           )}
-          <p className="text-sm mt-1 text-gray-400">vs previous {trendMode.slice(0, -2) || trendMode}</p>
+          <p className="text-xs mt-1 text-gray-400">vs previous {trendMode.slice(0, -2) || trendMode}</p>
         </div>
       </div>
 
@@ -623,16 +613,16 @@ function Sales_db({ onGoToImport }) {
           const share = totalSales > 0 ? ((entry?.amount || 0) / totalSales) * 100 : 0;
           return (
             <div key={platform} className={`${CARD} p-5`}>
-              <p className="text-sm font-semibold uppercase tracking-wide text-gray-500 flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded-full inline-block" style={{ background: color }} />
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full inline-block" style={{ background: color }} />
                 {platform}
               </p>
               {loading ? <Skeleton /> : (
-                <p className="text-3xl font-semibold mt-1" style={{ color }}>
+                <p className="text-2xl font-semibold mt-1" style={{ color }}>
                   {fmtPHP(entry?.amount)}
                 </p>
               )}
-              <p className="text-sm mt-1 text-gray-400">{share.toFixed(0)}% of total sales</p>
+              <p className="text-xs mt-1 text-gray-400">{share.toFixed(0)}% of total sales</p>
             </div>
           );
         })}
@@ -640,7 +630,7 @@ function Sales_db({ onGoToImport }) {
 
       <div className={`${CARD} p-5`}>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base font-semibold text-gray-800">Sales trend</h2>
+          <h2 className="text-sm font-semibold text-gray-800">Sales trend</h2>
           <div className={SEGMENT_WRAP}>
             {["weekly", "monthly", "yearly"].map((mode) => (
               <button
@@ -654,11 +644,11 @@ function Sales_db({ onGoToImport }) {
           </div>
         </div>
         {loading ? (
-          <Skeleton className="h-80 w-full" />
+          <Skeleton className="h-64 w-full" />
         ) : trendPoints.length === 0 ? (
           <EmptyState onImport={onGoToImport} />
         ) : (
-          <ResponsiveContainer width="100%" height={330}>
+          <ResponsiveContainer width="100%" height={260}>
             <AreaChart data={trendPoints} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="salesFill" x1="0" y1="0" x2="0" y2="1">
@@ -667,14 +657,14 @@ function Sales_db({ onGoToImport }) {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f1" vertical={false} />
-              <XAxis dataKey="label" tick={{ fontSize: 14, fill: "#6b7280" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 14, fill: "#6b7280" }} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
               <Tooltip
                 content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null;
                   const point = payload[0].payload;
                   return (
-                    <div className="bg-white border border-gray-200 rounded-md shadow-md px-4 py-3.5 text-sm">
+                    <div className="bg-white border border-gray-200 rounded-md shadow-md px-3 py-2 text-xs">
                       <p className="font-semibold text-gray-700 mb-1">{label}</p>
                       <p style={{ color: ACCENT }}>
                         {trendMode.charAt(0).toUpperCase() + trendMode.slice(1)} sales: {fmtPHP(point.value)}
@@ -694,30 +684,30 @@ function Sales_db({ onGoToImport }) {
                 dot={{ r: 3, fill: ACCENT, strokeWidth: 0 }}
                 activeDot={{ r: 5 }}
               />
-              <Legend verticalAlign="top" height={36} iconType="line" wrapperStyle={{ fontSize: 15 }} />
+              <Legend verticalAlign="top" height={28} iconType="line" wrapperStyle={{ fontSize: 12 }} />
             </AreaChart>
           </ResponsiveContainer>
         )}
       </div>
 
       <div className={`${CARD} p-5`}>
-        <h2 className="text-base font-semibold text-gray-800 mb-4">Sales per platform</h2>
+        <h2 className="text-sm font-semibold text-gray-800 mb-4">Sales per platform</h2>
         {loading ? (
-          <Skeleton className="h-72 w-full" />
+          <Skeleton className="h-56 w-full" />
         ) : platformTotals.length === 0 ? (
           <EmptyState onImport={onGoToImport} />
         ) : (
-          <ResponsiveContainer width="100%" height={290}>
+          <ResponsiveContainer width="100%" height={220}>
             <BarChart data={platformTotals} margin={{ top: 20, right: 16, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f1" vertical={false} />
-              <XAxis dataKey="platform" tick={{ fontSize: 14, fill: "#6b7280" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 14, fill: "#6b7280" }} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
+              <XAxis dataKey="platform" tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
               <Tooltip content={<CurrencyTooltip />} />
               <Bar dataKey="amount" name="Sales" radius={[4, 4, 0, 0]}>
                 {platformTotals.map((p) => (
                   <Cell key={p.platform} fill={p.color} />
                 ))}
-                <LabelList dataKey="amount" position="top" formatter={fmtAxis} style={{ fontSize: 14, fill: "#374151", fontWeight: 600 }} />
+                <LabelList dataKey="amount" position="top" formatter={fmtAxis} style={{ fontSize: 11, fill: "#374151", fontWeight: 600 }} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -726,7 +716,7 @@ function Sales_db({ onGoToImport }) {
 
       <div className={`${CARD} p-5`}>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base font-semibold text-gray-800">Top products sold</h2>
+          <h2 className="text-sm font-semibold text-gray-800">Top products sold</h2>
           <div className={SEGMENT_WRAP}>
             {[
               { key: "qty", label: "Units" },
@@ -743,21 +733,21 @@ function Sales_db({ onGoToImport }) {
           </div>
         </div>
         {loading ? (
-          <Skeleton className="h-72 w-full" />
+          <Skeleton className="h-56 w-full" />
         ) : topProducts.length === 0 ? (
           <EmptyState onImport={onGoToImport} />
         ) : (
-          <ResponsiveContainer width="100%" height={Math.max(260, topProducts.length * 54)}>
-            <BarChart data={topProducts} layout="vertical" margin={{ top: 0, right: 64, left: 8, bottom: 0 }}>
+          <ResponsiveContainer width="100%" height={Math.max(180, topProducts.length * 40)}>
+            <BarChart data={topProducts} layout="vertical" margin={{ top: 0, right: 48, left: 8, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f1" horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 14, fill: "#6b7280" }} axisLine={false} tickLine={false} />
-              <YAxis type="category" dataKey="name" width={200} tick={{ fontSize: 14, fill: "#374151" }} axisLine={false} tickLine={false} />
+              <XAxis type="number" tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={false} tickLine={false} />
+              <YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 11, fill: "#374151" }} axisLine={false} tickLine={false} />
               <Tooltip
                 formatter={(value, name) =>
                   name === "amount" ? [fmtPHP(value), "Revenue"] : [`${value} sold`, "Quantity"]
                 }
               />
-              <Bar dataKey={productSort} name={productSort} radius={[0, 4, 4, 0]} barSize={26}>
+              <Bar dataKey={productSort} name={productSort} radius={[0, 4, 4, 0]} barSize={18}>
                 {topProducts.map((_, i) => (
                   <Cell key={i} fill={i === 0 ? ACCENT : "#E8B9B9"} />
                 ))}
@@ -765,7 +755,7 @@ function Sales_db({ onGoToImport }) {
                   dataKey={productSort}
                   position="right"
                   formatter={(v) => (productSort === "amount" ? fmtAxis(v) : v)}
-                  style={{ fontSize: 14, fill: "#374151", fontWeight: 600 }}
+                  style={{ fontSize: 11, fill: "#374151", fontWeight: 600 }}
                 />
               </Bar>
             </BarChart>

@@ -55,7 +55,7 @@ const STATUS_COLORS = {
 
 const SEGMENT_WRAP = "flex gap-0.5 bg-gray-100 rounded-md p-0.5";
 const SEGMENT_BTN = (active) =>
-  `px-4 py-2 text-sm font-medium rounded transition-colors cursor-pointer ${
+  `px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer ${
     active ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
   }`;
 
@@ -156,7 +156,7 @@ function PrimaryButton({ children, className = "", ...props }) {
   return (
     <button
       {...props}
-      className={`inline-flex items-center gap-1.5 px-5 py-2.5 rounded-md text-base font-medium text-white transition-colors disabled:opacity-50 cursor-pointer ${className}`}
+      className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium text-white transition-colors disabled:opacity-50 cursor-pointer ${className}`}
       style={{ backgroundColor: C.accent }}
       onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = C.accentHover)}
       onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = C.accent)}
@@ -169,7 +169,7 @@ function PrimaryButton({ children, className = "", ...props }) {
 function UnitsTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-white border border-gray-200 rounded-md shadow-lg px-4 py-3.5 text-sm">
+    <div className="bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2 text-xs">
       {label && <p className="font-semibold text-gray-700 mb-1">{label}</p>}
       {payload.map((p) => (
         <p key={p.dataKey} style={{ color: p.color || p.fill }}>
@@ -183,9 +183,9 @@ function UnitsTooltip({ active, payload, label }) {
 function SectionHeading({ title, subtitle }) {
   return (
     <div className="flex items-center gap-3 pt-2">
-      <h2 className="text-base font-semibold text-gray-700 whitespace-nowrap">{title}</h2>
+      <h2 className="text-sm font-semibold text-gray-700 whitespace-nowrap">{title}</h2>
       <div className="h-px bg-gray-200 flex-1" />
-      {subtitle && <span className="text-sm text-gray-400 whitespace-nowrap">{subtitle}</span>}
+      {subtitle && <span className="text-xs text-gray-400 whitespace-nowrap">{subtitle}</span>}
     </div>
   );
 }
@@ -727,9 +727,9 @@ function Inventory_db() {
   if (errorMsg && rawInventory.length === 0 && !loading) {
     return (
       <div className="min-h-screen p-6" style={{ backgroundColor: "#F6F6F7" }}>
-        <Card className="p-6" style={{ borderColor: C.accentSoftBorder }}>
-          <h1 className="text-xl font-semibold text-gray-900 mb-2">Inventory - Dashboard</h1>
-          <p className="text-base mb-4" style={{ color: C.accent }}>
+        <Card className="p-6 max-w-[1400px] mx-auto" style={{ borderColor: C.accentSoftBorder }}>
+          <h1 className="text-2xl font-semibold text-gray-900 mb-2">Inventory - Dashboard</h1>
+          <p className="text-sm mb-4" style={{ color: C.accent }}>
             {errorMsg}
           </p>
           <PrimaryButton onClick={() => fetchAll("initial")}>Retry</PrimaryButton>
@@ -740,13 +740,13 @@ function Inventory_db() {
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#F6F6F7" }}>
-      <div className="p-6 space-y-4">
+      <div className="p-6 space-y-4 max-w-[1400px] mx-auto">
         {/* Header + filters */}
         <Card className="px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-semibold text-gray-900">Inventory - Dashboard</h1>
+            <h1 className="text-2xl font-semibold text-gray-900">Inventory - Dashboard</h1>
             {lastUpdated && !loading && (
-              <p className="text-sm text-gray-400 mt-0.5">
+              <p className="text-xs text-gray-400 mt-0.5">
                 Updated {formatLogTime(lastUpdated.toISOString())}
               </p>
             )}
@@ -770,28 +770,24 @@ function Inventory_db() {
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
-                className="border border-gray-300 rounded-md px-3 py-2 text-base text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
+                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
                 title="Updated from"
               />
-              <span className="text-gray-400 text-base">to</span>
+              <span className="text-gray-400 text-sm">to</span>
               <input
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
-                className="border border-gray-300 rounded-md px-3 py-2 text-base text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
+                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
                 title="Updated to"
               />
             </div>
-
-            <PrimaryButton onClick={() => fetchAll("manual")} disabled={loading || refreshing}>
-              {loading || refreshing ? "Loading…" : "Refresh"}
-            </PrimaryButton>
           </div>
         </Card>
 
         {errorMsg && rawInventory.length > 0 && (
           <div
-            className="rounded-md border px-4 py-4 text-sm"
+            className="rounded-md border px-3 py-2.5 text-xs"
             style={{
               backgroundColor: C.warningSoft,
               borderColor: C.warningBorder,
@@ -803,7 +799,7 @@ function Inventory_db() {
         )}
         {materialsErrorMsg && (
           <div
-            className="rounded-md border px-4 py-4 text-sm"
+            className="rounded-md border px-3 py-2.5 text-xs"
             style={{
               backgroundColor: C.warningSoft,
               borderColor: C.warningBorder,
@@ -818,13 +814,13 @@ function Inventory_db() {
 
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <Card className="p-4">
-            <p className="text-sm text-gray-500">Total stock</p>
+            <p className="text-xs text-gray-500">Total stock</p>
             {loading ? (
               <Skeleton />
             ) : (
-              <p className="text-3xl font-semibold mt-1 text-gray-900">{fmt(totals.total)}</p>
+              <p className="text-2xl font-semibold mt-1 text-gray-900">{fmt(totals.total)}</p>
             )}
-            <p className="text-sm mt-1 text-gray-400">Units on hand</p>
+            <p className="text-xs mt-1 text-gray-400">Units on hand</p>
           </Card>
 
           {["Shopee", "Lazada", "TikTok"].map((platform) => {
@@ -832,9 +828,9 @@ function Inventory_db() {
             const color = PLATFORM_COLORS[platform];
             return (
               <Card key={platform} className="p-4">
-                <p className="text-sm text-gray-500 flex items-center gap-1.5">
+                <p className="text-xs text-gray-500 flex items-center gap-1.5">
                   <span
-                    className="w-3 h-3 rounded-sm inline-block"
+                    className="w-2 h-2 rounded-sm inline-block"
                     style={{ backgroundColor: color }}
                   />
                   {platform}
@@ -842,38 +838,38 @@ function Inventory_db() {
                 {loading ? (
                   <Skeleton />
                 ) : (
-                  <p className="text-3xl font-semibold mt-1" style={{ color }}>
+                  <p className="text-2xl font-semibold mt-1" style={{ color }}>
                     {fmt(totals[key])}
                   </p>
                 )}
-                <p className="text-sm mt-1 text-gray-400">Units in stock</p>
+                <p className="text-xs mt-1 text-gray-400">Units in stock</p>
               </Card>
             );
           })}
 
           <Card className="p-4">
-            <p className="text-sm text-gray-500">Out of stock</p>
+            <p className="text-xs text-gray-500">Out of stock</p>
             {loading ? (
               <Skeleton />
             ) : (
-              <p className="text-3xl font-semibold mt-1" style={{ color: C.accent }}>
+              <p className="text-2xl font-semibold mt-1" style={{ color: C.accent }}>
                 {fmt(outOfStockCount)}
               </p>
             )}
-            <p className="text-sm mt-1 text-gray-400">Products at zero</p>
+            <p className="text-xs mt-1 text-gray-400">Products at zero</p>
           </Card>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           <Card className="lg:col-span-2 p-6">
-            <h2 className="text-base font-semibold text-gray-700 mb-3">Stock by platform</h2>
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">Stock by platform</h2>
             {loading ? (
-              <Skeleton className="h-72 w-full" />
+              <Skeleton className="h-56 w-full" />
             ) : platformData.every((p) => p.qty === 0) ? (
-              <p className="text-sm text-gray-400">No data for current filters.</p>
+              <p className="text-xs text-gray-400">No data for current filters.</p>
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-center">
-                <ResponsiveContainer width="100%" height={330}>
+                <ResponsiveContainer width="100%" height={260}>
                   <PieChart>
                     <Pie
                       data={platformData}
@@ -881,7 +877,7 @@ function Inventory_db() {
                       nameKey="platform"
                       cx="50%"
                       cy="50%"
-                      outerRadius={125}
+                      outerRadius={100}
                       onClick={handlePlatformClick}
                       cursor="pointer"
                     >
@@ -899,13 +895,13 @@ function Inventory_db() {
                       <li key={p.platform} className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <span
-                            className="w-3.5 h-3.5 rounded-sm inline-block"
+                            className="w-2.5 h-2.5 rounded-sm inline-block"
                             style={{ backgroundColor: p.color }}
                           />
-                          <span className="text-base font-medium text-gray-700">{p.platform}</span>
+                          <span className="text-sm font-medium text-gray-700">{p.platform}</span>
                         </div>
                         <div className="text-right">
-                          <p className="text-base font-semibold text-gray-700">
+                          <p className="text-sm font-semibold text-gray-700">
                             {fmt(p.qty)} in stock{" "}
                             <span className="text-gray-400 font-normal">
                               (
@@ -915,14 +911,14 @@ function Inventory_db() {
                               %)
                             </span>
                           </p>
-                          <p className="text-sm text-gray-400">{fmt(p.sold)} sold</p>
+                          <p className="text-xs text-gray-400">{fmt(p.sold)} sold</p>
                         </div>
                       </li>
                     ))}
                   </ul>
                   <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between">
-                    <span className="text-base font-medium text-gray-500">Total stock</span>
-                    <span className="text-base font-semibold" style={{ color: C.accent }}>
+                    <span className="text-sm font-medium text-gray-500">Total stock</span>
+                    <span className="text-sm font-semibold" style={{ color: C.accent }}>
                       {fmt(totals.total)} units
                     </span>
                   </div>
@@ -932,21 +928,21 @@ function Inventory_db() {
           </Card>
 
           <Card className="lg:col-span-1 p-6">
-            <h2 className="text-base font-semibold text-gray-700 mb-3">Stock by category</h2>
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">Stock by category</h2>
             {loading ? (
-              <Skeleton className="h-52 w-full" />
+              <Skeleton className="h-40 w-full" />
             ) : cats.length === 0 ? (
-              <p className="text-sm text-gray-400">No data</p>
+              <p className="text-xs text-gray-400">No data</p>
             ) : (
               <>
-                <ResponsiveContainer width="100%" height={210}>
+                <ResponsiveContainer width="100%" height={160}>
                   <PieChart>
                     <Pie
                       data={cats}
                       dataKey="qty"
                       nameKey="name"
-                      innerRadius={52}
-                      outerRadius={78}
+                      innerRadius={40}
+                      outerRadius={60}
                       paddingAngle={3}
                       onClick={handleCategoryClick}
                       cursor="pointer"
@@ -960,10 +956,10 @@ function Inventory_db() {
                 </ResponsiveContainer>
                 <ul className="space-y-1.5 mt-2">
                   {cats.map((c) => (
-                    <li key={c.name} className="flex items-center justify-between text-sm">
+                    <li key={c.name} className="flex items-center justify-between text-xs">
                       <span className="flex items-center gap-1.5 text-gray-600">
                         <span
-                          className="w-3 h-3 rounded-sm inline-block"
+                          className="w-2 h-2 rounded-sm inline-block"
                           style={{ background: c.color }}
                         />
                         {c.name}
@@ -979,23 +975,23 @@ function Inventory_db() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           <Card className="lg:col-span-2 p-6">
-            <h2 className="text-base font-semibold text-gray-700 mb-3">Top stocked items</h2>
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">Top stocked items</h2>
             {loading ? (
-              <Skeleton className="h-72 w-full" />
+              <Skeleton className="h-56 w-full" />
             ) : topMovers.length === 0 ? (
-              <p className="text-sm text-gray-400">No stock data available.</p>
+              <p className="text-xs text-gray-400">No stock data available.</p>
             ) : (
-              <ResponsiveContainer width="100%" height={Math.max(300, topMovers.length * 58)}>
+              <ResponsiveContainer width="100%" height={Math.max(220, topMovers.length * 44)}>
                 <BarChart
                   data={topMovers}
                   layout="vertical"
-                  margin={{ top: 0, right: 56, left: 8, bottom: 0 }}
+                  margin={{ top: 0, right: 40, left: 8, bottom: 0 }}
                   barCategoryGap={12}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
                   <XAxis
                     type="number"
-                    tick={{ fontSize: 14, fill: "#6B7280" }}
+                    tick={{ fontSize: 11, fill: "#6B7280" }}
                     axisLine={false}
                     tickLine={false}
                     tickFormatter={(v) => fmt(v)}
@@ -1003,8 +999,8 @@ function Inventory_db() {
                   <YAxis
                     type="category"
                     dataKey="name"
-                    width={200}
-                    tick={{ fontSize: 14, fill: "#374151" }}
+                    width={140}
+                    tick={{ fontSize: 11, fill: "#374151" }}
                     axisLine={false}
                     tickLine={false}
                   />
@@ -1013,7 +1009,7 @@ function Inventory_db() {
                     dataKey="qty"
                     name="Stock"
                     radius={[0, 4, 4, 0]}
-                    barSize={28}
+                    barSize={20}
                     onClick={handleTopMoverClick}
                     cursor="pointer"
                   >
@@ -1024,7 +1020,7 @@ function Inventory_db() {
                       dataKey="qty"
                       position="right"
                       formatter={(v) => fmt(v)}
-                      style={{ fontSize: 14, fill: "#374151", fontWeight: 600 }}
+                      style={{ fontSize: 11, fill: "#374151", fontWeight: 600 }}
                     />
                   </Bar>
                 </BarChart>
@@ -1033,11 +1029,11 @@ function Inventory_db() {
           </Card>
 
           <Card className="lg:col-span-1 p-6">
-            <h2 className="text-base font-semibold text-gray-700 mb-3 flex items-center gap-2">
+            <h2 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
               Low stock alerts
               {!loading && (
                 <span
-                  className="px-2 py-0.5 text-sm rounded-md font-medium border"
+                  className="px-2 py-0.5 text-xs rounded-md font-medium border"
                   style={{
                     color: C.accent,
                     backgroundColor: C.accentSoft,
@@ -1055,7 +1051,7 @@ function Inventory_db() {
                 ))}
               </div>
             ) : lowStock.length === 0 ? (
-              <p className="text-sm text-gray-400">All items are sufficiently stocked.</p>
+              <p className="text-xs text-gray-400">All items are sufficiently stocked.</p>
             ) : (
               <div className="space-y-3">
                 {lowStock.map((p) => {
@@ -1065,11 +1061,11 @@ function Inventory_db() {
                     <div key={p.code}>
                       <div className="flex items-center justify-between mb-1">
                         <div>
-                          <p className="text-sm font-medium text-gray-700">{p.name}</p>
-                          <p className="text-sm font-mono text-gray-400">{p.code}</p>
+                          <p className="text-xs font-medium text-gray-700">{p.name}</p>
+                          <p className="text-xs font-mono text-gray-400">{p.code}</p>
                         </div>
                         <span
-                          className="px-1.5 py-0.5 text-sm rounded font-medium shrink-0 border"
+                          className="px-1.5 py-0.5 text-xs rounded font-medium shrink-0 border"
                           style={
                             isOut
                               ? {
@@ -1106,7 +1102,7 @@ function Inventory_db() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <Card className="p-6">
-            <h2 className="text-base font-semibold text-gray-700 mb-3">Recent activity</h2>
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">Recent activity</h2>
             {loading ? (
               <div className="space-y-3">
                 {[1, 2, 3].map((i) => (
@@ -1114,18 +1110,18 @@ function Inventory_db() {
                 ))}
               </div>
             ) : activity.length === 0 ? (
-              <p className="text-sm text-gray-400">No recent activity.</p>
+              <p className="text-xs text-gray-400">No recent activity.</p>
             ) : (
               <div className="divide-y divide-gray-100">
                 {activity.map((a, i) => (
                   <div key={i} className="flex items-start gap-3 py-2">
                     <span
-                      className="mt-1.5 w-2 h-2 rounded-full shrink-0"
+                      className="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0"
                       style={{ backgroundColor: C.accent }}
                     />
                     <div>
-                      <p className="text-sm text-gray-700 leading-snug">{a.text}</p>
-                      <p className="text-sm text-gray-400 mt-0.5">{a.time}</p>
+                      <p className="text-xs text-gray-700 leading-snug">{a.text}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{a.time}</p>
                     </div>
                   </div>
                 ))}
@@ -1134,7 +1130,7 @@ function Inventory_db() {
           </Card>
 
           <Card className="p-6">
-            <h2 className="text-base font-semibold text-gray-700 mb-3">Items needing attention</h2>
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">Items needing attention</h2>
             {loading ? (
               <div className="space-y-3">
                 {[1, 2, 3].map((i) => (
@@ -1142,19 +1138,19 @@ function Inventory_db() {
                 ))}
               </div>
             ) : slowMovers.length === 0 ? (
-              <p className="text-sm text-gray-400">All items are recently updated.</p>
+              <p className="text-xs text-gray-400">All items are recently updated.</p>
             ) : (
               <div className="divide-y divide-gray-100">
                 {slowMovers.map((m) => (
                   <div key={m.name} className="flex items-center justify-between py-2.5">
                     <div>
-                      <p className="text-sm font-medium text-gray-700">{m.name}</p>
-                      <p className="text-sm text-gray-400 mt-0.5">
+                      <p className="text-xs font-medium text-gray-700">{m.name}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">
                         Low stock for {fmt(m.days)} day{m.days !== 1 ? "s" : ""}
                       </p>
                     </div>
                     <span
-                      className="px-2 py-0.5 text-sm rounded-md font-medium border"
+                      className="px-2 py-0.5 text-xs rounded-md font-medium border"
                       style={{
                         color: C.warning,
                         backgroundColor: C.warningSoft,
@@ -1177,76 +1173,76 @@ function Inventory_db() {
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Card className="p-4">
-            <p className="text-sm text-gray-500">Total materials</p>
+            <p className="text-xs text-gray-500">Total materials</p>
             {loading ? (
               <Skeleton />
             ) : (
-              <p className="text-3xl font-semibold mt-1 text-gray-900">
+              <p className="text-2xl font-semibold mt-1 text-gray-900">
                 {fmt(materialStats.total)}
               </p>
             )}
-            <p className="text-sm mt-1 text-gray-400">Tracked SKUs</p>
+            <p className="text-xs mt-1 text-gray-400">Tracked SKUs</p>
           </Card>
 
           <Card className="p-4">
-            <p className="text-sm text-gray-500">Estimated value</p>
+            <p className="text-xs text-gray-500">Estimated value</p>
             {loading ? (
               <Skeleton />
             ) : (
-              <p className="text-3xl font-semibold mt-1" style={{ color: C.success }}>
+              <p className="text-2xl font-semibold mt-1" style={{ color: C.success }}>
                 {fmtPeso(materialStats.value)}
               </p>
             )}
-            <p className="text-sm mt-1 text-gray-400">Stock × unit cost</p>
+            <p className="text-xs mt-1 text-gray-400">Stock × unit cost</p>
           </Card>
 
           <Card className="p-4">
-            <p className="text-sm text-gray-500">Low stock</p>
+            <p className="text-xs text-gray-500">Low stock</p>
             {loading ? (
               <Skeleton />
             ) : (
-              <p className="text-3xl font-semibold mt-1" style={{ color: C.warning }}>
+              <p className="text-2xl font-semibold mt-1" style={{ color: C.warning }}>
                 {fmt(materialStats.lowStockCount)}
               </p>
             )}
-            <p className="text-sm mt-1 text-gray-400">Need reordering soon</p>
+            <p className="text-xs mt-1 text-gray-400">Need reordering soon</p>
           </Card>
 
           <Card className="p-4">
-            <p className="text-sm text-gray-500">Out of stock</p>
+            <p className="text-xs text-gray-500">Out of stock</p>
             {loading ? (
               <Skeleton />
             ) : (
-              <p className="text-3xl font-semibold mt-1" style={{ color: C.accent }}>
+              <p className="text-2xl font-semibold mt-1" style={{ color: C.accent }}>
                 {fmt(materialStats.outOfStockCount)}
               </p>
             )}
-            <p className="text-sm mt-1 text-gray-400">Blocking production</p>
+            <p className="text-xs mt-1 text-gray-400">Blocking production</p>
           </Card>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           <Card className="lg:col-span-2 p-6">
-            <h2 className="text-base font-semibold text-gray-700 mb-3">Material value by category</h2>
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">Material value by category</h2>
             {loading ? (
-              <Skeleton className="h-72 w-full" />
+              <Skeleton className="h-56 w-full" />
             ) : materialCategoryData.length === 0 ? (
-              <p className="text-sm text-gray-400">No raw materials recorded yet.</p>
+              <p className="text-xs text-gray-400">No raw materials recorded yet.</p>
             ) : (
               <ResponsiveContainer
                 width="100%"
-                height={Math.max(280, materialCategoryData.length * 56)}
+                height={Math.max(200, materialCategoryData.length * 42)}
               >
                 <BarChart
                   data={materialCategoryData}
                   layout="vertical"
-                  margin={{ top: 0, right: 80, left: 8, bottom: 0 }}
+                  margin={{ top: 0, right: 50, left: 8, bottom: 0 }}
                   barCategoryGap={12}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
                   <XAxis
                     type="number"
-                    tick={{ fontSize: 14, fill: "#6B7280" }}
+                    tick={{ fontSize: 11, fill: "#6B7280" }}
                     axisLine={false}
                     tickLine={false}
                     tickFormatter={(v) => fmt(v)}
@@ -1254,8 +1250,8 @@ function Inventory_db() {
                   <YAxis
                     type="category"
                     dataKey="name"
-                    width={200}
-                    tick={{ fontSize: 14, fill: "#374151" }}
+                    width={140}
+                    tick={{ fontSize: 11, fill: "#374151" }}
                     axisLine={false}
                     tickLine={false}
                   />
@@ -1264,7 +1260,7 @@ function Inventory_db() {
                       if (!active || !payload?.length) return null;
                       const d = payload[0].payload;
                       return (
-                        <div className="bg-white border border-gray-200 rounded-md shadow-lg px-4 py-3.5 text-sm">
+                        <div className="bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2 text-xs">
                           <p className="font-semibold text-gray-700 mb-1">{d.name}</p>
                           <p className="text-gray-600">
                             {fmtPeso(d.value)} · {fmt(d.count)} material
@@ -1278,7 +1274,7 @@ function Inventory_db() {
                     dataKey="value"
                     name="Value"
                     radius={[0, 4, 4, 0]}
-                    barSize={26}
+                    barSize={18}
                     onClick={handleMaterialCategoryClick}
                     cursor="pointer"
                   >
@@ -1289,7 +1285,7 @@ function Inventory_db() {
                       dataKey="value"
                       position="right"
                       formatter={(v) => fmtPeso(v)}
-                      style={{ fontSize: 13, fill: "#374151", fontWeight: 600 }}
+                      style={{ fontSize: 10, fill: "#374151", fontWeight: 600 }}
                     />
                   </Bar>
                 </BarChart>
@@ -1298,21 +1294,21 @@ function Inventory_db() {
           </Card>
 
           <Card className="lg:col-span-1 p-6">
-            <h2 className="text-base font-semibold text-gray-700 mb-3">Stock status</h2>
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">Stock status</h2>
             {loading ? (
-              <Skeleton className="h-52 w-full" />
+              <Skeleton className="h-40 w-full" />
             ) : materialStatusData.length === 0 ? (
-              <p className="text-sm text-gray-400">No data</p>
+              <p className="text-xs text-gray-400">No data</p>
             ) : (
               <>
-                <ResponsiveContainer width="100%" height={210}>
+                <ResponsiveContainer width="100%" height={160}>
                   <PieChart>
                     <Pie
                       data={materialStatusData}
                       dataKey="count"
                       nameKey="status"
-                      innerRadius={52}
-                      outerRadius={78}
+                      innerRadius={40}
+                      outerRadius={60}
                       paddingAngle={3}
                       onClick={handleMaterialStatusClick}
                       cursor="pointer"
@@ -1326,7 +1322,7 @@ function Inventory_db() {
                         if (!active || !payload?.length) return null;
                         const d = payload[0].payload;
                         return (
-                          <div className="bg-white border border-gray-200 rounded-md shadow-lg px-4 py-3.5 text-sm">
+                          <div className="bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2 text-xs">
                             <p className="font-semibold" style={{ color: d.color }}>
                               {d.status}
                             </p>
@@ -1341,10 +1337,10 @@ function Inventory_db() {
                 </ResponsiveContainer>
                 <ul className="space-y-1.5 mt-2">
                   {materialStatusData.map((s) => (
-                    <li key={s.status} className="flex items-center justify-between text-sm">
+                    <li key={s.status} className="flex items-center justify-between text-xs">
                       <span className="flex items-center gap-1.5 text-gray-600">
                         <span
-                          className="w-3 h-3 rounded-sm inline-block"
+                          className="w-2 h-2 rounded-sm inline-block"
                           style={{ background: s.color }}
                         />
                         {s.status}
@@ -1359,11 +1355,11 @@ function Inventory_db() {
         </div>
 
         <Card className="p-6">
-          <h2 className="text-base font-semibold text-gray-700 mb-3 flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
             Materials needing reorder
             {!loading && (
               <span
-                className="px-2 py-0.5 text-sm rounded-md font-medium border"
+                className="px-2 py-0.5 text-xs rounded-md font-medium border"
                 style={{
                   color: C.warning,
                   backgroundColor: C.warningSoft,
@@ -1381,7 +1377,7 @@ function Inventory_db() {
               ))}
             </div>
           ) : materialLowStock.length === 0 ? (
-            <p className="text-sm text-gray-400">All raw materials are sufficiently stocked.</p>
+            <p className="text-xs text-gray-400">All raw materials are sufficiently stocked.</p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {materialLowStock.map((m) => {
@@ -1389,7 +1385,7 @@ function Inventory_db() {
                 return (
                   <div
                     key={m.id}
-                    className="flex items-center justify-between rounded-md border px-4 py-3.5"
+                    className="flex items-center justify-between rounded-md border px-3 py-2"
                     style={
                       isOut
                         ? {
@@ -1403,16 +1399,16 @@ function Inventory_db() {
                     }
                   >
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-700 truncate">
+                      <p className="text-xs font-medium text-gray-700 truncate">
                         {m.material_name}
                       </p>
-                      <p className="text-sm text-gray-400 truncate">
+                      <p className="text-xs text-gray-400 truncate">
                         {m.category || "Uncategorized"}
                         {m.supplier ? ` · ${m.supplier}` : ""}
                       </p>
                     </div>
                     <span
-                      className="ml-3 shrink-0 px-1.5 py-0.5 text-sm rounded font-medium"
+                      className="ml-3 shrink-0 px-1.5 py-0.5 text-xs rounded font-medium"
                       style={{ color: isOut ? C.accent : C.warning }}
                     >
                       {fmt(m.current_stock)} {m.unit}
@@ -1431,17 +1427,17 @@ function Inventory_db() {
             onClick={() => setBreakdown(null)}
           >
             <div
-              className="bg-white rounded-lg shadow-xl border border-gray-200 w-full max-w-xl max-h-[80vh] flex flex-col"
+              className="bg-white rounded-lg shadow-xl border border-gray-200 w-full max-w-md max-h-[80vh] flex flex-col"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span
-                    className="w-3.5 h-3.5 rounded-sm"
+                    className="w-2.5 h-2.5 rounded-sm"
                     style={{ background: breakdown.color }}
                   />
-                  <h2 className="text-base font-semibold text-gray-900">{breakdown.label}</h2>
-                  <span className="text-sm text-gray-400">
+                  <h2 className="text-sm font-semibold text-gray-900">{breakdown.label}</h2>
+                  <span className="text-xs text-gray-400">
                     ({fmt(breakdown.products.length)} item
                     {breakdown.products.length !== 1 ? "s" : ""})
                     {breakdown.type === "platform" && `, ${fmt(breakdown.sold)} sold total`}
@@ -1451,13 +1447,13 @@ function Inventory_db() {
                   onClick={() => setBreakdown(null)}
                   className="text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
                 >
-                  <span className="text-base font-semibold">✕</span>
+                  <span className="text-sm font-semibold">✕</span>
                 </button>
               </div>
 
               <div className="overflow-y-auto px-5 py-4">
                 {breakdown.products.length === 0 ? (
-                  <p className="text-sm text-gray-400">No items found.</p>
+                  <p className="text-xs text-gray-400">No items found.</p>
                 ) : (
                   <div className="space-y-3">
                     {breakdown.products.map((p) => (
@@ -1467,13 +1463,13 @@ function Inventory_db() {
                       >
                         <div className="flex items-center justify-between">
                           <div>
-                            <p className="text-sm font-medium text-gray-700">{p.name}</p>
+                            <p className="text-xs font-medium text-gray-700">{p.name}</p>
                             {p.code && (
-                              <p className="text-sm font-mono text-gray-400">{p.code}</p>
+                              <p className="text-xs font-mono text-gray-400">{p.code}</p>
                             )}
                           </div>
                           <span
-                            className="text-sm font-semibold shrink-0"
+                            className="text-xs font-semibold shrink-0"
                             style={{ color: C.accent }}
                           >
                             {fmt(p.qty)} {p.unit || "units"}
@@ -1481,13 +1477,13 @@ function Inventory_db() {
                         </div>
                         {(breakdown.type === "category" || breakdown.type === "product") && (
                           <div className="flex gap-3 mt-1">
-                            <span className="text-sm" style={{ color: PLATFORM_COLORS.Shopee }}>
+                            <span className="text-xs" style={{ color: PLATFORM_COLORS.Shopee }}>
                               Shopee: {fmt(p.shopee)}
                             </span>
-                            <span className="text-sm" style={{ color: PLATFORM_COLORS.Lazada }}>
+                            <span className="text-xs" style={{ color: PLATFORM_COLORS.Lazada }}>
                               Lazada: {fmt(p.lazada)}
                             </span>
-                            <span className="text-sm" style={{ color: PLATFORM_COLORS.TikTok }}>
+                            <span className="text-xs" style={{ color: PLATFORM_COLORS.TikTok }}>
                               TikTok: {fmt(p.tiktok)}
                             </span>
                           </div>
@@ -1496,7 +1492,7 @@ function Inventory_db() {
                           breakdown.type === "material-status") &&
                           p.status && (
                             <span
-                              className="inline-block mt-1 px-1.5 py-0.5 rounded-md text-sm font-medium"
+                              className="inline-block mt-1 px-1.5 py-0.5 rounded-md text-xs font-medium"
                               style={{
                                 background: `${STATUS_COLORS[p.status]}1a`,
                                 color: STATUS_COLORS[p.status],
