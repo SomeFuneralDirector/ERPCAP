@@ -575,10 +575,11 @@ function Inventory() {
   const fetchInventory = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase
-      .from("inventory")
-      .select("*")
-      .order("category", { ascending: true })
-      .order("product_name", { ascending: true });
+  .from("inventory")
+  .select("*")
+  .eq("archived", false)          // ← add this
+  .order("category", { ascending: true })
+  .order("product_name", { ascending: true });
 
     if (!error && data) setInventory(data);
     setLoading(false);
@@ -640,17 +641,23 @@ function Inventory() {
     setShowArchiveModal(true);
   };
 
-  const confirmArchive = async () => {
-    if (!itemToArchive) return;
-    setSaving(true);
-    const { error } = await supabase.from("inventory").delete().eq("id", itemToArchive.id);
-    if (!error) {
-      setInventory((prev) => prev.filter((i) => i.id !== itemToArchive.id));
-      setShowArchiveModal(false);
-      setItemToArchive(null);
-    }
-    setSaving(false);
-  };
+ const confirmArchive = async () => {
+  if (!itemToArchive) return;
+  setSaving(true);
+  const { error } = await supabase.rpc("archive_record", {
+    p_table: "inventory",
+    p_id: String(itemToArchive.id),
+    p_label: `${itemToArchive.product_code} - ${itemToArchive.product_name}`,
+  });
+  if (error) {
+    alert(error.message);
+  } else {
+    setInventory((prev) => prev.filter((i) => i.id !== itemToArchive.id));
+    setShowArchiveModal(false);
+    setItemToArchive(null);
+  }
+  setSaving(false);
+};
 
   const filtered = inventory.filter((item) => {
     const matchCat = filterCategory === "All" || item.category === filterCategory;
