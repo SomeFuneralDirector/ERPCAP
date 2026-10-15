@@ -1,10 +1,28 @@
-//Dating LEDGER NGAYON CASH BOOK NA. ENGOT KASI KAMI
-
+// Cash Book (formerly Ledger)
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "../api/supabase";
 import { useAuth } from "../context/AuthContext";
 import { Loader2, Plus, Trash2, X, AlertCircle, Archive } from "lucide-react";
 import { formatPeso, localDateKey, firstOfMonthKey } from "../lib/Finance";
+
+/* ── Design tokens (aligned with Inventory / Activity Logs) ──────────────── */
+const C = {
+  accent: "#B3211B",
+  accentHover: "#8E1A15",
+  accentSoft: "#FBEAE9",
+  accentSoftBorder: "#F3C9C7",
+  text: "#1C1C1F",
+  textMuted: "#6B6B70",
+  textFaint: "#9A9AA0",
+  border: "#E4E4E7",
+  borderStrong: "#D4D4D8",
+  success: "#15803D",
+  successSoft: "#EEF6EF",
+  warning: "#A15C07",
+  warningSoft: "#FBF3E7",
+  warningBorder: "#F1DDB8",
+  surface: "#F6F6F7",
+};
 
 const TYPE_LABEL = { debit: "Cash In", credit: "Cash Out" };
 
@@ -206,7 +224,7 @@ function Ledger() {
   );
 
   async function handleArchiveConfirm() {
-    if (!archiveTarget) return;
+    if (!archiveTarget || archiveTarget.isSalesWeek) return;
     setArchiving(true);
     setPageError("");
 
@@ -348,209 +366,368 @@ function Ledger() {
     return categories.find((c) => c.id === categoryId)?.name || "-";
   }
 
+  const dateInputStyle = {
+    borderColor: C.borderStrong,
+    color: C.text,
+  };
+
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between flex-wrap gap-4 bg-white rounded-lg shadow p-6 mb-4">
-        <h1 className="text-2xl font-semibold text-gray-800">Cash Book</h1>
-        <div className="flex items-center gap-2 flex-wrap">
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            className="border border-gray-300 rounded px-2 py-1 text-sm cursor-pointer"
-          />
-          <span className="text-gray-400 text-sm">to</span>
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            className="border border-gray-300 rounded px-2 py-1 text-sm cursor-pointer"
-          />
-          <button
-            onClick={openModal}
-            className="flex items-center gap-1.5 bg-red-700 text-white text-sm font-bold px-3 py-1.5 rounded hover:bg-red-600 cursor-pointer"
-          >
-            <Plus size={14} />
-            Add Entry
-          </button>
+    <div className="min-h-screen" style={{ backgroundColor: C.surface }}>
+      <div className="p-6 space-y-4">
+        {/* Header */}
+        <div
+          className="bg-white rounded-lg shadow-sm px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3"
+          style={{ border: `1px solid ${C.border}` }}
+        >
+          <h1 className="text-3xl font-semibold" style={{ color: C.text }}>
+            Cash Book
+          </h1>
+          <div className="flex items-center gap-2 flex-wrap self-start md:self-auto">
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="border rounded-md px-3 py-2 text-base cursor-pointer focus:outline-none"
+                style={dateInputStyle}
+                onFocus={(e) => {
+                  e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`;
+                  e.target.style.borderColor = C.accent;
+                }}
+                onBlur={(e) => {
+                  e.target.style.boxShadow = "none";
+                  e.target.style.borderColor = C.borderStrong;
+                }}
+              />
+              <span className="text-base" style={{ color: C.textFaint }}>
+                to
+              </span>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="border rounded-md px-3 py-2 text-base cursor-pointer focus:outline-none"
+                style={dateInputStyle}
+                onFocus={(e) => {
+                  e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`;
+                  e.target.style.borderColor = C.accent;
+                }}
+                onBlur={(e) => {
+                  e.target.style.boxShadow = "none";
+                  e.target.style.borderColor = C.borderStrong;
+                }}
+              />
+            </div>
+            <button
+              onClick={openModal}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md text-base font-semibold text-white cursor-pointer transition-colors"
+              style={{ backgroundColor: C.accent }}
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.backgroundColor = C.accentHover)
+              }
+              onMouseLeave={(e) =>
+                (e.currentTarget.style.backgroundColor = C.accent)
+              }
+            >
+              <Plus size={16} />
+              Add Entry
+            </button>
+          </div>
+        </div>
+
+        {/* Table card */}
+        <div
+          className="bg-white rounded-lg shadow-sm p-5"
+          style={{ border: `1px solid ${C.border}` }}
+        >
+          {pageError && (
+            <div
+              className="flex items-start gap-2 rounded-lg p-3 text-sm mb-4"
+              style={{
+                backgroundColor: C.accentSoft,
+                color: C.accent,
+                border: `1px solid ${C.accentSoftBorder}`,
+              }}
+            >
+              <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+              <span>{pageError}</span>
+            </div>
+          )}
+
+          {loading ? (
+            <div
+              className="flex items-center gap-2 text-sm py-10 justify-center"
+              style={{ color: C.textFaint }}
+            >
+              <Loader2 size={16} className="animate-spin" />
+              Loading cash book…
+            </div>
+          ) : displayRows.length === 0 ? (
+            <p className="text-base py-10 text-center" style={{ color: C.textFaint }}>
+              No entries in this date range.
+            </p>
+          ) : (
+            <div
+              className="overflow-x-auto rounded-lg"
+              style={{ border: `1px solid ${C.border}` }}
+            >
+              <table className="w-full text-base">
+                <thead
+                  style={{
+                    backgroundColor: C.surface,
+                    borderBottom: `1px solid ${C.border}`,
+                  }}
+                >
+                  <tr>
+                    <th
+                      className="py-3 px-4 text-left text-sm font-semibold"
+                      style={{ color: C.textMuted }}
+                    >
+                      No
+                    </th>
+                    <th
+                      className="py-3 px-4 text-left text-sm font-semibold"
+                      style={{ color: C.textMuted }}
+                    >
+                      Date
+                    </th>
+                    <th
+                      className="py-3 px-4 text-left text-sm font-semibold"
+                      style={{ color: C.textMuted }}
+                    >
+                      Detail
+                    </th>
+                    <th
+                      className="py-3 px-4 text-right text-sm font-semibold"
+                      style={{ color: C.textMuted }}
+                    >
+                      {TYPE_LABEL.debit}
+                    </th>
+                    <th
+                      className="py-3 px-4 text-right text-sm font-semibold"
+                      style={{ color: C.textMuted }}
+                    >
+                      {TYPE_LABEL.credit}
+                    </th>
+                    <th
+                      className="py-3 px-4 text-right text-sm font-semibold"
+                      style={{ color: C.textMuted }}
+                    >
+                      Action
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pageRows.map((e, i) => (
+                    <tr
+                      key={e.id}
+                      className="transition-colors"
+                      style={{
+                        borderBottom: `1px solid ${C.border}`,
+                        backgroundColor: i % 2 === 1 ? C.surface : "#fff",
+                      }}
+                      onMouseEnter={(ev) =>
+                        (ev.currentTarget.style.backgroundColor = C.accentSoft)
+                      }
+                      onMouseLeave={(ev) =>
+                        (ev.currentTarget.style.backgroundColor =
+                          i % 2 === 1 ? C.surface : "#fff")
+                      }
+                    >
+                      <td
+                        className="py-3 px-4"
+                        style={{ color: C.textFaint }}
+                      >
+                        {(currentPage - 1) * PAGE_SIZE + i + 1}
+                      </td>
+                      <td
+                        className="py-3 px-4 whitespace-nowrap font-medium"
+                        style={{ color: C.text }}
+                      >
+                        {e.date}
+                      </td>
+                      <td className="py-3 px-4" style={{ color: C.text }}>
+                        {e.detail}
+                        {e.ledger_categories?.name && (
+                          <span
+                            className="ml-2 inline-block px-2 py-0.5 rounded-full text-xs font-semibold"
+                            style={{
+                              backgroundColor: C.surface,
+                              color: C.textMuted,
+                            }}
+                          >
+                            {e.ledger_categories.name}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-right font-medium">
+                        {e.type === "debit" ? (
+                          <span style={{ color: C.success }}>
+                            {formatPeso(e.amount)}
+                          </span>
+                        ) : (
+                          <span style={{ color: C.textFaint }}>—</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-right font-medium">
+                        {e.type === "credit" ? (
+                          <span style={{ color: C.accent }}>
+                            {formatPeso(e.amount)}
+                          </span>
+                        ) : (
+                          <span style={{ color: C.textFaint }}>—</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        {e.isSalesWeek ? (
+                          <span
+                            className="text-xs"
+                            style={{ color: C.textFaint }}
+                            title="Weekly sales totals come from automatic sale postings"
+                          >
+                            Auto
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => setArchiveTarget(e)}
+                            className="inline-flex items-center gap-1 text-sm font-semibold cursor-pointer transition-colors"
+                            style={{ color: C.textMuted }}
+                            onMouseEnter={(ev) =>
+                              (ev.currentTarget.style.color = C.accent)
+                            }
+                            onMouseLeave={(ev) =>
+                              (ev.currentTarget.style.color = C.textMuted)
+                            }
+                          >
+                            <Archive size={14} />
+                            Archive
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {!loading && displayRows.length > 0 && totalPages > 1 && (
+            <div className="flex items-center justify-between mt-4">
+              <p className="text-sm" style={{ color: C.textMuted }}>
+                Page {currentPage} of {totalPages} · {displayRows.length} rows
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setPage(Math.max(1, currentPage - 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1.5 border rounded-lg text-sm disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                  style={{
+                    borderColor: C.border,
+                    color: C.textMuted,
+                  }}
+                >
+                  ← Prev
+                </button>
+                {[...Array(Math.min(5, totalPages))].map((_, i) => {
+                  const pageNum =
+                    Math.max(1, Math.min(currentPage - 2, totalPages - 4)) + i;
+                  const active = currentPage === pageNum;
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setPage(pageNum)}
+                      className="px-3 py-1.5 border rounded-lg text-sm transition-colors cursor-pointer"
+                      style={
+                        active
+                          ? {
+                              backgroundColor: C.accent,
+                              borderColor: C.accent,
+                              color: "#fff",
+                            }
+                          : {
+                              borderColor: C.border,
+                              color: C.textMuted,
+                            }
+                      }
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+                <button
+                  onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1.5 border rounded-lg text-sm disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                  style={{
+                    borderColor: C.border,
+                    color: C.textMuted,
+                  }}
+                >
+                  Next →
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow p-6">
-        {pageError && (
-          <div className="flex items-start gap-2 rounded-lg p-3 text-sm bg-red-50 text-red-700 border border-red-200 mb-4">
-            <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
-            <span>{pageError}</span>
-          </div>
-        )}
-
-        {loading ? (
-          <div className="flex items-center gap-2 text-gray-400 text-sm py-6 justify-center">
-            <Loader2 size={16} className="animate-spin" />
-            Loading cash book...
-          </div>
-        ) : displayRows.length === 0 ? (
-          <p className="text-sm text-gray-400">
-            No entries in this date range.
-          </p>
-        ) : (
-          <div className="overflow-x-auto rounded-lg border border-gray-200">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50 text-left text-xs text-gray-700 uppercase tracking-wide">
-                  <th className="py-3 px-4 font-extrabold">No</th>
-                  <th className="py-3 px-4 font-extrabold">Date</th>
-                  <th className="py-3 px-4 font-extrabold">Detail</th>
-                  <th className="py-3 px-4 font-extrabold text-right">
-                    {TYPE_LABEL.debit}
-                  </th>
-                  <th className="py-3 px-4 font-extrabold text-right">
-                    {TYPE_LABEL.credit}
-                  </th>
-                  <th className="py-3 px-4 font-extrabold text-right">
-                    Action
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {pageRows.map((e, i) => (
-                  <tr
-                    key={e.id}
-                    className={`border-t border-gray-100 hover:bg-red-100 transition-colors ${
-                      i % 2 === 1 ? "bg-gray-50/50" : "bg-white"
-                    }`}
-                  >
-                    <td className="py-3 px-4 text-gray-400">
-                      {(currentPage - 1) * PAGE_SIZE + i + 1}
-                    </td>
-                    <td className="py-3 px-4 whitespace-nowrap text-gray-900 font-medium">
-                      {e.date}
-                    </td>
-                    <td className="py-3 px-4 text-gray-900">
-                      {e.detail}
-                      {e.ledger_categories?.name && (
-                        <span className="ml-2 inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">
-                          {e.ledger_categories.name}
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 text-right font-medium">
-                      {e.type === "debit" ? (
-                        <span className="text-green-600">
-                          {formatPeso(e.amount)}
-                        </span>
-                      ) : (
-                        <span className="text-gray-300">-</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 text-right font-medium">
-                      {e.type === "credit" ? (
-                        <span className="text-red-600">
-                          {formatPeso(e.amount)}
-                        </span>
-                      ) : (
-                        <span className="text-gray-300">-</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      {e.isSalesWeek ? (
-                        <span
-                          className="text-xs text-gray-300"
-                          title="Weekly sales totals come from automatic sale postings"
-                        >
-                          Auto
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => setArchiveTarget(e)}
-                          className="inline-flex items-center gap-1 text-xs font-semibold text-gray-500 hover:text-red-700 cursor-pointer"
-                        >
-                          <Archive size={14} />
-                          Archive
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {!loading && displayRows.length > 0 && totalPages > 1 && (
-          <div className="flex items-center justify-between mt-4">
-            <p className="text-sm text-gray-500">
-              Page {currentPage} of {totalPages} · {displayRows.length} rows
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setPage(Math.max(1, currentPage - 1))}
-                disabled={currentPage === 1}
-                className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                ← Prev
-              </button>
-              {[...Array(Math.min(5, totalPages))].map((_, i) => {
-                const pageNum =
-                  Math.max(1, Math.min(currentPage - 2, totalPages - 4)) + i;
-                return (
-                  <button
-                    key={pageNum}
-                    onClick={() => setPage(pageNum)}
-                    className={`px-3 py-1.5 border rounded-lg text-sm transition-colors ${
-                      currentPage === pageNum
-                        ? "bg-red-600 border-red-600 text-white"
-                        : "border-gray-200 text-gray-600 hover:bg-gray-50"
-                    }`}
-                  >
-                    {pageNum}
-                  </button>
-                );
-              })}
-              <button
-                onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
-                disabled={currentPage === totalPages}
-                className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                Next →
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
+      {/* Archive confirmation modal */}
       {archiveTarget && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-bold text-gray-800">Archive entry?</h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div
+            className="bg-white rounded-lg shadow-xl w-full max-w-md"
+            style={{ border: `1px solid ${C.border}` }}
+          >
+            <div
+              className="flex items-center justify-between px-5 py-4"
+              style={{ borderBottom: `1px solid ${C.border}` }}
+            >
+              <h2 className="text-lg font-semibold" style={{ color: C.text }}>
+                Archive entry?
+              </h2>
               <button
                 type="button"
                 onClick={() => setArchiveTarget(null)}
-                className="text-gray-400 hover:text-red-500"
+                className="cursor-pointer transition-colors"
+                style={{ color: C.textFaint }}
               >
-                <X size={18} />
+                <X size={20} />
               </button>
             </div>
 
-            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm mb-4">
-              <p className="text-gray-900 font-medium">{archiveTarget.detail}</p>
-              <p className="text-gray-500 text-xs mt-0.5">
-                {archiveTarget.date} · {TYPE_LABEL[archiveTarget.type]} ·{" "}
-                {formatPeso(archiveTarget.amount)}
+            <div className="px-5 py-4">
+              <div
+                className="rounded-lg p-3 text-sm mb-4"
+                style={{
+                  backgroundColor: C.surface,
+                  border: `1px solid ${C.border}`,
+                }}
+              >
+                <p className="font-medium" style={{ color: C.text }}>
+                  {archiveTarget.detail}
+                </p>
+                <p className="text-sm mt-0.5" style={{ color: C.textMuted }}>
+                  {archiveTarget.date} · {TYPE_LABEL[archiveTarget.type]} ·{" "}
+                  {formatPeso(archiveTarget.amount)}
+                </p>
+              </div>
+
+              <p className="text-sm" style={{ color: C.textMuted }}>
+                This entry is removed from the Cash Book and stops counting in
+                reports. You can restore it later from{" "}
+                <strong style={{ color: C.text }}>Activity Logs → Archive</strong>.
               </p>
             </div>
 
-            <p className="text-sm text-gray-600 mb-5">
-              This entry will be removed from the Cash Book and stop counting
-              in your reports. You can find it in Activity Logs under Archive.
-            </p>
-
-            <div className="flex items-center justify-end gap-2">
+            <div
+              className="px-5 py-4 flex justify-end gap-2"
+              style={{ borderTop: `1px solid ${C.border}` }}
+            >
               <button
                 type="button"
                 onClick={() => setArchiveTarget(null)}
-                className="text-sm font-semibold text-gray-500 px-4 py-2 rounded hover:bg-gray-100"
+                className="px-4 py-2 rounded-md text-base font-medium cursor-pointer transition-colors"
+                style={{ color: C.textMuted, backgroundColor: C.surface }}
               >
                 Cancel
               </button>
@@ -558,47 +735,66 @@ function Ledger() {
                 type="button"
                 onClick={handleArchiveConfirm}
                 disabled={archiving}
-                className="flex items-center gap-2 bg-red-600 text-white text-sm font-bold px-4 py-2 rounded hover:bg-red-700 disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-base font-semibold text-white cursor-pointer transition-colors disabled:opacity-50"
+                style={{ backgroundColor: C.accent }}
+                onMouseEnter={(e) => {
+                  if (!archiving)
+                    e.currentTarget.style.backgroundColor = C.accentHover;
+                }}
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.backgroundColor = C.accent)
+                }
               >
-                {archiving && <Loader2 size={14} className="animate-spin" />}
-                {archiving ? "Saving..." : "Yes, Archive"}
+                {archiving && <Loader2 size={16} className="animate-spin" />}
+                {archiving ? "Archiving…" : "Yes, Archive"}
               </button>
             </div>
           </div>
         </div>
       )}
 
+      {/* Add entries modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <form
             onSubmit={handleReview}
             className="bg-white rounded-lg shadow-xl p-6 w-full max-w-5xl max-h-[90vh] flex flex-col"
+            style={{ border: `1px solid ${C.border}` }}
           >
             <div className="flex items-center justify-between mb-1">
-              <h2 className="text-lg font-bold text-gray-800">
+              <h2 className="text-lg font-semibold" style={{ color: C.text }}>
                 {step === "edit" ? "Add Entries" : "Confirm Entries"}
               </h2>
               <button
                 type="button"
                 onClick={closeModal}
-                className="text-gray-400 hover:text-red-500"
+                className="cursor-pointer transition-colors"
+                style={{ color: C.textFaint }}
               >
-                <X size={18} />
+                <X size={20} />
               </button>
             </div>
 
             {step === "edit" ? (
               <>
-                <p className="text-xs text-gray-500 mb-4">
+                <p className="text-sm mb-4" style={{ color: C.textMuted }}>
                   Add as many rows as you need, then review before saving.
                   Money coming in (sales, loans received, owner investment) is{" "}
-                  <strong>Cash In</strong>. Money going out (expenses, loan
-                  repayments, equipment purchases) is <strong>Cash Out</strong>
-                  . Record salaries and bills when you actually pay them.
+                  <strong style={{ color: C.text }}>Cash In</strong>. Money
+                  going out (expenses, loan repayments, equipment purchases) is{" "}
+                  <strong style={{ color: C.text }}>Cash Out</strong>. Record
+                  salaries and bills when you actually pay them.
                 </p>
 
                 {banner && (
-                  <div className="flex items-start gap-2 rounded-lg p-3 text-sm bg-red-50 text-red-700 border border-red-200 mb-4">
+                  <div
+                    className="flex items-start gap-2 rounded-lg p-3 text-sm mb-4"
+                    style={{
+                      backgroundColor: C.accentSoft,
+                      color: C.accent,
+                      border: `1px solid ${C.accentSoftBorder}`,
+                    }}
+                  >
                     <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
                     <span>{banner.message}</span>
                   </div>
@@ -607,13 +803,19 @@ function Ledger() {
                 <div className="overflow-y-auto flex-1 -mx-6 px-6">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="text-left text-xs text-gray-500 uppercase border-b border-gray-200">
+                      <tr
+                        className="text-left text-xs uppercase"
+                        style={{
+                          color: C.textMuted,
+                          borderBottom: `1px solid ${C.border}`,
+                        }}
+                      >
                         <th className="py-2 pr-2">Date</th>
                         <th className="py-2 pr-2">Detail</th>
                         <th className="py-2 pr-2">Category</th>
                         <th className="py-2 pr-2">Type</th>
                         <th className="py-2 pr-2">Amount (₱)</th>
-                        <th className="py-2"></th>
+                        <th className="py-2" />
                       </tr>
                     </thead>
                     <tbody>
@@ -622,7 +824,7 @@ function Ledger() {
                         return (
                           <tr
                             key={r._rowId}
-                            className="border-b border-gray-100"
+                            style={{ borderBottom: `1px solid ${C.border}` }}
                           >
                             <td className="py-2 pr-2 align-top">
                               <input
@@ -635,11 +837,13 @@ function Ledger() {
                                     e.target.value
                                   )
                                 }
-                                className={`w-36 border rounded px-2 py-1.5 text-sm text-gray-900 ${
-                                  err.date
-                                    ? "border-red-400"
-                                    : "border-gray-300"
-                                }`}
+                                className="w-36 border rounded px-2 py-1.5 text-sm"
+                                style={{
+                                  borderColor: err.date
+                                    ? C.accent
+                                    : C.borderStrong,
+                                  color: C.text,
+                                }}
                               />
                             </td>
                             <td className="py-2 pr-2 align-top">
@@ -654,11 +858,13 @@ function Ledger() {
                                   )
                                 }
                                 placeholder="e.g. Staff salaries, Aug 1-15"
-                                className={`w-48 border rounded px-2 py-1.5 text-sm text-gray-900 ${
-                                  err.detail
-                                    ? "border-red-400"
-                                    : "border-gray-300"
-                                }`}
+                                className="w-48 border rounded px-2 py-1.5 text-sm"
+                                style={{
+                                  borderColor: err.detail
+                                    ? C.accent
+                                    : C.borderStrong,
+                                  color: C.text,
+                                }}
                               />
                             </td>
                             <td className="py-2 pr-2 align-top">
@@ -671,11 +877,13 @@ function Ledger() {
                                     e.target.value
                                   )
                                 }
-                                className={`w-40 border rounded px-2 py-1.5 text-sm ${
-                                  err.category_id
-                                    ? "border-red-400"
-                                    : "border-gray-300"
-                                }`}
+                                className="w-40 border rounded px-2 py-1.5 text-sm cursor-pointer"
+                                style={{
+                                  borderColor: err.category_id
+                                    ? C.accent
+                                    : C.borderStrong,
+                                  color: C.text,
+                                }}
                               >
                                 <option value="">Select</option>
                                 {[
@@ -714,11 +922,19 @@ function Ledger() {
                                   onClick={() =>
                                     handleRowChange(r._rowId, "type", "debit")
                                   }
-                                  className={`px-2 py-1.5 rounded text-xs font-semibold border whitespace-nowrap ${
+                                  className="px-2 py-1.5 rounded text-xs font-semibold border whitespace-nowrap cursor-pointer"
+                                  style={
                                     r.type === "debit"
-                                      ? "bg-green-600 text-white border-green-600"
-                                      : "border-gray-300 text-gray-500"
-                                  }`}
+                                      ? {
+                                          backgroundColor: C.success,
+                                          color: "#fff",
+                                          borderColor: C.success,
+                                        }
+                                      : {
+                                          borderColor: C.borderStrong,
+                                          color: C.textMuted,
+                                        }
+                                  }
                                 >
                                   {TYPE_LABEL.debit}
                                 </button>
@@ -727,11 +943,19 @@ function Ledger() {
                                   onClick={() =>
                                     handleRowChange(r._rowId, "type", "credit")
                                   }
-                                  className={`px-2 py-1.5 rounded text-xs font-semibold border whitespace-nowrap ${
+                                  className="px-2 py-1.5 rounded text-xs font-semibold border whitespace-nowrap cursor-pointer"
+                                  style={
                                     r.type === "credit"
-                                      ? "bg-red-600 text-white border-red-600"
-                                      : "border-gray-300 text-gray-500"
-                                  }`}
+                                      ? {
+                                          backgroundColor: C.accent,
+                                          color: "#fff",
+                                          borderColor: C.accent,
+                                        }
+                                      : {
+                                          borderColor: C.borderStrong,
+                                          color: C.textMuted,
+                                        }
+                                  }
                                 >
                                   {TYPE_LABEL.credit}
                                 </button>
@@ -746,7 +970,10 @@ function Ledger() {
                                 );
                                 if (r.type === expected) return null;
                                 return (
-                                  <p className="text-[10px] text-amber-600 mt-1 leading-tight">
+                                  <p
+                                    className="text-[10px] mt-1 leading-tight"
+                                    style={{ color: C.warning }}
+                                  >
                                     {cat.name} is usually{" "}
                                     {TYPE_LABEL[expected]}
                                   </p>
@@ -767,11 +994,13 @@ function Ledger() {
                                   )
                                 }
                                 placeholder="0.00"
-                                className={`w-28 border rounded px-2 py-1.5 text-sm text-gray-900 ${
-                                  err.amount
-                                    ? "border-red-400"
-                                    : "border-gray-300"
-                                }`}
+                                className="w-28 border rounded px-2 py-1.5 text-sm"
+                                style={{
+                                  borderColor: err.amount
+                                    ? C.accent
+                                    : C.borderStrong,
+                                  color: C.text,
+                                }}
                               />
                             </td>
                             <td className="py-2 align-top">
@@ -779,7 +1008,8 @@ function Ledger() {
                                 type="button"
                                 onClick={() => removeRow(r._rowId)}
                                 disabled={rows.length === 1}
-                                className="text-gray-400 hover:text-red-500 disabled:opacity-30 disabled:cursor-not-allowed p-1.5"
+                                className="p-1.5 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                                style={{ color: C.textFaint }}
                               >
                                 <Trash2 size={16} />
                               </button>
@@ -792,11 +1022,12 @@ function Ledger() {
                 </div>
 
                 <div className="flex items-center justify-between pt-4">
-                  <div className="flex gap-2">
+                  <div className="flex gap-3">
                     <button
                       type="button"
                       onClick={addRow}
-                      className="flex items-center gap-1.5 text-sm font-semibold text-red-600 hover:underline"
+                      className="inline-flex items-center gap-1.5 text-sm font-semibold cursor-pointer"
+                      style={{ color: C.accent }}
                     >
                       <Plus size={14} />
                       Add Row
@@ -804,7 +1035,8 @@ function Ledger() {
                     <button
                       type="button"
                       onClick={duplicateLastRow}
-                      className="text-sm font-semibold text-gray-400 hover:text-gray-600"
+                      className="text-sm font-semibold cursor-pointer"
+                      style={{ color: C.textFaint }}
                     >
                       Duplicate Last
                     </button>
@@ -813,13 +1045,15 @@ function Ledger() {
                     <button
                       type="button"
                       onClick={closeModal}
-                      className="text-sm font-semibold text-gray-500 px-4 py-2 rounded hover:bg-gray-100"
+                      className="px-4 py-2 rounded-md text-sm font-medium cursor-pointer"
+                      style={{ color: C.textMuted, backgroundColor: C.surface }}
                     >
                       Cancel
                     </button>
                     <button
                       type="submit"
-                      className="bg-red-600 text-white text-sm font-bold px-4 py-2 rounded hover:bg-red-700"
+                      className="px-4 py-2 rounded-md text-sm font-semibold text-white cursor-pointer"
+                      style={{ backgroundColor: C.accent }}
                     >
                       Review{" "}
                       {rows.length > 1 ? `${rows.length} Entries` : "Entry"}
@@ -829,17 +1063,31 @@ function Ledger() {
               </>
             ) : (
               <>
-                <div className="flex items-start gap-2 rounded-lg p-3 text-sm bg-amber-50 text-amber-800 border border-amber-200 mb-4">
+                <div
+                  className="flex items-start gap-2 rounded-lg p-3 text-sm mb-4"
+                  style={{
+                    backgroundColor: C.warningSoft,
+                    color: C.warning,
+                    border: `1px solid ${C.warningBorder}`,
+                  }}
+                >
                   <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
                   <span>
                     <strong>Double-check the entries below before saving.</strong>{" "}
-                    Entries can't be edited once saved, but you can archive an
-                    entry from the Cash Book if it was recorded by mistake.
+                    Entries can&apos;t be edited once saved, but you can archive
+                    an entry from the Cash Book if it was recorded by mistake.
                   </span>
                 </div>
 
                 {banner && (
-                  <div className="flex items-start gap-2 rounded-lg p-3 text-sm bg-red-50 text-red-700 border border-red-200 mb-4">
+                  <div
+                    className="flex items-start gap-2 rounded-lg p-3 text-sm mb-4"
+                    style={{
+                      backgroundColor: C.accentSoft,
+                      color: C.accent,
+                      border: `1px solid ${C.accentSoftBorder}`,
+                    }}
+                  >
                     <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
                     <span>{banner.message}</span>
                   </div>
@@ -848,7 +1096,14 @@ function Ledger() {
                 <div className="overflow-y-auto flex-1 -mx-6 px-6">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="bg-gray-50 text-left text-xs text-gray-500 uppercase border-b border-gray-200">
+                      <tr
+                        className="text-left text-xs uppercase"
+                        style={{
+                          backgroundColor: C.surface,
+                          color: C.textMuted,
+                          borderBottom: `1px solid ${C.border}`,
+                        }}
+                      >
                         <th className="py-2 px-3">Date</th>
                         <th className="py-2 px-3">Detail</th>
                         <th className="py-2 px-3">Category</th>
@@ -862,38 +1117,50 @@ function Ledger() {
                     </thead>
                     <tbody>
                       {rows.map((r) => (
-                        <tr key={r._rowId} className="border-b border-gray-100">
-                          <td className="py-2 px-3 text-gray-900 whitespace-nowrap">
+                        <tr
+                          key={r._rowId}
+                          style={{ borderBottom: `1px solid ${C.border}` }}
+                        >
+                          <td
+                            className="py-2 px-3 whitespace-nowrap"
+                            style={{ color: C.text }}
+                          >
                             {r.date}
                           </td>
-                          <td className="py-2 px-3 text-gray-900">
+                          <td className="py-2 px-3" style={{ color: C.text }}>
                             {r.detail}
                           </td>
                           <td className="py-2 px-3">
-                            <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">
+                            <span
+                              className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold"
+                              style={{
+                                backgroundColor: C.surface,
+                                color: C.textMuted,
+                              }}
+                            >
                               {categoryName(r.category_id)}
                             </span>
                           </td>
                           <td className="py-2 px-3 text-right font-medium">
                             {r.type === "debit" ? (
-                              <span className="text-green-600">
+                              <span style={{ color: C.success }}>
                                 {formatPeso(
                                   Math.round(parseFloat(r.amount) * 100)
                                 )}
                               </span>
                             ) : (
-                              <span className="text-gray-300">-</span>
+                              <span style={{ color: C.textFaint }}>—</span>
                             )}
                           </td>
                           <td className="py-2 px-3 text-right font-medium">
                             {r.type === "credit" ? (
-                              <span className="text-red-600">
+                              <span style={{ color: C.accent }}>
                                 {formatPeso(
                                   Math.round(parseFloat(r.amount) * 100)
                                 )}
                               </span>
                             ) : (
-                              <span className="text-gray-300">-</span>
+                              <span style={{ color: C.textFaint }}>—</span>
                             )}
                           </td>
                         </tr>
@@ -906,7 +1173,8 @@ function Ledger() {
                   <button
                     type="button"
                     onClick={() => setStep("edit")}
-                    className="text-sm font-semibold text-gray-500 px-4 py-2 rounded hover:bg-gray-100"
+                    className="px-4 py-2 rounded-md text-sm font-medium cursor-pointer"
+                    style={{ color: C.textMuted, backgroundColor: C.surface }}
                   >
                     ← Back to Edit
                   </button>
@@ -914,10 +1182,11 @@ function Ledger() {
                     type="button"
                     onClick={handleConfirmSave}
                     disabled={saving}
-                    className="flex items-center gap-2 bg-red-600 text-white text-sm font-bold px-4 py-2 rounded hover:bg-red-700 disabled:opacity-50"
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold text-white cursor-pointer disabled:opacity-50"
+                    style={{ backgroundColor: C.accent }}
                   >
                     {saving && <Loader2 size={14} className="animate-spin" />}
-                    {saving ? "Saving..." : "Save Entries"}
+                    {saving ? "Saving…" : "Save Entries"}
                   </button>
                 </div>
               </>

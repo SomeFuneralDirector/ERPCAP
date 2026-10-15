@@ -8,21 +8,40 @@ import {
   firstOfMonthKey,
 } from "../lib/Finance";
 
+/* ── Design tokens (aligned with Cash Book / Inventory) ──────────────────── */
+const C = {
+  accent: "#B3211B",
+  accentHover: "#8E1A15",
+  accentSoft: "#FBEAE9",
+  accentSoftBorder: "#F3C9C7",
+  text: "#1C1C1F",
+  textMuted: "#6B6B70",
+  textFaint: "#9A9AA0",
+  border: "#E4E4E7",
+  borderStrong: "#D4D4D8",
+  success: "#15803D",
+  surface: "#F6F6F7",
+};
+
 // Ledger convention (cash view):
 //   Debit  = cash IN
 //   Credit = cash OUT
 //
 // Revenue  = cash in minus cash refunded   -> debit - credit
 // Expenses = cash out minus cash recovered -> credit - debit
+//
+// Only non-archived ledger_entries are included (via account_balances RPC).
 
 function StatementRows({ rows }) {
   return (
     <table className="w-full text-base mb-2">
       <tbody>
         {rows.map((r) => (
-          <tr key={r.name} className="border-b border-gray-100">
-            <td className="py-3 text-gray-900">{r.name}</td>
-            <td className="py-3 text-right text-gray-900">
+          <tr key={r.name} style={{ borderBottom: `1px solid ${C.border}` }}>
+            <td className="py-3" style={{ color: C.text }}>
+              {r.name}
+            </td>
+            <td className="py-3 text-right" style={{ color: C.text }}>
               {formatPeso(r.amount)}
             </td>
           </tr>
@@ -41,12 +60,12 @@ function IncomeStatement() {
   const [expenses, setExpenses] = useState([]);
 
   useEffect(() => {
-    // Ignore responses from an earlier request if the dates changed again.
     let ignore = false;
 
     async function loadIncomeStatement() {
       setLoading(true);
 
+      // account_balances must exclude archived ledger_entries
       const { data, error } = await supabase.rpc("account_balances", {
         p_from: dateFrom,
         p_to: dateTo,
@@ -100,86 +119,132 @@ function IncomeStatement() {
   const netIncome = totalRevenue - totalExpenses;
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between flex-wrap gap-4 bg-white rounded-lg shadow p-6 mb-4">
-        <h1 className="text-3xl font-semibold text-gray-800">
-          Income Statement
-        </h1>
-        <div className="flex items-center gap-2">
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            className="border border-gray-300 rounded px-3 py-2 text-base text-gray-900"
-          />
-          <span className="text-gray-400 text-base">to</span>
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            className="border border-gray-300 rounded px-3 py-2 text-base text-gray-900"
-          />
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="bg-white rounded-lg shadow p-6 flex items-center gap-2 text-gray-400 text-base justify-center">
-          <Loader2 size={20} className="animate-spin" />
-          Loading income statement...
-        </div>
-      ) : (
-        <div className="bg-white rounded-lg shadow p-6">
-          {/* Revenue */}
-          <h2 className="text-base font-extrabold text-gray-700 uppercase mb-4">
-            Revenue
-          </h2>
-          {revenue.length === 0 ? (
-            <p className="text-base text-gray-400 mb-4">
-              No revenue in this period.
-            </p>
-          ) : (
-            <StatementRows rows={revenue} />
-          )}
-          <div className="flex justify-between pt-3 mb-8 border-t border-gray-200">
-            <span className="font-bold text-gray-800">Total Revenue</span>
-            <span className="font-bold text-gray-800">
-              {formatPeso(totalRevenue)}
+    <div className="min-h-screen" style={{ backgroundColor: C.surface }}>
+      <div className="p-6 space-y-4">
+        <div
+          className="bg-white rounded-lg shadow-sm px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3"
+          style={{ border: `1px solid ${C.border}` }}
+        >
+          <h1 className="text-3xl font-semibold" style={{ color: C.text }}>
+            Income Statement
+          </h1>
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="border rounded-md px-3 py-2 text-base cursor-pointer focus:outline-none"
+              style={{ borderColor: C.borderStrong, color: C.text }}
+              onFocus={(e) => {
+                e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`;
+                e.target.style.borderColor = C.accent;
+              }}
+              onBlur={(e) => {
+                e.target.style.boxShadow = "none";
+                e.target.style.borderColor = C.borderStrong;
+              }}
+            />
+            <span className="text-base" style={{ color: C.textFaint }}>
+              to
             </span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="border rounded-md px-3 py-2 text-base cursor-pointer focus:outline-none"
+              style={{ borderColor: C.borderStrong, color: C.text }}
+              onFocus={(e) => {
+                e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`;
+                e.target.style.borderColor = C.accent;
+              }}
+              onBlur={(e) => {
+                e.target.style.boxShadow = "none";
+                e.target.style.borderColor = C.borderStrong;
+              }}
+            />
           </div>
+        </div>
 
-          {/* Expenses */}
-          <h2 className="text-base font-extrabold text-gray-700 uppercase mb-4">
-            Expenses
-          </h2>
-          {expenses.length === 0 ? (
-            <p className="text-base text-gray-400 mb-4">
-              No expenses in this period.
-            </p>
-          ) : (
-            <StatementRows rows={expenses} />
-          )}
-          <div className="flex justify-between pt-3 border-t border-gray-200">
-            <span className="font-bold text-gray-800">Total Expenses</span>
-            <span className="font-bold text-gray-800">
-              {formatPeso(totalExpenses)}
-            </span>
+        {loading ? (
+          <div
+            className="bg-white rounded-lg shadow-sm p-6 flex items-center gap-2 text-base justify-center"
+            style={{ border: `1px solid ${C.border}`, color: C.textFaint }}
+          >
+            <Loader2 size={20} className="animate-spin" />
+            Loading income statement…
           </div>
-
-          {/* Net Income / Net Loss */}
-          <div className="flex justify-between pt-4 mt-6 border-t-2 border-gray-300">
-            <span className="text-xl font-bold text-gray-800">
-              {netIncome >= 0 ? "Net Income" : "Net Loss"}
-            </span>
-            <span
-              className={`text-xl font-bold ${
-                netIncome >= 0 ? "text-green-600" : "text-red-600"
-              }`}
+        ) : (
+          <div
+            className="bg-white rounded-lg shadow-sm p-6"
+            style={{ border: `1px solid ${C.border}` }}
+          >
+            <h2
+              className="text-base font-extrabold uppercase mb-4"
+              style={{ color: C.textMuted }}
             >
-              {formatPeso(Math.abs(netIncome))}
-            </span>
+              Revenue
+            </h2>
+            {revenue.length === 0 ? (
+              <p className="text-base mb-4" style={{ color: C.textFaint }}>
+                No revenue in this period.
+              </p>
+            ) : (
+              <StatementRows rows={revenue} />
+            )}
+            <div
+              className="flex justify-between pt-3 mb-8"
+              style={{ borderTop: `1px solid ${C.border}` }}
+            >
+              <span className="font-bold" style={{ color: C.text }}>
+                Total Revenue
+              </span>
+              <span className="font-bold" style={{ color: C.text }}>
+                {formatPeso(totalRevenue)}
+              </span>
+            </div>
+
+            <h2
+              className="text-base font-extrabold uppercase mb-4"
+              style={{ color: C.textMuted }}
+            >
+              Expenses
+            </h2>
+            {expenses.length === 0 ? (
+              <p className="text-base mb-4" style={{ color: C.textFaint }}>
+                No expenses in this period.
+              </p>
+            ) : (
+              <StatementRows rows={expenses} />
+            )}
+            <div
+              className="flex justify-between pt-3"
+              style={{ borderTop: `1px solid ${C.border}` }}
+            >
+              <span className="font-bold" style={{ color: C.text }}>
+                Total Expenses
+              </span>
+              <span className="font-bold" style={{ color: C.text }}>
+                {formatPeso(totalExpenses)}
+              </span>
+            </div>
+
+            <div
+              className="flex justify-between pt-4 mt-6"
+              style={{ borderTop: `2px solid ${C.borderStrong}` }}
+            >
+              <span className="text-xl font-bold" style={{ color: C.text }}>
+                {netIncome >= 0 ? "Net Income" : "Net Loss"}
+              </span>
+              <span
+                className="text-xl font-bold"
+                style={{ color: netIncome >= 0 ? C.success : C.accent }}
+              >
+                {formatPeso(Math.abs(netIncome))}
+              </span>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

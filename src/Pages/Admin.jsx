@@ -18,7 +18,6 @@ import {
   Megaphone,
   Factory,
   TrendingUp,
-  AlertTriangle,
   ArrowRight,
   ChevronLeft,
   ChevronRight,
@@ -40,12 +39,6 @@ const C = {
   warning: "#A15C07",
   warningSoft: "#FBF3E7",
   warningBorder: "#F1DDB8",
-};
-
-const PLATFORM_COLORS = {
-  Shopee: "#EE4D2D",
-  Lazada: "#0F146D",
-  TikTok: "#101113",
 };
 
 const CAMPAIGN_STATUS_STYLES = {
@@ -118,15 +111,6 @@ const fmtPeso = (pesos) =>
   })}`;
 const fmtAxis = (v) => `₱${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`;
 const centsToPesos = (c) => Math.max(0, toNumber(c)) / 100;
-
-const normalizePlatform = (p) => {
-  if (!p) return "Unknown";
-  const key = p.toLowerCase();
-  if (key === "shopee") return "Shopee";
-  if (key === "lazada") return "Lazada";
-  if (key === "tiktok") return "TikTok";
-  return p;
-};
 
 const orderDate = (o) => o.completed_at || o.created_at || o.paid_time;
 
@@ -330,8 +314,6 @@ function Admin() {
   const [orders, setOrders] = useState([]);
   const [workOrders, setWorkOrders] = useState([]);
 
-  // Date range — same pattern as the Finance and Ledger pages, so every
-  // period-based figure on this dashboard moves together with those pages.
   const [dateFrom, setDateFrom] = useState(
     new Date(new Date().setDate(1)).toISOString().slice(0, 10)
   );
@@ -366,14 +348,18 @@ function Admin() {
 
       const [ledgerRes, productsRes, materialsRes, campaignsRes, ordersRes, workOrdersRes] =
         await Promise.all([
+          // Only active (non-archived) cash book entries — same rule as
+          // Income Statement / Balance Sheet via account_balances.
           supabase
             .from("ledger_entries")
             .select("date, type, amount")
             .gte("date", dateFrom)
-            .lte("date", dateTo),
+            .lte("date", dateTo)
+            .eq("archived", false),
           supabase
             .from("inventory")
-            .select("id, product_name, category, shopee_stock, lazada_stock, tiktok_stock, stock"),
+            .select("id, product_name, category, shopee_stock, lazada_stock, tiktok_stock, stock")
+            .eq("archived", false),
           supabase
             .from("raw_materials")
             .select("id, material_name, category, current_stock, unit, status"),
@@ -448,8 +434,8 @@ function Admin() {
     return () => supabase.removeChannel(channel);
   }, [loadDashboard]);
 
-  // Ledger convention — matches the Finance page: debit entries are
-  // revenue, credit entries are expenses.
+  // Ledger convention — debit = cash in (revenue side), credit = cash out (expense).
+  // Archived entries are already filtered out in the query.
   const financeStats = useMemo(() => {
     const expenses =
       ledgerEntries

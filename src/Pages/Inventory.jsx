@@ -1105,7 +1105,7 @@ function Inventory() {
 
               <div className="px-5 py-4">
                 <p className="text-sm text-gray-600">
-                  Archive <span className="font-medium text-gray-800">{itemToArchive.product_name}</span>? This can't be undone.
+                  Archive <span className="font-medium text-gray-800">{itemToArchive.product_name}</span>? 
                 </p>
               </div>
 

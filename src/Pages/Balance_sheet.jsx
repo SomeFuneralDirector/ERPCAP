@@ -3,6 +3,24 @@ import { supabase } from "../api/supabase";
 import { Loader2, AlertCircle } from "lucide-react";
 import { toNumber, formatPeso, localDateKey } from "../lib/Finance";
 
+/* ── Design tokens (aligned with Cash Book / Inventory) ──────────────────── */
+const C = {
+  accent: "#B3211B",
+  accentHover: "#8E1A15",
+  accentSoft: "#FBEAE9",
+  accentSoftBorder: "#F3C9C7",
+  text: "#1C1C1F",
+  textMuted: "#6B6B70",
+  textFaint: "#9A9AA0",
+  border: "#E4E4E7",
+  borderStrong: "#D4D4D8",
+  success: "#15803D",
+  warning: "#A15C07",
+  warningSoft: "#FBF3E7",
+  warningBorder: "#F1DDB8",
+  surface: "#F6F6F7",
+};
+
 // Ledger convention (cash view):
 //   Debit  = cash IN
 //   Credit = cash OUT
@@ -16,18 +34,26 @@ import { toNumber, formatPeso, localDateKey } from "../lib/Finance";
 // Equity          = put in minus withdrawn  -> debit - credit
 // Revenue         = cash in minus refunded  -> debit - credit
 // Expenses        = cash out minus recovered -> credit - debit
+//
+// Only non-archived ledger_entries are included (via account_balances RPC).
 
 function BalanceRows({ rows, emptyText }) {
   if (rows.length === 0) {
-    return <p className="text-base text-gray-400">{emptyText}</p>;
+    return (
+      <p className="text-base" style={{ color: C.textFaint }}>
+        {emptyText}
+      </p>
+    );
   }
   return (
     <table className="w-full text-base">
       <tbody>
         {rows.map((r) => (
-          <tr key={r.name} className="border-b border-gray-100">
-            <td className="py-3 text-gray-900">{r.name}</td>
-            <td className="py-3 text-right text-gray-900">
+          <tr key={r.name} style={{ borderBottom: `1px solid ${C.border}` }}>
+            <td className="py-3" style={{ color: C.text }}>
+              {r.name}
+            </td>
+            <td className="py-3 text-right" style={{ color: C.text }}>
               {formatPeso(r.amount)}
             </td>
           </tr>
@@ -47,12 +73,12 @@ function BalanceSheet() {
   const [netIncome, setNetIncome] = useState(0);
 
   useEffect(() => {
-    // Ignore responses from an earlier request if the date changed again.
     let ignore = false;
 
     async function loadBalanceSheet() {
       setLoading(true);
 
+      // account_balances must exclude archived ledger_entries
       const { data, error } = await supabase.rpc("account_balances", {
         p_from: "1900-01-01",
         p_to: asOfDate,
@@ -134,129 +160,197 @@ function BalanceSheet() {
   );
   const totalEquity = totalEquityAccounts + netIncome;
   const totalLiabilitiesAndEquity = totalLiabilities + totalEquity;
-  // Values are stored in cents, so exact integer comparison is appropriate.
   const difference = totalAssets - totalLiabilitiesAndEquity;
   const isBalanced = difference === 0;
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between flex-wrap gap-4 bg-white rounded-lg shadow p-6 mb-4">
-        <h1 className="text-3xl font-semibold text-gray-800">Balance Sheet</h1>
-        <div className="flex items-center gap-2">
-          <span className="text-base text-gray-500">As of</span>
-          <input
-            type="date"
-            value={asOfDate}
-            onChange={(e) => setAsOfDate(e.target.value)}
-            className="border border-gray-300 rounded px-3 py-2 text-base text-gray-900"
-          />
+    <div className="min-h-screen" style={{ backgroundColor: C.surface }}>
+      <div className="p-6 space-y-4">
+        <div
+          className="bg-white rounded-lg shadow-sm px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3"
+          style={{ border: `1px solid ${C.border}` }}
+        >
+          <h1 className="text-3xl font-semibold" style={{ color: C.text }}>
+            Balance Sheet
+          </h1>
+          <div className="flex items-center gap-2">
+            <span className="text-base" style={{ color: C.textMuted }}>
+              As of
+            </span>
+            <input
+              type="date"
+              value={asOfDate}
+              onChange={(e) => setAsOfDate(e.target.value)}
+              className="border rounded-md px-3 py-2 text-base cursor-pointer focus:outline-none"
+              style={{ borderColor: C.borderStrong, color: C.text }}
+              onFocus={(e) => {
+                e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`;
+                e.target.style.borderColor = C.accent;
+              }}
+              onBlur={(e) => {
+                e.target.style.boxShadow = "none";
+                e.target.style.borderColor = C.borderStrong;
+              }}
+            />
+          </div>
         </div>
-      </div>
 
-      {loading ? (
-        <div className="bg-white rounded-lg shadow p-6 flex items-center gap-2 text-gray-400 text-base justify-center">
-          <Loader2 size={20} className="animate-spin" />
-          Loading balance sheet...
-        </div>
-      ) : (
-        <>
-          {!isBalanced && (
-            <div className="flex items-start gap-2 rounded-lg p-3 text-base bg-amber-50 text-amber-800 border border-amber-200 mb-4">
-              <AlertCircle size={20} className="flex-shrink-0 mt-0.5" />
-              <span>
-                Assets ({formatPeso(totalAssets)}) don't equal Liabilities +
-                Equity ({formatPeso(totalLiabilitiesAndEquity)}). The
-                difference is {formatPeso(Math.abs(difference))}. This usually
-                means an entry has no category, or a non-cash transaction
-                (like unpaid salaries) was recorded as a debit or credit.
-                Check the Ledger for entries like that.
-              </span>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Assets */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-base font-extrabold text-gray-700 uppercase mb-4">
-                Assets
-              </h2>
-              <BalanceRows rows={assets} emptyText="No asset entries." />
-              <div className="flex justify-between pt-3 mt-2 border-t border-gray-200">
-                <span className="font-bold text-gray-800">Total Assets</span>
-                <span className="font-bold text-gray-800">
-                  {formatPeso(totalAssets)}
+        {loading ? (
+          <div
+            className="bg-white rounded-lg shadow-sm p-6 flex items-center gap-2 text-base justify-center"
+            style={{ border: `1px solid ${C.border}`, color: C.textFaint }}
+          >
+            <Loader2 size={20} className="animate-spin" />
+            Loading balance sheet…
+          </div>
+        ) : (
+          <>
+            {!isBalanced && (
+              <div
+                className="flex items-start gap-2 rounded-lg p-3 text-base"
+                style={{
+                  backgroundColor: C.warningSoft,
+                  color: C.warning,
+                  border: `1px solid ${C.warningBorder}`,
+                }}
+              >
+                <AlertCircle size={20} className="flex-shrink-0 mt-0.5" />
+                <span>
+                  Assets ({formatPeso(totalAssets)}) don&apos;t equal
+                  Liabilities + Equity (
+                  {formatPeso(totalLiabilitiesAndEquity)}). The difference is{" "}
+                  {formatPeso(Math.abs(difference))}. This usually means an
+                  entry has no category, or a non-cash transaction (like unpaid
+                  salaries) was recorded as a debit or credit. Check the Cash
+                  Book for entries like that.
                 </span>
               </div>
-            </div>
+            )}
 
-            {/* Liabilities + Equity */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-base font-extrabold text-gray-700 uppercase mb-4">
-                Liabilities
-              </h2>
-              <BalanceRows
-                rows={liabilities}
-                emptyText="No liability entries."
-              />
-              <div className="flex justify-between pt-3 mt-2 border-t border-gray-200 mb-6">
-                <span className="font-bold text-gray-800">
-                  Total Liabilities
-                </span>
-                <span className="font-bold text-gray-800">
-                  {formatPeso(totalLiabilities)}
-                </span>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div
+                className="bg-white rounded-lg shadow-sm p-6"
+                style={{ border: `1px solid ${C.border}` }}
+              >
+                <h2
+                  className="text-base font-extrabold uppercase mb-4"
+                  style={{ color: C.textMuted }}
+                >
+                  Assets
+                </h2>
+                <BalanceRows rows={assets} emptyText="No asset entries." />
+                <div
+                  className="flex justify-between pt-3 mt-2"
+                  style={{ borderTop: `1px solid ${C.border}` }}
+                >
+                  <span className="font-bold" style={{ color: C.text }}>
+                    Total Assets
+                  </span>
+                  <span className="font-bold" style={{ color: C.text }}>
+                    {formatPeso(totalAssets)}
+                  </span>
+                </div>
               </div>
 
-              <h2 className="text-base font-extrabold text-gray-700 uppercase mb-4">
-                Equity
-              </h2>
-              {equity.length === 0 && netIncome === 0 ? (
-                <p className="text-base text-gray-400">No equity entries.</p>
-              ) : (
-                <table className="w-full text-base">
-                  <tbody>
-                    {equity.map((r) => (
-                      <tr key={r.name} className="border-b border-gray-100">
-                        <td className="py-3 text-gray-900">{r.name}</td>
-                        <td className="py-3 text-right text-gray-900">
-                          {formatPeso(r.amount)}
+              <div
+                className="bg-white rounded-lg shadow-sm p-6"
+                style={{ border: `1px solid ${C.border}` }}
+              >
+                <h2
+                  className="text-base font-extrabold uppercase mb-4"
+                  style={{ color: C.textMuted }}
+                >
+                  Liabilities
+                </h2>
+                <BalanceRows
+                  rows={liabilities}
+                  emptyText="No liability entries."
+                />
+                <div
+                  className="flex justify-between pt-3 mt-2 mb-6"
+                  style={{ borderTop: `1px solid ${C.border}` }}
+                >
+                  <span className="font-bold" style={{ color: C.text }}>
+                    Total Liabilities
+                  </span>
+                  <span className="font-bold" style={{ color: C.text }}>
+                    {formatPeso(totalLiabilities)}
+                  </span>
+                </div>
+
+                <h2
+                  className="text-base font-extrabold uppercase mb-4"
+                  style={{ color: C.textMuted }}
+                >
+                  Equity
+                </h2>
+                {equity.length === 0 && netIncome === 0 ? (
+                  <p className="text-base" style={{ color: C.textFaint }}>
+                    No equity entries.
+                  </p>
+                ) : (
+                  <table className="w-full text-base">
+                    <tbody>
+                      {equity.map((r) => (
+                        <tr
+                          key={r.name}
+                          style={{ borderBottom: `1px solid ${C.border}` }}
+                        >
+                          <td className="py-3" style={{ color: C.text }}>
+                            {r.name}
+                          </td>
+                          <td
+                            className="py-3 text-right"
+                            style={{ color: C.text }}
+                          >
+                            {formatPeso(r.amount)}
+                          </td>
+                        </tr>
+                      ))}
+                      <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                        <td className="py-3" style={{ color: C.text }}>
+                          Net Income (Revenue − Expenses)
+                        </td>
+                        <td
+                          className="py-2 text-right"
+                          style={{
+                            color: netIncome >= 0 ? C.text : C.accent,
+                          }}
+                        >
+                          {formatPeso(netIncome)}
                         </td>
                       </tr>
-                    ))}
-                    <tr className="border-b border-gray-100">
-                      <td className="py-3 text-gray-900">
-                        Net Income (Revenue - Expenses)
-                      </td>
-                      <td
-                        className={`py-2 text-right ${
-                          netIncome >= 0 ? "text-gray-900" : "text-red-600"
-                        }`}
-                      >
-                        {formatPeso(netIncome)}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              )}
-              <div className="flex justify-between pt-3 mt-2 border-t border-gray-200">
-                <span className="font-bold text-gray-800">Total Equity</span>
-                <span className="font-bold text-gray-800">
-                  {formatPeso(totalEquity)}
-                </span>
-              </div>
+                    </tbody>
+                  </table>
+                )}
+                <div
+                  className="flex justify-between pt-3 mt-2"
+                  style={{ borderTop: `1px solid ${C.border}` }}
+                >
+                  <span className="font-bold" style={{ color: C.text }}>
+                    Total Equity
+                  </span>
+                  <span className="font-bold" style={{ color: C.text }}>
+                    {formatPeso(totalEquity)}
+                  </span>
+                </div>
 
-              <div className="flex justify-between pt-3 mt-4 border-t-2 border-gray-300">
-                <span className="font-bold text-gray-800">
-                  Total Liabilities + Equity
-                </span>
-                <span className="font-bold text-gray-800">
-                  {formatPeso(totalLiabilitiesAndEquity)}
-                </span>
+                <div
+                  className="flex justify-between pt-3 mt-4"
+                  style={{ borderTop: `2px solid ${C.borderStrong}` }}
+                >
+                  <span className="font-bold" style={{ color: C.text }}>
+                    Total Liabilities + Equity
+                  </span>
+                  <span className="font-bold" style={{ color: C.text }}>
+                    {formatPeso(totalLiabilitiesAndEquity)}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
-        </>
-      )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
