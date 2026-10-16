@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { supabase } from "../api/supabase";
-import { formatPeso, localDateKey, firstOfMonthKey } from "../lib/Finance";
+import { formatPeso, localDateKey, firstOfMonthKey, toNumber } from "../lib/Finance";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -83,6 +83,7 @@ function Finance() {
   const [dateTo, setDateTo] = useState(localDateKey());
 
   const [entries, setEntries] = useState([]);
+  const [accountBalances, setAccountBalances] = useState([]);
   const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
 
@@ -90,6 +91,7 @@ function Finance() {
     async (isInitial = false) => {
       if (!dateFrom || !dateTo || dateFrom > dateTo) {
         setEntries([]);
+        setAccountBalances([]);
         setError("Invalid date range.");
         setLoading(false);
         setRefreshing(false);
@@ -100,21 +102,32 @@ function Finance() {
       else setRefreshing(true);
       setError("");
 
-      const { data, error: queryError } = await supabase
-        .from("ledger_entries")
-        .select("date, detail, type, amount, ledger_categories(name)")
-        .gte("date", dateFrom)
-        .lte("date", dateTo)
-        .order("date", { ascending: true });
+      const [entriesRes, balancesRes] = await Promise.all([
+        supabase
+          .from("ledger_entries")
+          .select("date, detail, type, amount, ledger_categories(name, classification)")
+          .gte("date", dateFrom)
+          .lte("date", dateTo)
+          .eq("archived", false)
+          .order("date", { ascending: true }),
 
-      if (queryError) {
-        console.error("Error loading ledger entries:", queryError);
+        supabase.rpc("account_balances", {
+          p_from: dateFrom,
+          p_to: dateTo,
+        }),
+      ]);
+
+      if (entriesRes.error || balancesRes.error) {
+        console.error("Error loading finance data:", entriesRes.error || balancesRes.error);
         setEntries([]);
+        setAccountBalances([]);
         setError("Unable to load finance data.");
       } else {
-        setEntries(data || []);
+        setEntries(entriesRes.data || []);
+        setAccountBalances(balancesRes.data || []);
         setLastUpdated(new Date());
       }
+
       setLoading(false);
       setRefreshing(false);
     },
@@ -125,63 +138,79 @@ function Finance() {
     loadFinanceData(true);
   }, [loadFinanceData]);
 
+  // True P&L totals — same calculation as Income Statement
+  const { totalRevenue, totalExpenses, net, isProfit } = useMemo(() => {
+    const rows = (accountBalances || [])
+      .filter((r) => r.name && r.classification)
+      .map((r) => ({
+        classification: String(r.classification).toLowerCase(),
+        debit: toNumber(r.debit),
+        credit: toNumber(r.credit),
+      }));
+
+    const revenue = rows
+      .filter((r) => r.classification === "revenue")
+      .reduce((sum, r) => sum + (r.debit - r.credit), 0);
+
+    const expenses = rows
+      .filter((r) => r.classification === "expense")
+      .reduce((sum, r) => sum + (r.credit - r.debit), 0);
+
+    const netValue = revenue - expenses;
+
+    return {
+      totalRevenue: revenue,
+      totalExpenses: expenses,
+      net: netValue,
+      isProfit: netValue >= 0,
+    };
+  }, [accountBalances]);
+
+  // Charts — only real revenue & expense categories
   const analytics = useMemo(() => {
     const result = {
-      totalExpenses: 0,
-      totalRevenue: 0,
       byCategory: {},
       byMonth: {},
     };
 
     entries.forEach((entry) => {
-      const amount = Number(entry.amount);
-      if (!Number.isFinite(amount) || amount < 0) return;
+      const amountCents = Number(entry.amount);
+      if (!Number.isFinite(amountCents) || amountCents < 0) return;
 
-      // Ledger convention (cash view): debit is cash in (revenue side),
-      // credit is cash out (expense side).
-      const flow =
-        entry.type === "debit"
-          ? "revenue"
-          : entry.type === "credit"
-            ? "expenses"
-            : null;
-      if (!flow) return;
+      const classification = entry.ledger_categories?.classification?.toLowerCase();
+      if (classification !== "revenue" && classification !== "expense") return;
 
-      result[flow === "expenses" ? "totalExpenses" : "totalRevenue"] += amount;
-
+      const amount = amountCents / 100; // table stores cents
       const category = entry.ledger_categories?.name || "Uncategorized";
+
       result.byCategory[category] ||= { name: category, amount: 0 };
-      result.byCategory[category].amount += amount / 100;
+      result.byCategory[category].amount += amount;
 
       const month = entry.date?.slice(0, 7);
       if (month) {
         result.byMonth[month] ||= { month, expenses: 0, revenue: 0 };
-        result.byMonth[month][flow] += amount / 100;
+
+        if (classification === "revenue") {
+          result.byMonth[month].revenue += entry.type === "debit" ? amount : -amount;
+        } else {
+          result.byMonth[month].expenses += entry.type === "credit" ? amount : -amount;
+        }
       }
     });
 
     return {
-      totalExpenses: result.totalExpenses,
-      totalRevenue: result.totalRevenue,
-      byCategory: Object.values(result.byCategory).sort(
-        (a, b) => b.amount - a.amount
-      ),
+      byCategory: Object.values(result.byCategory).sort((a, b) => b.amount - a.amount),
       monthlyTrend: Object.values(result.byMonth).sort((a, b) =>
         a.month.localeCompare(b.month)
       ),
     };
   }, [entries]);
 
-  const { totalExpenses, totalRevenue, byCategory, monthlyTrend } = analytics;
-
-  // P&L: revenue minus expenses
-  const net = totalRevenue - totalExpenses;
-  const isProfit = net >= 0;
+  const { byCategory, monthlyTrend } = analytics;
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#F6F6F7" }}>
       <div className="p-6 space-y-4">
-        {/* Header + date filters */}
         <Card className="px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
             <h1 className="text-3xl font-semibold text-gray-900">Finance</h1>
@@ -225,7 +254,6 @@ function Finance() {
           </div>
         )}
 
-        {/* Summary cards */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Card className="p-4">
             <p className="text-sm text-gray-500">Total expenses</p>
@@ -266,7 +294,6 @@ function Finance() {
           </Card>
         </div>
 
-        {/* Trend */}
         <Card className="p-6">
           <h2 className="text-base font-semibold text-gray-700 mb-3">
             Revenue vs expenses
@@ -340,7 +367,6 @@ function Finance() {
           )}
         </Card>
 
-        {/* By category */}
         <Card className="p-6">
           <h2 className="text-base font-semibold text-gray-700 mb-3">
             Utilized Money By Category
