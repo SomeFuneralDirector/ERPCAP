@@ -308,6 +308,7 @@ function StatusChip({ label, style }) {
 
 function Admin() {
   const [ledgerEntries, setLedgerEntries] = useState([]);
+  const [accountBalances, setAccountBalances] = useState([]);
   const [products, setProducts] = useState([]);
   const [materials, setMaterials] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
@@ -346,36 +347,45 @@ function Admin() {
       else setRefreshing(true);
       setErrorMsg("");
 
-      const [ledgerRes, productsRes, materialsRes, campaignsRes, ordersRes, workOrdersRes] =
-        await Promise.all([
-          // Only active (non-archived) cash book entries, same rule as
-          // Income Statement / Balance Sheet via account_balances.
-          supabase
-            .from("ledger_entries")
-            .select("date, type, amount")
-            .gte("date", dateFrom)
-            .lte("date", dateTo)
-            .eq("archived", false),
-          supabase
-            .from("inventory")
-            .select("id, product_name, category, shopee_stock, lazada_stock, tiktok_stock, stock")
-            .eq("archived", false),
-          supabase
-            .from("raw_materials")
-            .select("id, material_name, category, current_stock, unit, status"),
-          supabase
-            .from("campaigns")
-            .select("id, name, platform, discount_type, discount_value, start_date, end_date, status"),
-          supabase
-            .from("orders")
-            .select("id, platform, total_amount, completed_at, created_at, paid_time, status")
-            .eq("status", "COMPLETED"),
-          supabase
-            .from("work_orders")
-            .select(
-              "id, wo_number, product_name, quantity, platform, status, due_date, completed_at, created_at"
-            ),
-        ]);
+      const [
+        ledgerRes,
+        productsRes,
+        materialsRes,
+        campaignsRes,
+        ordersRes,
+        workOrdersRes,
+        balancesRes,
+      ] = await Promise.all([
+        supabase
+          .from("ledger_entries")
+          .select("date, type, amount, ledger_categories(name, classification)")
+          .gte("date", dateFrom)
+          .lte("date", dateTo)
+          .eq("archived", false),
+        supabase
+          .from("inventory")
+          .select("id, product_name, category, shopee_stock, lazada_stock, tiktok_stock, stock")
+          .eq("archived", false),
+        supabase
+          .from("raw_materials")
+          .select("id, material_name, category, current_stock, unit, status"),
+        supabase
+          .from("campaigns")
+          .select("id, name, platform, discount_type, discount_value, start_date, end_date, status"),
+        supabase
+          .from("orders")
+          .select("id, platform, total_amount, completed_at, created_at, paid_time, status")
+          .eq("status", "COMPLETED"),
+        supabase
+          .from("work_orders")
+          .select(
+            "id, wo_number, product_name, quantity, platform, status, due_date, completed_at, created_at"
+          ),
+        supabase.rpc("account_balances", {
+          p_from: dateFrom,
+          p_to: dateTo,
+        }),
+      ]);
 
       const failures = [
         ["ledger", ledgerRes.error],
@@ -384,6 +394,7 @@ function Admin() {
         ["campaigns", campaignsRes.error],
         ["orders", ordersRes.error],
         ["work orders", workOrdersRes.error],
+        ["account balances", balancesRes.error],
       ].filter(([, err]) => err);
 
       if (failures.length > 0) {
@@ -393,6 +404,7 @@ function Admin() {
       }
 
       setLedgerEntries((ledgerRes.data || []).filter((e) => e?.date));
+      setAccountBalances(balancesRes.data || []);
       setProducts(productsRes.data || []);
       setMaterials(materialsRes.data || []);
       setCampaigns(campaignsRes.data || []);
@@ -434,30 +446,53 @@ function Admin() {
     return () => supabase.removeChannel(channel);
   }, [loadDashboard]);
 
-  // Ledger convention: debit = cash in (revenue side), credit = cash out (expense).
-  // Archived entries are already filtered out in the query.
+  // True P&L: same calculation & units as Income Statement / Finance / Balance Sheet
   const financeStats = useMemo(() => {
-    const expenses =
-      ledgerEntries
-        .filter((e) => e.type === "credit")
-        .reduce((s, e) => s + Math.max(0, toNumber(e.amount)), 0) / 100;
-    const revenue =
-      ledgerEntries
-        .filter((e) => e.type === "debit")
-        .reduce((s, e) => s + Math.max(0, toNumber(e.amount)), 0) / 100;
-    return { expenses, revenue, net: revenue - expenses };
-  }, [ledgerEntries]);
+    const rows = (accountBalances || [])
+      .filter((r) => r.name && r.classification)
+      .map((r) => ({
+        classification: String(r.classification).toLowerCase(),
+        debit: toNumber(r.debit),
+        credit: toNumber(r.credit),
+      }));
 
+    const revenue = rows
+      .filter((r) => r.classification === "revenue")
+      .reduce((sum, r) => sum + (r.debit - r.credit), 0);
+
+    const expenses = rows
+      .filter((r) => r.classification === "expense")
+      .reduce((sum, r) => sum + (r.credit - r.debit), 0);
+
+    return {
+      revenue,
+      expenses,
+      net: revenue - expenses,
+    };
+  }, [accountBalances]);
+
+  // Monthly chart: only real revenue & expense categories
   const monthlyNet = useMemo(() => {
     const map = {};
+
     ledgerEntries.forEach((e) => {
+      const classification = e.ledger_categories?.classification?.toLowerCase();
+      if (classification !== "revenue" && classification !== "expense") return;
+
       const key = e.date?.slice(0, 7);
       if (!key) return;
+
       if (!map[key]) map[key] = { month: key, expenses: 0, revenue: 0 };
-      const amount = Math.max(0, toNumber(e.amount)) / 100;
-      if (e.type === "credit") map[key].expenses += amount;
-      else if (e.type === "debit") map[key].revenue += amount;
+
+      const amount = Math.max(0, toNumber(e.amount)) / 100; // table stores cents
+
+      if (classification === "revenue") {
+        map[key].revenue += e.type === "debit" ? amount : -amount;
+      } else {
+        map[key].expenses += e.type === "credit" ? amount : -amount;
+      }
     });
+
     return Object.values(map)
       .sort((a, b) => a.month.localeCompare(b.month))
       .map((m) => ({
