@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import { supabase } from "../api/supabase";
 
-/* ── Design tokens — shared with Inventory / Sales / Marketing / Finance ─ */
+/* ── Design tokens, shared with Inventory / Sales / Marketing / Finance ─ */
 const C = {
   accent: "#B3211B",
   accentHover: "#8E1A15",
@@ -348,7 +348,7 @@ function Admin() {
 
       const [ledgerRes, productsRes, materialsRes, campaignsRes, ordersRes, workOrdersRes] =
         await Promise.all([
-          // Only active (non-archived) cash book entries — same rule as
+          // Only active (non-archived) cash book entries, same rule as
           // Income Statement / Balance Sheet via account_balances.
           supabase
             .from("ledger_entries")
@@ -434,7 +434,7 @@ function Admin() {
     return () => supabase.removeChannel(channel);
   }, [loadDashboard]);
 
-  // Ledger convention — debit = cash in (revenue side), credit = cash out (expense).
+  // Ledger convention: debit = cash in (revenue side), credit = cash out (expense).
   // Archived entries are already filtered out in the query.
   const financeStats = useMemo(() => {
     const expenses =
@@ -701,7 +701,7 @@ function Admin() {
                     tickLine={false}
                     tickFormatter={fmtAxis}
                   />
-                  <Tooltip formatter={(v) => fmtPeso(v)} labelFormatter={(l) => `Net — ${l}`} />
+                  <Tooltip formatter={(v) => fmtPeso(v)} labelFormatter={(l) => `Net: ${l}`} />
                   <Bar dataKey="net" radius={[4, 4, 4, 4]}>
                     {monthlyNet.map((m, i) => (
                       <Cell key={i} fill={m.net >= 0 ? C.success : C.accent} />
@@ -713,7 +713,7 @@ function Admin() {
           </SectionCard>
 
           <SectionCard
-            title="Sales — finished products"
+            title="Sales: finished products"
             icon={TrendingUp}
             onView={() => goTo("sales_db")}
           >
@@ -782,7 +782,7 @@ function Admin() {
           </SectionCard>
 
           <SectionCard
-            title="Inventory — finished products"
+            title="Inventory: finished products"
             icon={Package}
             onView={() => goTo("inventory")}
           >
@@ -850,7 +850,7 @@ function Admin() {
           </SectionCard>
 
           <SectionCard
-            title="Inventory — raw materials"
+            title="Inventory: raw materials"
             icon={Boxes}
             onView={() => goTo("production_rm")}
           >
@@ -992,7 +992,7 @@ function Admin() {
                             label={
                               wo.due_date
                                 ? new Date(wo.due_date).toLocaleDateString()
-                                : "—"
+                                : "No date"
                             }
                             style={WO_STATUS_STYLES[wo.status] || {}}
                           />

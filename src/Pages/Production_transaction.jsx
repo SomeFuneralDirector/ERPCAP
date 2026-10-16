@@ -1,13 +1,19 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import Csvimport_production from '../Components/Csvimport_production';
-import { Search, Truck } from "lucide-react";
+import { Search } from "lucide-react";
 import { supabase } from "../api/supabase";
 
-const PLATFORM_BADGE = {
-  shopee: 'bg-red-100 text-red-700',
-  lazada: 'bg-indigo-100 text-indigo-700',
-  tiktok: 'bg-gray-100 text-gray-700',
+/* Same palette as Inventory */
+const C = {
+  accent: "#B3211B",
+  accentSoft: "#FBEAE9",
+  shopee: "#EE4D2D",
+  lazada: "#0F146D",
+  tiktok: "#101113",
 }
+
+const PLATFORM_DOT = { shopee: C.shopee, lazada: C.lazada, tiktok: C.tiktok }
+const PLATFORM_LABEL = { shopee: 'Shopee', lazada: 'Lazada', tiktok: 'TikTok' }
 
 const SORT_OPTIONS = [
   { value: 'imported_at:desc', label: 'Newest Import' },
@@ -18,6 +24,9 @@ const SORT_OPTIONS = [
   { value: 'created_at:asc',   label: 'Order Date (Old)' },
 ]
 
+const focusOn  = (e) => { e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`; e.target.style.borderColor = C.accent }
+const focusOff = (e) => { e.target.style.boxShadow = 'none'; e.target.style.borderColor = '#D1D5DB' }
+
 function Production_transaction() {
   const [orders, setOrders]           = useState([])
   const [loading, setLoading]         = useState(true)
@@ -26,13 +35,10 @@ function Production_transaction() {
   const [filterPlatform, setFilterPlatform] = useState('all')
   const [page, setPage]               = useState(1)
   const [totalCount, setTotalCount]   = useState(0)
-  const [expandedOrder, setExpandedOrder] = useState(null)
-  const [orderItems, setOrderItems]   = useState({})
-  const [rowProducts, setRowProducts] = useState({}) // `${platform}:${order_id}` -> [{product_name, quantity}]
-  const [shippingId, setShippingId]   = useState(null)
+  const [rowProducts, setRowProducts] = useState({}) // `${platform}:${order_id}` -> [{product_name, sku, quantity}]
 
-  const PAGE_SIZE = 10
-  const COLUMN_COUNT = 8 // Order ID + Platform + Recipient + Product + Qty + Total + Order Date + Tracking No.
+  const PAGE_SIZE =15
+  const COLUMN_COUNT = 8 // # + Order ID + Platform + SKU + Product + Qty + Total + Order Date
 
   const fetchOrders = useCallback(async () => {
     setLoading(true)
@@ -49,6 +55,7 @@ function Production_transaction() {
 
     if (filterPlatform !== 'all') query = query.eq('platform', filterPlatform)
 
+    // Tracking no. is not shown in the table but stays searchable
     if (search.trim()) {
       query = query.or(
         `order_id.ilike.%${search}%,recipient_name.ilike.%${search}%,tracking_no.ilike.%${search}%`
@@ -68,10 +75,7 @@ function Production_transaction() {
     setOrders(data)
     setTotalCount(count || 0)
 
-    // ── Batch-fetch product names for every order on this page ────────────
-    // One query per platform present on the page (almost always just one),
-    // instead of a per-row fetch-on-click, so the product column is filled
-    // in immediately without needing to expand each row.
+    // Batch-fetch items (product, sku, qty) for every order on this page
     if (data.length > 0) {
       const idsByPlatform = {}
       data.forEach(o => {
@@ -84,12 +88,12 @@ function Production_transaction() {
         Object.entries(idsByPlatform).map(async ([platform, orderIds]) => {
           const { data: items, error: itemsErr } = await supabase
             .from('production_order_items')
-            .select('order_id, product_name, quantity')
+            .select('order_id, product_name, sku, quantity')
             .eq('platform', platform)
             .in('order_id', orderIds)
 
           if (itemsErr) {
-            console.error('Failed to load product names for platform', platform, itemsErr)
+            console.error('Failed to load items for platform', platform, itemsErr)
             return
           }
 
@@ -111,55 +115,18 @@ function Production_transaction() {
   useEffect(() => { fetchOrders() }, [fetchOrders])
   useEffect(() => { setPage(1) }, [search, sortBy, filterPlatform])
 
-  const fetchItems = async (orderId, platform) => {
-    if (orderItems[orderId]) return
-    const { data } = await supabase
-      .from('production_order_items')
-      .select('*')
-      .eq('order_id', orderId)
-      .eq('platform', platform)
-    if (data) setOrderItems(prev => ({ ...prev, [orderId]: data }))
-  }
-
-  const toggleExpand = (order) => {
-    if (expandedOrder === order.order_id) {
-      setExpandedOrder(null)
-    } else {
-      setExpandedOrder(order.order_id)
-      fetchItems(order.order_id, order.platform)
-    }
-  }
-
-  // Hand off to courier — flips status so the order drops out of the
-  // Ready to Ship queue. Sales continues to own COMPLETED/DELIVERED state
-  // separately, this just tracks that Production's job is done.
-  const markAsShipped = async (order, e) => {
-    e.stopPropagation()
-    setShippingId(order.order_id)
-    const { error } = await supabase
-      .from('production_orders')
-      .update({ status: 'SHIPPED', shipped_at: new Date().toISOString() })
-      .eq('platform', order.platform)
-      .eq('order_id', order.order_id)
-
-    setShippingId(null)
-    if (!error) fetchOrders()
-  }
-
-  const formatProductNames = (order) => {
+  // One line per item so SKU, Product and Qty stay aligned across columns
+  const renderItems = (order, field) => {
     const items = rowProducts[`${order.platform}:${order.order_id}`]
     if (!items || items.length === 0) return '—'
-    return items.map(item => item.product_name).join(', ')
-  }
-
-  const formatProductQty = (order) => {
-    const items = rowProducts[`${order.platform}:${order.order_id}`]
-    if (!items || items.length === 0) return '—'
-    return items.map(item => item.quantity).join(', ')
+    return items.map((item, i) => (
+      <div key={i} className={i > 0 ? 'mt-1' : ''}>{item[field] ?? '—'}</div>
+    ))
   }
 
   const totalAmount = orders.reduce((s, o) => s + (o.total_amount || 0), 0)
   const totalPages  = Math.ceil(totalCount / PAGE_SIZE)
+  const peso = (v) => (v / 100).toLocaleString('en-PH', { minimumFractionDigits: 2 })
 
   return (
     <div className="p-6 space-y-6">
@@ -177,7 +144,6 @@ function Production_transaction() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-5">
           <div>
             <h2 className="text-lg font-semibold text-gray-800">Ready to Ship Orders</h2>
-  
           </div>
           <div className="flex gap-3 flex-wrap">
             <div className="px-4 py-2 bg-indigo-50 rounded-lg text-center">
@@ -186,31 +152,32 @@ function Production_transaction() {
             </div>
             <div className="px-4 py-2 bg-green-50 rounded-lg text-center">
               <p className="text-xs text-green-400">Page Total</p>
-              <p className="text-sm font-bold text-green-700">
-                PHP {(totalAmount / 100).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
-              </p>
+              <p className="text-sm font-bold text-green-700">PHP {peso(totalAmount)}</p>
             </div>
           </div>
         </div>
 
         <div className="flex flex-col md:flex-row gap-3 mb-5">
           <div className="relative flex-1">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm"> <Search size={18} /></span>
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"><Search size={16} /></span>
             <input
               type="text"
               placeholder="Search order ID, recipient, tracking no…"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent "
+              className="w-full pl-9 pr-8 py-2 border border-gray-300 rounded-md text-sm focus:outline-none"
+              onFocus={focusOn}
+              onBlur={focusOff}
             />
             {search && (
               <button onClick={() => setSearch('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none cursor-pointer">×</button>
             )}
           </div>
 
           <select value={filterPlatform} onChange={e => setFilterPlatform(e.target.value)}
-            className="px-3 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white cursor-pointer">
+            onFocus={focusOn} onBlur={focusOff}
+            className="px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-700 focus:outline-none bg-white cursor-pointer">
             <option value="all">All Platforms</option>
             <option value="shopee">Shopee</option>
             <option value="lazada">Lazada</option>
@@ -218,126 +185,94 @@ function Production_transaction() {
           </select>
 
           <select value={sortBy} onChange={e => setSortBy(e.target.value)}
-            className="px-3 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white cursor-pointer">
+            onFocus={focusOn} onBlur={focusOff}
+            className="px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-700 focus:outline-none bg-white cursor-pointer">
             {SORT_OPTIONS.map(o => (
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
         </div>
 
-        <div className="overflow-x-auto rounded-lg border border-gray-200">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-4 py-3 text-left font-semibold text-gray-600">Order ID</th>
-                <th className="px-4 py-3 text-left font-semibold text-gray-600">Platform</th>
-                <th className="px-4 py-3 text-left font-semibold text-gray-600">Recipient</th>
-                <th className="px-4 py-3 text-left font-semibold text-gray-600">Product</th>
-                <th className="px-4 py-3 text-left font-semibold text-gray-600">Qty</th>
-                <th className="px-4 py-3 text-left font-semibold text-gray-600">Total (PHP)</th>
-                <th className="px-4 py-3 text-left font-semibold text-gray-600">Order Date</th>
-                <th className="px-4 py-3 text-left font-semibold text-gray-600">Tracking No.</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                [...Array(5)].map((_, i) => (
-                  <tr key={i} className="border-b border-gray-100">
-                    {[...Array(COLUMN_COUNT)].map((_, j) => (
-                      <td key={j} className="px-4 py-3">
-                        <div className="h-4 bg-gray-100 rounded animate-pulse w-full" />
-                      </td>
-                    ))}
-                  </tr>
-                ))
-              ) : orders.length === 0 ? (
-                <tr>
-                  <td colSpan={COLUMN_COUNT} className="px-4 py-16 text-center text-gray-400">
-                    <div className="text-4xl mb-3"></div>
-                    <p className="font-medium text-gray-500">No orders waiting for courier handoff</p>
-                    <p className="text-sm mt-1">
-                      {search || filterPlatform !== 'all'
-                        ? 'Try adjusting your search or filters'
-                        : 'Import a CSV file above to get started'}
-                    </p>
-                  </td>
+        {/* Table — styled like Inventory */}
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-base border-collapse">
+              <thead>
+                <tr className="bg-red-900 text-white">
+                  <th className="px-3 py-3 w-10" />
+                  <th className="px-4 py-3 text-left text-sm font-semibold tracking-wide">ORDER ID</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold tracking-wide">PLATFORM</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold tracking-wide">SKU</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold tracking-wide min-w-[240px]">PRODUCT</th>
+                  <th className="px-4 py-3 text-center text-sm font-semibold tracking-wide">QTY</th>
+                  <th className="px-4 py-3 text-right text-sm font-semibold tracking-wide">TOTAL (PHP)</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold tracking-wide">ORDER DATE</th>
                 </tr>
-              ) : (
-                orders.map(order => (
-                  <React.Fragment key={order.id}>
-                    <tr
-                      className={`border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors ${expandedOrder === order.order_id ? 'bg-indigo-50' : ''}`}
-                      onClick={() => toggleExpand(order)}
-                    >
-                      <td className="px-4 py-3 font-mono text-xs text-gray-600">{order.order_id}</td>
-                      <td className="px-4 py-3">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${PLATFORM_BADGE[order.platform] || 'bg-gray-100 text-gray-600'}`}>
-                          {order.platform}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-gray-700">{order.recipient_name || '—'}</td>
-                      <td className="px-4 py-3 text-gray-700">{formatProductNames(order)}</td>
-                      <td className="px-4 py-3 text-gray-700 text-xs whitespace-nowrap">{formatProductQty(order)}</td>
-                      <td className="px-4 py-3 font-semibold text-gray-800">
-                        {((order.total_amount || 0) / 100).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
-                      </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs">
-                        {(order.created_at || order.paid_time || '—').split(' ')[0]}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs text-gray-400">
-                        {order.tracking_no || '—'}
-                      </td>
-                      
+              </thead>
+              <tbody>
+                {loading ? (
+                  [...Array(5)].map((_, i) => (
+                    <tr key={i} className="border-b border-gray-100">
+                      {[...Array(COLUMN_COUNT)].map((_, j) => (
+                        <td key={j} className="px-4 py-3">
+                          <div className="h-5 bg-gray-100 rounded animate-pulse" />
+                        </td>
+                      ))}
                     </tr>
-
-                    {expandedOrder === order.order_id && (
-                      <tr className="bg-indigo-50 border-b border-indigo-100">
-                        <td colSpan={COLUMN_COUNT} className="px-8 py-4">
-                          <p className="text-xs font-semibold text-indigo-600 mb-3 uppercase tracking-wide">Order Items</p>
-                          {!orderItems[order.order_id] ? (
-                            <p className="text-sm text-gray-400">Loading items…</p>
-                          ) : orderItems[order.order_id].length === 0 ? (
-                            <p className="text-sm text-gray-400">No items found</p>
-                          ) : (
-                            <div className="overflow-x-auto rounded-lg border border-indigo-200">
-                              <table className="w-full text-xs">
-                                <thead className="bg-indigo-100">
-                                  <tr>
-                                    {['Product', 'SKU', 'Variation', 'Qty', 'Unit Price', 'Subtotal'].map(h => (
-                                      <th key={h} className="px-3 py-2 text-left font-semibold text-indigo-700">{h}</th>
-                                    ))}
-                                  </tr>
-                                </thead>
-                                <tbody className="bg-white">
-                                  {orderItems[order.order_id].map((item, i) => (
-                                    <tr key={i} className="border-t border-indigo-100">
-                                      <td className="px-3 py-2 text-gray-700 font-medium">{item.product_name}</td>
-                                      <td className="px-3 py-2 font-mono text-gray-500">{item.sku || '—'}</td>
-                                      <td className="px-3 py-2 text-gray-500">{item.variation || '—'}</td>
-                                      <td className="px-3 py-2 text-gray-700">{item.quantity}</td>
-                                      <td className="px-3 py-2 text-gray-700">PHP {((item.unit_price || 0) / 100).toFixed(2)}</td>
-                                      <td className="px-3 py-2 font-semibold text-gray-800">
-                                        PHP {(((item.unit_price || 0) * item.quantity) / 100).toFixed(2)}
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-                          <div className="mt-3 flex flex-wrap gap-4 text-xs text-gray-500">
-                            {order.address        && <span>📍 {order.address}</span>}
-                            {order.phone          && <span>📞 {order.phone}</span>}
-                            {order.shipping_option && <span>🚚 {order.shipping_option}</span>}
-                          </div>
+                  ))
+                ) : orders.length === 0 ? (
+                  <tr>
+                    <td colSpan={COLUMN_COUNT} className="px-4 py-14 text-center text-gray-400">
+                      <p className="text-base font-medium text-gray-500">No orders waiting for courier handoff</p>
+                      <p className="text-sm text-gray-400 mt-1">
+                        {search || filterPlatform !== 'all'
+                          ? 'Try adjusting your search or filters'
+                          : 'Import a CSV file above to get started'}
+                      </p>
+                    </td>
+                  </tr>
+                ) : (
+                  orders.map((order, idx) => {
+                    const rowNum = (page - 1) * PAGE_SIZE + idx + 1
+                    return (
+                      <tr
+                        key={order.id}
+                        className="border-b border-gray-100 hover:bg-gray-50 transition-colors align-top"
+                        style={{ backgroundColor: idx % 2 === 1 ? '#FAFAFA' : undefined }}
+                      >
+                        <td className="px-3 py-3 text-center text-sm text-gray-400 w-10">{rowNum}</td>
+                        <td className="px-4 py-3 text-sm font-mono text-gray-600 whitespace-nowrap">{order.order_id}</td>
+                        <td className="px-4 py-3 text-sm text-gray-700">
+                          <span className="inline-flex items-center gap-2 font-medium">
+                            <span className="w-2.5 h-2.5 rounded-sm inline-block shrink-0"
+                              style={{ backgroundColor: PLATFORM_DOT[order.platform] || '#9A9AA0' }} />
+                            {PLATFORM_LABEL[order.platform] || order.platform}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-sm font-mono text-gray-600 whitespace-nowrap">{renderItems(order, 'sku')}</td>
+                        <td className="px-4 py-3 text-sm text-gray-800">{renderItems(order, 'product_name')}</td>
+                        <td className="px-4 py-3 text-sm text-gray-700 text-center whitespace-nowrap">{renderItems(order, 'quantity')}</td>
+                        <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right whitespace-nowrap">{peso(order.total_amount || 0)}</td>
+                        <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
+                          {(order.created_at || order.paid_time || '—').split(' ')[0]}
                         </td>
                       </tr>
-                    )}
-                  </React.Fragment>
-                ))
-              )}
-            </tbody>
-          </table>
+                    )
+                  })
+                )}
+
+                {!loading && orders.length > 0 && (
+                  <tr className="border-t-2 font-semibold" style={{ borderTopColor: C.accent, backgroundColor: '#FAFAFA' }}>
+                    <td className="px-3 py-3 text-center text-sm text-gray-400">—</td>
+                    <td colSpan={4} className="px-4 py-3 text-sm text-gray-700">PAGE TOTAL ({orders.length})</td>
+                    <td />
+                    <td className="px-4 py-3 text-right text-sm text-gray-900">{peso(totalAmount)}</td>
+                    <td />
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         {totalPages > 1 && (
@@ -345,22 +280,24 @@ function Production_transaction() {
             <p className="text-sm text-gray-500">Page {page} of {totalPages} · {totalCount} orders</p>
             <div className="flex gap-2">
               <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-                className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer">
+                className="px-3 py-1.5 border border-gray-300 rounded-md text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer">
                 ← Prev
               </button>
               {[...Array(Math.min(5, totalPages))].map((_, i) => {
                 const pageNum = Math.max(1, Math.min(page - 2, totalPages - 4)) + i
+                const active = page === pageNum
                 return (
                   <button key={pageNum} onClick={() => setPage(pageNum)}
-                    className={`px-3 py-1.5 border rounded-lg text-sm transition-colors ${
-                      page === pageNum ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-200 text-gray-600 hover:bg-gray-50 cursor-pointer' 
-                    }`}>
+                    className="px-3 py-1.5 border rounded-md text-sm transition-colors cursor-pointer"
+                    style={active
+                      ? { backgroundColor: C.accent, borderColor: C.accent, color: '#fff' }
+                      : { backgroundColor: '#fff', borderColor: '#D1D5DB', color: '#4B5563' }}>
                     {pageNum}
                   </button>
                 )
               })}
               <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-                className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer">
+                className="px-3 py-1.5 border border-gray-300 rounded-md text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer">
                 Next →
               </button>
             </div>

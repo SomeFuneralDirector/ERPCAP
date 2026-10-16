@@ -829,9 +829,6 @@ function Marketing() {
           {/* Top products */}
           <Card className="p-6">
             <h2 className="text-sm font-semibold text-gray-700 mb-1">Top products</h2>
-            <p className="text-xs text-gray-400 mb-3">
-              Units sold across the selected date range (all months combined)
-            </p>
             {loading ? (
               <div className="space-y-2">
                 {[1, 2, 3].map((i) => (
