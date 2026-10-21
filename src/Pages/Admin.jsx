@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import { supabase } from "../api/supabase";
 
-/* ── Design tokens, shared with Inventory / Sales / Marketing / Finance ─ */
+/* ── Design tokens ─ */
 const C = {
   accent: "#B3211B",
   accentHover: "#8E1A15",
@@ -42,64 +42,23 @@ const C = {
 };
 
 const CAMPAIGN_STATUS_STYLES = {
-  Upcoming: {
-    color: C.warning,
-    backgroundColor: C.warningSoft,
-    borderColor: C.warningBorder,
-  },
-  Active: {
-    color: C.accent,
-    backgroundColor: C.accentSoft,
-    borderColor: C.accentSoftBorder,
-  },
-  Ended: {
-    color: "#6B7280",
-    backgroundColor: "#F3F4F6",
-    borderColor: "#E5E7EB",
-  },
-  Cancelled: {
-    color: "#9CA3AF",
-    backgroundColor: "#F9FAFB",
-    borderColor: "#E5E7EB",
-  },
+  Upcoming: { color: C.warning, backgroundColor: C.warningSoft, borderColor: C.warningBorder },
+  Active: { color: C.accent, backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder },
+  Ended: { color: "#6B7280", backgroundColor: "#F3F4F6", borderColor: "#E5E7EB" },
+  Cancelled: { color: "#9CA3AF", backgroundColor: "#F9FAFB", borderColor: "#E5E7EB" },
 };
 
 const WO_STATUS_STYLES = {
-  Pending: {
-    color: C.warning,
-    backgroundColor: C.warningSoft,
-    borderColor: C.warningBorder,
-  },
-  "In Progress": {
-    color: C.accent,
-    backgroundColor: C.accentSoft,
-    borderColor: C.accentSoftBorder,
-  },
-  Completed: {
-    color: "#6B7280",
-    backgroundColor: "#F3F4F6",
-    borderColor: "#E5E7EB",
-  },
-  Cancelled: {
-    color: "#9CA3AF",
-    backgroundColor: "#F9FAFB",
-    borderColor: "#E5E7EB",
-  },
+  Pending: { color: C.warning, backgroundColor: C.warningSoft, borderColor: C.warningBorder },
+  "In Progress": { color: C.accent, backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder },
+  Completed: { color: "#6B7280", backgroundColor: "#F3F4F6", borderColor: "#E5E7EB" },
+  Cancelled: { color: "#9CA3AF", backgroundColor: "#F9FAFB", borderColor: "#E5E7EB" },
 };
 
 const MATERIAL_STATUS_STYLES = {
-  "In Stock": {
-    color: C.success,
-    backgroundColor: C.successSoft,
-  },
-  "Low Stock": {
-    color: C.warning,
-    backgroundColor: C.warningSoft,
-  },
-  "Out of Stock": {
-    color: C.accent,
-    backgroundColor: C.accentSoft,
-  },
+  "In Stock": { color: C.success, backgroundColor: C.successSoft },
+  "Low Stock": { color: C.warning, backgroundColor: C.warningSoft },
+  "Out of Stock": { color: C.accent, backgroundColor: C.accentSoft },
 };
 
 const PAGE_SIZE = 5;
@@ -178,14 +137,32 @@ function stockValue(value) {
   return Math.max(0, toNumber(value));
 }
 
+// Same date-boundary helpers used by Sales Dashboard
+const safeDate = (value) => {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const localDateBoundary = (value, endOfDay = false) => {
+  if (!value) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setHours(
+    endOfDay ? 23 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 999 : 0
+  );
+  return date.getTime();
+};
+
 function usePagination(items, pageSize = PAGE_SIZE) {
   const [page, setPage] = useState(0);
   const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
   const currentPage = Math.min(page, totalPages - 1);
-  const pageItems = items.slice(
-    currentPage * pageSize,
-    currentPage * pageSize + pageSize
-  );
+  const pageItems = items.slice(currentPage * pageSize, currentPage * pageSize + pageSize);
   return { page: currentPage, setPage, totalPages, pageItems };
 }
 
@@ -221,13 +198,7 @@ function PrimaryButton({ children, className = "", ...props }) {
 
 function KpiCard({ label, value, sub, loading, tone = "gray" }) {
   const toneColor =
-    tone === "green"
-      ? C.success
-      : tone === "red"
-        ? C.accent
-        : tone === "amber"
-          ? C.warning
-          : C.text;
+    tone === "green" ? C.success : tone === "red" ? C.accent : tone === "amber" ? C.warning : C.text;
   return (
     <Card className="p-4">
       <p className="text-sm text-gray-500">{label}</p>
@@ -297,10 +268,7 @@ function PaginationBar({ page, totalPages, onPrev, onNext }) {
 
 function StatusChip({ label, style }) {
   return (
-    <span
-      className="shrink-0 px-2 py-0.5 rounded-md text-sm font-medium border"
-      style={style}
-    >
+    <span className="shrink-0 px-2 py-0.5 rounded-md text-sm font-medium border" style={style}>
       {label}
     </span>
   );
@@ -323,16 +291,10 @@ function Admin() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
-  const [lastUpdated, setLastUpdated] = useState(null);
 
   const navigate = useNavigate();
 
-  const goTo = useCallback(
-    (path) => {
-      navigate(`/${path}`);
-    },
-    [navigate]
-  );
+  const goTo = useCallback((path) => navigate(`/${path}`), [navigate]);
 
   const loadDashboard = useCallback(
     async (isInitial = false) => {
@@ -381,10 +343,7 @@ function Admin() {
           .select(
             "id, wo_number, product_name, quantity, platform, status, due_date, completed_at, created_at"
           ),
-        supabase.rpc("account_balances", {
-          p_from: dateFrom,
-          p_to: dateTo,
-        }),
+        supabase.rpc("account_balances", { p_from: dateFrom, p_to: dateTo }),
       ]);
 
       const failures = [
@@ -398,9 +357,7 @@ function Admin() {
       ].filter(([, err]) => err);
 
       if (failures.length > 0) {
-        setErrorMsg(
-          `Some data failed to load: ${failures.map(([name]) => name).join(", ")}.`
-        );
+        setErrorMsg(`Some data failed to load: ${failures.map(([name]) => name).join(", ")}.`);
       }
 
       setLedgerEntries((ledgerRes.data || []).filter((e) => e?.date));
@@ -411,7 +368,6 @@ function Admin() {
       setOrders((ordersRes.data || []).filter((o) => toDate(orderDate(o))));
       setWorkOrders(workOrdersRes.data || []);
 
-      setLastUpdated(new Date());
       setLoading(false);
       setRefreshing(false);
     },
@@ -446,7 +402,7 @@ function Admin() {
     return () => supabase.removeChannel(channel);
   }, [loadDashboard]);
 
-  // True P&L: same calculation & units as Income Statement / Finance / Balance Sheet
+  // True P&L (RPC returns cents → convert to pesos)
   const financeStats = useMemo(() => {
     const rows = (accountBalances || [])
       .filter((r) => r.name && r.classification)
@@ -456,35 +412,31 @@ function Admin() {
         credit: toNumber(r.credit),
       }));
 
-    const revenue = rows
-      .filter((r) => r.classification === "revenue")
-      .reduce((sum, r) => sum + (r.debit - r.credit), 0);
+    const revenue =
+      rows
+        .filter((r) => r.classification === "revenue")
+        .reduce((sum, r) => sum + (r.debit - r.credit), 0) / 100;
 
-    const expenses = rows
-      .filter((r) => r.classification === "expense")
-      .reduce((sum, r) => sum + (r.credit - r.debit), 0);
+    const expenses =
+      rows
+        .filter((r) => r.classification === "expense")
+        .reduce((sum, r) => sum + (r.credit - r.debit), 0) / 100;
 
-    return {
-      revenue,
-      expenses,
-      net: revenue - expenses,
-    };
+    return { revenue, expenses, net: revenue - expenses };
   }, [accountBalances]);
 
-  // Monthly chart: only real revenue & expense categories
+  // Monthly chart – only revenue & expense categories (cents → pesos)
   const monthlyNet = useMemo(() => {
     const map = {};
-
     ledgerEntries.forEach((e) => {
       const classification = e.ledger_categories?.classification?.toLowerCase();
       if (classification !== "revenue" && classification !== "expense") return;
 
       const key = e.date?.slice(0, 7);
       if (!key) return;
-
       if (!map[key]) map[key] = { month: key, expenses: 0, revenue: 0 };
 
-      const amount = Math.max(0, toNumber(e.amount)) / 100; // table stores cents
+      const amount = Math.max(0, toNumber(e.amount)) / 100;
 
       if (classification === "revenue") {
         map[key].revenue += e.type === "debit" ? amount : -amount;
@@ -530,8 +482,7 @@ function Admin() {
   const materialStats = useMemo(() => {
     const low = materials.filter((m) => m.status === "Low Stock");
     const out = materials.filter((m) => m.status === "Out of Stock");
-    const attention = [...out, ...low];
-    return { count: materials.length, low, out, attention };
+    return { count: materials.length, low, out, attention: [...out, ...low] };
   }, [materials]);
 
   const lowStockAlertCount =
@@ -552,16 +503,31 @@ function Admin() {
     return { activeCount: active.length, active: active.slice(0, 4) };
   }, [campaigns]);
 
+  // Sales – same date-boundary logic as Sales Dashboard
   const salesStats = useMemo(() => {
+    const fromTime = localDateBoundary(dateFrom);
+    const toTime = localDateBoundary(dateTo, true);
+
     const rangeOrders = orders.filter((o) => {
-      const d = orderDate(o);
-      const day = d && d.slice(0, 10);
-      return day && day >= dateFrom && day <= dateTo;
+      const raw = orderDate(o);
+      if (!raw) return false;
+      const t = safeDate(raw)?.getTime();
+      if (t == null) return false;
+      if (fromTime !== null && t < fromTime) return false;
+      if (toTime !== null && t > toTime) return false;
+      return true;
     });
+
     const total = rangeOrders.reduce((s, o) => s + centsToPesos(o.total_amount), 0);
     const avgOrder = rangeOrders.length > 0 ? total / rangeOrders.length : 0;
     const trend = bucketWeeklySales(rangeOrders);
-    return { total, avgOrder, ordersCount: rangeOrders.length, trend };
+
+    return {
+      total,
+      avgOrder,
+      ordersCount: rangeOrders.length,
+      trend,
+    };
   }, [orders, dateFrom, dateTo]);
 
   const productionStats = useMemo(() => {
@@ -583,8 +549,7 @@ function Admin() {
     const recentlyFinished = [...completedInRange]
       .sort(
         (a, b) =>
-          new Date(b.completed_at || b.created_at) -
-          new Date(a.completed_at || a.created_at)
+          new Date(b.completed_at || b.created_at) - new Date(a.completed_at || a.created_at)
       )
       .slice(0, 5);
 
@@ -609,7 +574,6 @@ function Admin() {
           <div>
             <h1 className="text-3xl font-semibold text-gray-900">Dashboard</h1>
           </div>
-
           <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
             <div className="flex items-center gap-2">
               <input
@@ -626,10 +590,7 @@ function Admin() {
                 className="border border-gray-300 rounded-md px-3 py-2 text-base text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
               />
             </div>
-            <PrimaryButton
-              onClick={() => loadDashboard(false)}
-              disabled={loading || refreshing}
-            >
+            <PrimaryButton onClick={() => loadDashboard(false)} disabled={loading || refreshing}>
               {loading || refreshing ? "Loading…" : "Refresh"}
             </PrimaryButton>
           </div>
@@ -638,11 +599,7 @@ function Admin() {
         {errorMsg && (
           <div
             className="rounded-md border px-4 py-4 text-sm"
-            style={{
-              backgroundColor: C.warningSoft,
-              borderColor: C.warningBorder,
-              color: C.warning,
-            }}
+            style={{ backgroundColor: C.warningSoft, borderColor: C.warningBorder, color: C.warning }}
           >
             {errorMsg}
           </div>
@@ -678,39 +635,23 @@ function Admin() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {/* Finance */}
           <SectionCard title="Finance" icon={TrendingUp} onView={() => goTo("finance")}>
             <div className="grid grid-cols-3 gap-3 mb-4">
               <div>
                 <p className="text-sm text-gray-400">Expenses</p>
-                {loading ? (
-                  <Skeleton />
-                ) : (
-                  <p className="text-xl font-semibold text-gray-900">
-                    {fmtPeso(financeStats.expenses)}
-                  </p>
-                )}
+                {loading ? <Skeleton /> : <p className="text-xl font-semibold text-gray-900">{fmtPeso(financeStats.expenses)}</p>}
               </div>
               <div>
                 <p className="text-sm text-gray-400">Revenue</p>
-                {loading ? (
-                  <Skeleton />
-                ) : (
-                  <p className="text-xl font-semibold text-gray-900">
-                    {fmtPeso(financeStats.revenue)}
-                  </p>
-                )}
+                {loading ? <Skeleton /> : <p className="text-xl font-semibold text-gray-900">{fmtPeso(financeStats.revenue)}</p>}
               </div>
               <div>
-                <p className="text-sm text-gray-400">
-                  {financeStats.net >= 0 ? "Net income" : "Net loss"}
-                </p>
+                <p className="text-sm text-gray-400">{financeStats.net >= 0 ? "Net income" : "Net loss"}</p>
                 {loading ? (
                   <Skeleton />
                 ) : (
-                  <p
-                    className="text-xl font-semibold"
-                    style={{ color: financeStats.net >= 0 ? C.success : C.accent }}
-                  >
+                  <p className="text-xl font-semibold" style={{ color: financeStats.net >= 0 ? C.success : C.accent }}>
                     {fmtPeso(Math.abs(financeStats.net))}
                   </p>
                 )}
@@ -724,19 +665,9 @@ function Admin() {
               <ResponsiveContainer width="100%" height={210}>
                 <BarChart data={monthlyNet} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                  <XAxis
-                    dataKey="label"
-                    tick={{ fontSize: 14, fill: "#000000" }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 14, fill: "#000000" }}
-                    axisLine={false}
-                    tickLine={false}
-                    tickFormatter={fmtAxis}
-                  />
-                  <Tooltip formatter={(v) => fmtPeso(v)} labelFormatter={(l) => `Net: ${l}`} />
+                  <XAxis dataKey="label" tick={{ fontSize: 14, fill: "#000000" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 14, fill: "#000000" }} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
+                  <Tooltip formatter={(v) => fmtPeso(v)} labelFormatter={(l) => `Net — ${l}`} />
                   <Bar dataKey="net" radius={[4, 4, 4, 4]}>
                     {monthlyNet.map((m, i) => (
                       <Cell key={i} fill={m.net >= 0 ? C.success : C.accent} />
@@ -747,31 +678,16 @@ function Admin() {
             )}
           </SectionCard>
 
-          <SectionCard
-            title="Sales: finished products"
-            icon={TrendingUp}
-            onView={() => goTo("sales_db")}
-          >
+          {/* Sales */}
+          <SectionCard title="Sales — finished products" icon={TrendingUp} onView={() => goTo("sales_db")}>
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div>
                 <p className="text-sm text-gray-400">In range</p>
-                {loading ? (
-                  <Skeleton />
-                ) : (
-                  <p className="text-xl font-semibold text-gray-900">
-                    {fmtPeso(salesStats.total)}
-                  </p>
-                )}
+                {loading ? <Skeleton /> : <p className="text-xl font-semibold text-gray-900">{fmtPeso(salesStats.total)}</p>}
               </div>
               <div>
                 <p className="text-sm text-gray-400">Avg order value</p>
-                {loading ? (
-                  <Skeleton />
-                ) : (
-                  <p className="text-xl font-semibold text-gray-900">
-                    {fmtPeso(salesStats.avgOrder)}
-                  </p>
-                )}
+                {loading ? <Skeleton /> : <p className="text-xl font-semibold text-gray-900">{fmtPeso(salesStats.avgOrder)}</p>}
               </div>
             </div>
             {loading ? (
@@ -780,10 +696,7 @@ function Admin() {
               <EmptyRow>No completed orders in the selected range.</EmptyRow>
             ) : (
               <ResponsiveContainer width="100%" height={210}>
-                <AreaChart
-                  data={salesStats.trend}
-                  margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
-                >
+                <AreaChart data={salesStats.trend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="adminSalesFill" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor={C.accent} stopOpacity={0.35} />
@@ -791,56 +704,25 @@ function Admin() {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                  <XAxis
-                    dataKey="label"
-                    tick={{ fontSize: 14, fill: "#000000" }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 14, fill: "#000000" }}
-                    axisLine={false}
-                    tickLine={false}
-                    tickFormatter={fmtAxis}
-                  />
+                  <XAxis dataKey="label" tick={{ fontSize: 14, fill: "#000000" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 14, fill: "#000000" }} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
                   <Tooltip formatter={(v) => fmtPeso(v)} />
-                  <Area
-                    type="monotone"
-                    dataKey="value"
-                    stroke={C.accent}
-                    strokeWidth={2}
-                    fill="url(#adminSalesFill)"
-                  />
+                  <Area type="monotone" dataKey="value" stroke={C.accent} strokeWidth={2} fill="url(#adminSalesFill)" />
                 </AreaChart>
               </ResponsiveContainer>
             )}
           </SectionCard>
 
-          <SectionCard
-            title="Inventory: finished products"
-            icon={Package}
-            onView={() => goTo("inventory")}
-          >
+          {/* Inventory – products */}
+          <SectionCard title="Inventory — finished products" icon={Package} onView={() => goTo("inventory")}>
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div>
                 <p className="text-sm text-gray-400">Products</p>
-                {loading ? (
-                  <Skeleton />
-                ) : (
-                  <p className="text-xl font-semibold text-gray-900">
-                    {productStats.count.toLocaleString()}
-                  </p>
-                )}
+                {loading ? <Skeleton /> : <p className="text-xl font-semibold text-gray-900">{productStats.count.toLocaleString()}</p>}
               </div>
               <div>
                 <p className="text-sm text-gray-400">Total stock (all platforms)</p>
-                {loading ? (
-                  <Skeleton />
-                ) : (
-                  <p className="text-xl font-semibold text-gray-900">
-                    {productStats.totalStock.toLocaleString()}
-                  </p>
-                )}
+                {loading ? <Skeleton /> : <p className="text-xl font-semibold text-gray-900">{productStats.totalStock.toLocaleString()}</p>}
               </div>
             </div>
             {loading ? (
@@ -860,11 +742,7 @@ function Admin() {
                         <span className="text-gray-700 truncate pr-2">{p.product_name}</span>
                         <StatusChip
                           label={`${total.toLocaleString()} left`}
-                          style={{
-                            color: C.accent,
-                            backgroundColor: C.accentSoft,
-                            borderColor: C.accentSoftBorder,
-                          }}
+                          style={{ color: C.accent, backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder }}
                         />
                       </li>
                     );
@@ -884,21 +762,12 @@ function Admin() {
             )}
           </SectionCard>
 
-          <SectionCard
-            title="Inventory: raw materials"
-            icon={Boxes}
-            onView={() => goTo("production_rm")}
-          >
+          {/* Inventory – materials */}
+          <SectionCard title="Inventory — raw materials" icon={Boxes} onView={() => goTo("production_rm")}>
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div>
                 <p className="text-sm text-gray-400">Materials tracked</p>
-                {loading ? (
-                  <Skeleton />
-                ) : (
-                  <p className="text-xl font-semibold text-gray-900">
-                    {materialStats.count.toLocaleString()}
-                  </p>
-                )}
+                {loading ? <Skeleton /> : <p className="text-xl font-semibold text-gray-900">{materialStats.count.toLocaleString()}</p>}
               </div>
               <div>
                 <p className="text-sm text-gray-400">Needs attention</p>
@@ -942,11 +811,8 @@ function Admin() {
             )}
           </SectionCard>
 
-          <SectionCard
-            title="Marketing campaigns"
-            icon={Megaphone}
-            onView={() => goTo("marketing")}
-          >
+          {/* Marketing */}
+          <SectionCard title="Marketing campaigns" icon={Megaphone} onView={() => goTo("marketing")}>
             <div className="mb-4">
               <p className="text-sm text-gray-400">Active / upcoming</p>
               {loading ? (
@@ -969,21 +835,17 @@ function Admin() {
                       <p className="text-gray-700 font-medium truncate">{c.name}</p>
                       <p className="text-gray-400">
                         {c.platform}
-                        {c.end_date
-                          ? ` · ends ${new Date(c.end_date).toLocaleDateString()}`
-                          : ""}
+                        {c.end_date ? ` · ends ${new Date(c.end_date).toLocaleDateString()}` : ""}
                       </p>
                     </div>
-                    <StatusChip
-                      label={c._status}
-                      style={CAMPAIGN_STATUS_STYLES[c._status] || {}}
-                    />
+                    <StatusChip label={c._status} style={CAMPAIGN_STATUS_STYLES[c._status] || {}} />
                   </li>
                 ))}
               </ul>
             )}
           </SectionCard>
 
+          {/* Production */}
           <SectionCard title="Production" icon={Factory} onView={() => goTo("production_wo")}>
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div>
@@ -1024,11 +886,7 @@ function Admin() {
                             {wo.wo_number} · {wo.product_name}
                           </span>
                           <StatusChip
-                            label={
-                              wo.due_date
-                                ? new Date(wo.due_date).toLocaleDateString()
-                                : "No date"
-                            }
+                            label={wo.due_date ? new Date(wo.due_date).toLocaleDateString() : "—"}
                             style={WO_STATUS_STYLES[wo.status] || {}}
                           />
                         </li>

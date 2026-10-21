@@ -165,7 +165,7 @@ function Login() {
               Welcome Back
             </h2>
             <p className="text-sm text-red-700 mt-1">
-              Sign in to continue
+              Log in to continue
             </p>
           </div>
 
@@ -222,7 +222,7 @@ function Login() {
               disabled={isLocked || submitting}
               className="w-full py-3 rounded-lg bg-red-600/90 backdrop-blur-sm text-white font-semibold hover:bg-red-700 transition-all duration-300 ease-in-out hover:scale-105 shadow-md hover:shadow-lg active:scale-[0.98] cursor-pointer border border-white/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
             >
-              {isLocked ? 'Locked' : submitting ? 'Signing in...' : 'Sign In'}
+              {isLocked ? 'Locked' : submitting ? 'Logging in...' : 'Log In'}
             </button>
           </form>
 

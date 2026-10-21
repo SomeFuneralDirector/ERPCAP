@@ -1,14 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../api/supabase";
 import { Loader2 } from "lucide-react";
-import {
-  toNumber,
-  formatPeso,
-  localDateKey,
-  firstOfMonthKey,
-} from "../lib/Finance";
+import { toNumber, formatPeso, localDateKey, firstOfMonthKey } from "../lib/Finance";
 
-/* ── Design tokens (aligned with Cash Book / Inventory) ──────────────────── */
 const C = {
   accent: "#B3211B",
   accentHover: "#8E1A15",
@@ -23,27 +17,14 @@ const C = {
   surface: "#F6F6F7",
 };
 
-// Ledger convention (cash view):
-//   Debit  = cash IN
-//   Credit = cash OUT
-//
-// Revenue  = cash in minus cash refunded   -> debit - credit
-// Expenses = cash out minus cash recovered -> credit - debit
-//
-// Only non-archived ledger_entries are included (via account_balances RPC).
-
 function StatementRows({ rows }) {
   return (
     <table className="w-full text-base mb-2">
       <tbody>
         {rows.map((r) => (
           <tr key={r.name} style={{ borderBottom: `1px solid ${C.border}` }}>
-            <td className="py-3" style={{ color: C.text }}>
-              {r.name}
-            </td>
-            <td className="py-3 text-right" style={{ color: C.text }}>
-              {formatPeso(r.amount)}
-            </td>
+            <td className="py-3" style={{ color: C.text }}>{r.name}</td>
+            <td className="py-3 text-right" style={{ color: C.text }}>{formatPeso(r.amount)}</td>
           </tr>
         ))}
       </tbody>
@@ -55,7 +36,6 @@ function IncomeStatement() {
   const [loading, setLoading] = useState(true);
   const [dateFrom, setDateFrom] = useState(firstOfMonthKey());
   const [dateTo, setDateTo] = useState(localDateKey());
-
   const [revenue, setRevenue] = useState([]);
   const [expenses, setExpenses] = useState([]);
 
@@ -65,7 +45,6 @@ function IncomeStatement() {
     async function loadIncomeStatement() {
       setLoading(true);
 
-      // account_balances must exclude archived ledger_entries
       const { data, error } = await supabase.rpc("account_balances", {
         p_from: dateFrom,
         p_to: dateTo,
@@ -90,15 +69,16 @@ function IncomeStatement() {
           credit: toNumber(r.credit),
         }));
 
+      // RPC returns cents → convert to pesos
       const revenueRows = rows
         .filter((r) => r.classification === "revenue")
-        .map((r) => ({ name: r.name, amount: r.debit - r.credit }))
+        .map((r) => ({ name: r.name, amount: (r.debit - r.credit) / 100 }))
         .filter((r) => r.amount !== 0)
         .sort((a, b) => b.amount - a.amount);
 
       const expenseRows = rows
         .filter((r) => r.classification === "expense")
-        .map((r) => ({ name: r.name, amount: r.credit - r.debit }))
+        .map((r) => ({ name: r.name, amount: (r.credit - r.debit) / 100 }))
         .filter((r) => r.amount !== 0)
         .sort((a, b) => b.amount - a.amount);
 
@@ -108,10 +88,7 @@ function IncomeStatement() {
     }
 
     loadIncomeStatement();
-
-    return () => {
-      ignore = true;
-    };
+    return () => { ignore = true; };
   }, [dateFrom, dateTo]);
 
   const totalRevenue = revenue.reduce((s, r) => s + toNumber(r.amount), 0);
@@ -125,9 +102,7 @@ function IncomeStatement() {
           className="bg-white rounded-lg shadow-sm px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3"
           style={{ border: `1px solid ${C.border}` }}
         >
-          <h1 className="text-3xl font-semibold" style={{ color: C.text }}>
-            Income Statement
-          </h1>
+          <h1 className="text-3xl font-semibold" style={{ color: C.text }}>Income Statement</h1>
           <div className="flex items-center gap-2">
             <input
               type="date"
@@ -135,32 +110,14 @@ function IncomeStatement() {
               onChange={(e) => setDateFrom(e.target.value)}
               className="border rounded-md px-3 py-2 text-base cursor-pointer focus:outline-none"
               style={{ borderColor: C.borderStrong, color: C.text }}
-              onFocus={(e) => {
-                e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`;
-                e.target.style.borderColor = C.accent;
-              }}
-              onBlur={(e) => {
-                e.target.style.boxShadow = "none";
-                e.target.style.borderColor = C.borderStrong;
-              }}
             />
-            <span className="text-base" style={{ color: C.textFaint }}>
-              to
-            </span>
+            <span className="text-base" style={{ color: C.textFaint }}>to</span>
             <input
               type="date"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
               className="border rounded-md px-3 py-2 text-base cursor-pointer focus:outline-none"
               style={{ borderColor: C.borderStrong, color: C.text }}
-              onFocus={(e) => {
-                e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`;
-                e.target.style.borderColor = C.accent;
-              }}
-              onBlur={(e) => {
-                e.target.style.boxShadow = "none";
-                e.target.style.borderColor = C.borderStrong;
-              }}
             />
           </div>
         </div>
@@ -174,71 +131,34 @@ function IncomeStatement() {
             Loading income statement…
           </div>
         ) : (
-          <div
-            className="bg-white rounded-lg shadow-sm p-6"
-            style={{ border: `1px solid ${C.border}` }}
-          >
-            <h2
-              className="text-base font-extrabold uppercase mb-4"
-              style={{ color: C.textMuted }}
-            >
-              Revenue
-            </h2>
+          <div className="bg-white rounded-lg shadow-sm p-6" style={{ border: `1px solid ${C.border}` }}>
+            <h2 className="text-base font-extrabold uppercase mb-4" style={{ color: C.textMuted }}>Revenue</h2>
             {revenue.length === 0 ? (
-              <p className="text-base mb-4" style={{ color: C.textFaint }}>
-                No revenue in this period.
-              </p>
+              <p className="text-base mb-4" style={{ color: C.textFaint }}>No revenue in this period.</p>
             ) : (
               <StatementRows rows={revenue} />
             )}
-            <div
-              className="flex justify-between pt-3 mb-8"
-              style={{ borderTop: `1px solid ${C.border}` }}
-            >
-              <span className="font-bold" style={{ color: C.text }}>
-                Total Revenue
-              </span>
-              <span className="font-bold" style={{ color: C.text }}>
-                {formatPeso(totalRevenue)}
-              </span>
+            <div className="flex justify-between pt-3 mb-8" style={{ borderTop: `1px solid ${C.border}` }}>
+              <span className="font-bold" style={{ color: C.text }}>Total Revenue</span>
+              <span className="font-bold" style={{ color: C.text }}>{formatPeso(totalRevenue)}</span>
             </div>
 
-            <h2
-              className="text-base font-extrabold uppercase mb-4"
-              style={{ color: C.textMuted }}
-            >
-              Expenses
-            </h2>
+            <h2 className="text-base font-extrabold uppercase mb-4" style={{ color: C.textMuted }}>Expenses</h2>
             {expenses.length === 0 ? (
-              <p className="text-base mb-4" style={{ color: C.textFaint }}>
-                No expenses in this period.
-              </p>
+              <p className="text-base mb-4" style={{ color: C.textFaint }}>No expenses in this period.</p>
             ) : (
               <StatementRows rows={expenses} />
             )}
-            <div
-              className="flex justify-between pt-3"
-              style={{ borderTop: `1px solid ${C.border}` }}
-            >
-              <span className="font-bold" style={{ color: C.text }}>
-                Total Expenses
-              </span>
-              <span className="font-bold" style={{ color: C.text }}>
-                {formatPeso(totalExpenses)}
-              </span>
+            <div className="flex justify-between pt-3" style={{ borderTop: `1px solid ${C.border}` }}>
+              <span className="font-bold" style={{ color: C.text }}>Total Expenses</span>
+              <span className="font-bold" style={{ color: C.text }}>{formatPeso(totalExpenses)}</span>
             </div>
 
-            <div
-              className="flex justify-between pt-4 mt-6"
-              style={{ borderTop: `2px solid ${C.borderStrong}` }}
-            >
+            <div className="flex justify-between pt-4 mt-6" style={{ borderTop: `2px solid ${C.borderStrong}` }}>
               <span className="text-xl font-bold" style={{ color: C.text }}>
                 {netIncome >= 0 ? "Net Income" : "Net Loss"}
               </span>
-              <span
-                className="text-xl font-bold"
-                style={{ color: netIncome >= 0 ? C.success : C.accent }}
-              >
+              <span className="text-xl font-bold" style={{ color: netIncome >= 0 ? C.success : C.accent }}>
                 {formatPeso(Math.abs(netIncome))}
               </span>
             </div>

@@ -14,7 +14,6 @@ import {
   Legend,
 } from "recharts";
 
-/* Design tokens shared with Inventory, Sales, and Marketing */
 const C = {
   accent: "#B3211B",
   accentHover: "#8E1A15",
@@ -85,7 +84,6 @@ function Finance() {
   const [entries, setEntries] = useState([]);
   const [accountBalances, setAccountBalances] = useState([]);
   const [error, setError] = useState("");
-  const [lastUpdated, setLastUpdated] = useState(null);
 
   const loadFinanceData = useCallback(
     async (isInitial = false) => {
@@ -110,11 +108,7 @@ function Finance() {
           .lte("date", dateTo)
           .eq("archived", false)
           .order("date", { ascending: true }),
-
-        supabase.rpc("account_balances", {
-          p_from: dateFrom,
-          p_to: dateTo,
-        }),
+        supabase.rpc("account_balances", { p_from: dateFrom, p_to: dateTo }),
       ]);
 
       if (entriesRes.error || balancesRes.error) {
@@ -125,7 +119,6 @@ function Finance() {
       } else {
         setEntries(entriesRes.data || []);
         setAccountBalances(balancesRes.data || []);
-        setLastUpdated(new Date());
       }
 
       setLoading(false);
@@ -138,7 +131,7 @@ function Finance() {
     loadFinanceData(true);
   }, [loadFinanceData]);
 
-  // True P&L totals — same calculation as Income Statement
+  // True P&L (RPC returns cents → pesos)
   const { totalRevenue, totalExpenses, net, isProfit } = useMemo(() => {
     const rows = (accountBalances || [])
       .filter((r) => r.name && r.classification)
@@ -148,16 +141,17 @@ function Finance() {
         credit: toNumber(r.credit),
       }));
 
-    const revenue = rows
-      .filter((r) => r.classification === "revenue")
-      .reduce((sum, r) => sum + (r.debit - r.credit), 0);
+    const revenue =
+      rows
+        .filter((r) => r.classification === "revenue")
+        .reduce((sum, r) => sum + (r.debit - r.credit), 0) / 100;
 
-    const expenses = rows
-      .filter((r) => r.classification === "expense")
-      .reduce((sum, r) => sum + (r.credit - r.debit), 0);
+    const expenses =
+      rows
+        .filter((r) => r.classification === "expense")
+        .reduce((sum, r) => sum + (r.credit - r.debit), 0) / 100;
 
     const netValue = revenue - expenses;
-
     return {
       totalRevenue: revenue,
       totalExpenses: expenses,
@@ -166,12 +160,9 @@ function Finance() {
     };
   }, [accountBalances]);
 
-  // Charts — only real revenue & expense categories
+  // Charts – only revenue & expense categories
   const analytics = useMemo(() => {
-    const result = {
-      byCategory: {},
-      byMonth: {},
-    };
+    const result = { byCategory: {}, byMonth: {} };
 
     entries.forEach((entry) => {
       const amountCents = Number(entry.amount);
@@ -180,7 +171,7 @@ function Finance() {
       const classification = entry.ledger_categories?.classification?.toLowerCase();
       if (classification !== "revenue" && classification !== "expense") return;
 
-      const amount = amountCents / 100; // table stores cents
+      const amount = amountCents / 100;
       const category = entry.ledger_categories?.name || "Uncategorized";
 
       result.byCategory[category] ||= { name: category, amount: 0 };
@@ -189,7 +180,6 @@ function Finance() {
       const month = entry.date?.slice(0, 7);
       if (month) {
         result.byMonth[month] ||= { month, expenses: 0, revenue: 0 };
-
         if (classification === "revenue") {
           result.byMonth[month].revenue += entry.type === "debit" ? amount : -amount;
         } else {
@@ -200,9 +190,7 @@ function Finance() {
 
     return {
       byCategory: Object.values(result.byCategory).sort((a, b) => b.amount - a.amount),
-      monthlyTrend: Object.values(result.byMonth).sort((a, b) =>
-        a.month.localeCompare(b.month)
-      ),
+      monthlyTrend: Object.values(result.byMonth).sort((a, b) => a.month.localeCompare(b.month)),
     };
   }, [entries]);
 
@@ -215,7 +203,6 @@ function Finance() {
           <div>
             <h1 className="text-3xl font-semibold text-gray-900">Finance</h1>
           </div>
-
           <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
             <div className="flex items-center gap-2">
               <input
@@ -232,10 +219,7 @@ function Finance() {
                 className="border border-gray-300 rounded-md px-3 py-2 text-base text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
               />
             </div>
-            <PrimaryButton
-              onClick={() => loadFinanceData(false)}
-              disabled={loading || refreshing}
-            >
+            <PrimaryButton onClick={() => loadFinanceData(false)} disabled={loading || refreshing}>
               {loading || refreshing ? "Loading..." : "Refresh"}
             </PrimaryButton>
           </div>
@@ -244,11 +228,7 @@ function Finance() {
         {error && (
           <div
             className="rounded-md border px-4 py-4 text-sm"
-            style={{
-              backgroundColor: C.accentSoft,
-              borderColor: C.accentSoftBorder,
-              color: C.accent,
-            }}
+            style={{ backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder, color: C.accent }}
           >
             {error}
           </div>
@@ -257,37 +237,18 @@ function Finance() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Card className="p-4">
             <p className="text-sm text-gray-500">Total expenses</p>
-            {loading ? (
-              <Skeleton />
-            ) : (
-              <p className="text-3xl font-semibold mt-1 text-gray-900">
-                {formatPeso(totalExpenses)}
-              </p>
-            )}
+            {loading ? <Skeleton /> : <p className="text-3xl font-semibold mt-1 text-gray-900">{formatPeso(totalExpenses)}</p>}
           </Card>
-
           <Card className="p-4">
             <p className="text-sm text-gray-500">Total revenue</p>
-            {loading ? (
-              <Skeleton />
-            ) : (
-              <p className="text-3xl font-semibold mt-1 text-gray-900">
-                {formatPeso(totalRevenue)}
-              </p>
-            )}
+            {loading ? <Skeleton /> : <p className="text-3xl font-semibold mt-1 text-gray-900">{formatPeso(totalRevenue)}</p>}
           </Card>
-
           <Card className="p-4">
-            <p className="text-sm text-gray-500">
-              {isProfit ? "Net income" : "Net loss"}
-            </p>
+            <p className="text-sm text-gray-500">{isProfit ? "Net income" : "Net loss"}</p>
             {loading ? (
               <Skeleton />
             ) : (
-              <p
-                className="text-3xl font-semibold mt-1"
-                style={{ color: isProfit ? C.success : C.accent }}
-              >
+              <p className="text-3xl font-semibold mt-1" style={{ color: isProfit ? C.success : C.accent }}>
                 {formatPeso(Math.abs(net))}
               </p>
             )}
@@ -295,19 +256,14 @@ function Finance() {
         </div>
 
         <Card className="p-6">
-          <h2 className="text-base font-semibold text-gray-700 mb-3">
-            Revenue vs expenses
-          </h2>
+          <h2 className="text-base font-semibold text-gray-700 mb-3">Revenue vs expenses</h2>
           {loading ? (
             <Skeleton className="h-72 w-full" />
           ) : monthlyTrend.length === 0 ? (
             <p className="text-sm text-gray-400">No data for current filters.</p>
           ) : (
             <ResponsiveContainer width="100%" height={330}>
-              <AreaChart
-                data={monthlyTrend}
-                margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
-              >
+              <AreaChart data={monthlyTrend} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor={C.success} stopOpacity={0.35} />
@@ -318,111 +274,32 @@ function Finance() {
                     <stop offset="100%" stopColor={C.accent} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="#f3f4f6"
-                  vertical={false}
-                />
-                <XAxis
-                  dataKey="month"
-                  tick={{ fontSize: 14, fill: "#000000" }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{ fontSize: 14, fill: "#000000" }}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={fmtAxis}
-                />
+                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+                <XAxis dataKey="month" tick={{ fontSize: 14, fill: "#000000" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 14, fill: "#000000" }} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
                 <Tooltip content={<TrendTooltip />} />
-                <Legend
-                  verticalAlign="top"
-                  height={36}
-                  iconType="line"
-                  wrapperStyle={{ fontSize: 15 }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="revenue"
-                  name="Revenue"
-                  stroke={C.success}
-                  strokeWidth={2}
-                  fill="url(#revenueFill)"
-                  dot={{ r: 3, fill: C.success, strokeWidth: 0 }}
-                  activeDot={{ r: 5 }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="expenses"
-                  name="Expenses"
-                  stroke={C.accent}
-                  strokeWidth={2}
-                  fill="url(#expensesFill)"
-                  dot={{ r: 3, fill: C.accent, strokeWidth: 0 }}
-                  activeDot={{ r: 5 }}
-                />
+                <Legend verticalAlign="top" height={36} iconType="line" wrapperStyle={{ fontSize: 15 }} />
+                <Area type="monotone" dataKey="revenue" name="Revenue" stroke={C.success} strokeWidth={2} fill="url(#revenueFill)" dot={{ r: 3, fill: C.success, strokeWidth: 0 }} activeDot={{ r: 5 }} />
+                <Area type="monotone" dataKey="expenses" name="Expenses" stroke={C.accent} strokeWidth={2} fill="url(#expensesFill)" dot={{ r: 3, fill: C.accent, strokeWidth: 0 }} activeDot={{ r: 5 }} />
               </AreaChart>
             </ResponsiveContainer>
           )}
         </Card>
 
         <Card className="p-6">
-          <h2 className="text-base font-semibold text-gray-700 mb-3">
-            Utilized Money By Category
-          </h2>
+          <h2 className="text-base font-semibold text-gray-700 mb-3">Utilized Money By Category</h2>
           {loading ? (
             <Skeleton className="h-72 w-full" />
           ) : byCategory.length === 0 ? (
-            <p className="text-sm text-gray-400">
-              No categorized entries in this range.
-            </p>
+            <p className="text-sm text-gray-400">No categorized entries in this range.</p>
           ) : (
-            <ResponsiveContainer
-              width="100%"
-              height={Math.max(300, byCategory.length * 56)}
-            >
-              <BarChart
-                data={byCategory}
-                layout="vertical"
-                margin={{ top: 0, right: 64, left: 8, bottom: 0 }}
-                barCategoryGap={12}
-              >
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="#f3f4f6"
-                  horizontal={false}
-                />
-                <XAxis
-                  type="number"
-                  tick={{ fontSize: 14, fill: "#000000" }}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={(v) => `₱${Number(v).toLocaleString()}`}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  width={200}
-                  tick={{ fontSize: 14, fill: "#000000" }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip
-                  formatter={(v) => `₱${Number(v || 0).toLocaleString()}`}
-                  contentStyle={{
-                    fontSize: 15,
-                    borderRadius: 8,
-                    borderColor: C.border,
-                  }}
-                />
-                <Bar
-                  dataKey="amount"
-                  name="Amount"
-                  fill={C.accent}
-                  radius={[0, 4, 4, 0]}
-                  barSize={26}
-                />
+            <ResponsiveContainer width="100%" height={Math.max(300, byCategory.length * 56)}>
+              <BarChart data={byCategory} layout="vertical" margin={{ top: 0, right: 64, left: 8, bottom: 0 }} barCategoryGap={12}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 14, fill: "#000000" }} axisLine={false} tickLine={false} tickFormatter={(v) => `₱${Number(v).toLocaleString()}`} />
+                <YAxis type="category" dataKey="name" width={200} tick={{ fontSize: 14, fill: "#000000" }} axisLine={false} tickLine={false} />
+                <Tooltip formatter={(v) => `₱${Number(v || 0).toLocaleString()}`} contentStyle={{ fontSize: 15, borderRadius: 8, borderColor: C.border }} />
+                <Bar dataKey="amount" name="Amount" fill={C.accent} radius={[0, 4, 4, 0]} barSize={26} />
               </BarChart>
             </ResponsiveContainer>
           )}
