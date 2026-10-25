@@ -69,16 +69,16 @@ function IncomeStatement() {
           credit: toNumber(r.credit),
         }));
 
-      // RPC returns cents → convert to pesos
+      // Amounts stay in cents here: formatPeso() already divides by 100.
       const revenueRows = rows
         .filter((r) => r.classification === "revenue")
-        .map((r) => ({ name: r.name, amount: (r.debit - r.credit) / 100 }))
+        .map((r) => ({ name: r.name, amount: r.debit - r.credit }))
         .filter((r) => r.amount !== 0)
         .sort((a, b) => b.amount - a.amount);
 
       const expenseRows = rows
         .filter((r) => r.classification === "expense")
-        .map((r) => ({ name: r.name, amount: (r.credit - r.debit) / 100 }))
+        .map((r) => ({ name: r.name, amount: r.credit - r.debit }))
         .filter((r) => r.amount !== 0)
         .sort((a, b) => b.amount - a.amount);
 

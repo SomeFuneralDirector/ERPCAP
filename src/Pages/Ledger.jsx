@@ -28,6 +28,8 @@ const TYPE_LABEL = { debit: "Cash In", credit: "Cash Out" };
 
 const PAGE_SIZE = 10;
 const POLL_INTERVAL_MS = 5000;
+const FETCH_CHUNK = 1000; // Supabase returns at most 1000 rows per request
+const SALES_CATEGORY = "Sales Revenue";
 
 function getWeekInfo(dateStr) {
   const d = new Date(dateStr + "T00:00:00");
@@ -67,12 +69,66 @@ function newRow() {
   };
 }
 
+/* Fetch every non-sales entry in range, paging past the 1000-row cap. */
+async function fetchOtherEntries(dateFrom, dateTo) {
+  let all = [];
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("ledger_entries")
+      .select(
+        "id, date, detail, type, amount, archived, ledger_categories!inner ( name, classification )"
+      )
+      .gte("date", dateFrom)
+      .lte("date", dateTo)
+      .eq("archived", false)
+      .neq("ledger_categories.name", SALES_CATEGORY)
+      .order("date", { ascending: false })
+      .order("id", { ascending: true }) // stable order across pages
+      .range(from, from + FETCH_CHUNK - 1);
+
+    if (error) return { data: null, error };
+
+    all = all.concat(data || []);
+    if (!data || data.length < FETCH_CHUNK) break;
+    from += FETCH_CHUNK;
+  }
+
+  return { data: all, error: null };
+}
+
+/* Weekly sales totals, grouped by the database (one row per week). */
+async function fetchWeeklySales(dateFrom, dateTo) {
+  const { data, error } = await supabase.rpc("ledger_weekly_sales", {
+    p_from: dateFrom,
+    p_to: dateTo,
+  });
+  if (error) return { data: null, error };
+
+  const weeks = (data || []).map((w) => {
+    const { key, label } = getWeekInfo(w.week_start);
+    return {
+      id: `sales-week-${key}-${w.type}`,
+      date: key,
+      detail: label,
+      type: w.type,
+      amount: Number(w.total),
+      ledger_categories: { name: SALES_CATEGORY, classification: "revenue" },
+      isSalesWeek: true,
+    };
+  });
+
+  return { data: weeks, error: null };
+}
+
 function Ledger() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [dateFrom, setDateFrom] = useState(firstOfMonthKey());
   const [dateTo, setDateTo] = useState(localDateKey());
-  const [entries, setEntries] = useState([]);
+  const [otherEntries, setOtherEntries] = useState([]);
+  const [salesWeeks, setSalesWeeks] = useState([]);
   const [categories, setCategories] = useState([]);
   const [page, setPage] = useState(1);
   const [pageError, setPageError] = useState("");
@@ -88,25 +144,21 @@ function Ledger() {
   const [archiving, setArchiving] = useState(false);
 
   const requestIdRef = useRef(0);
-  const prevEntriesJsonRef = useRef("");
+  const prevJsonRef = useRef("");
 
   const loadLedger = useCallback(
     async (mode = "poll") => {
       const requestId = ++requestIdRef.current;
       if (mode === "initial") setLoading(true);
 
-      const { data, error } = await supabase
-        .from("ledger_entries")
-        .select(
-          "id, date, detail, type, amount, archived, ledger_categories ( name, classification )"
-        )
-        .gte("date", dateFrom)
-        .lte("date", dateTo)
-        .eq("archived", false)
-        .order("date", { ascending: false });
+      const [othersRes, salesRes] = await Promise.all([
+        fetchOtherEntries(dateFrom, dateTo),
+        fetchWeeklySales(dateFrom, dateTo),
+      ]);
 
       if (requestId !== requestIdRef.current) return;
 
+      const error = othersRes.error || salesRes.error;
       if (error) {
         console.error("Error loading ledger:", error);
         if (mode === "initial") {
@@ -117,11 +169,14 @@ function Ledger() {
       }
 
       setPageError("");
-      const fresh = data || [];
-      const freshJson = JSON.stringify(fresh);
-      if (mode === "initial" || freshJson !== prevEntriesJsonRef.current) {
-        prevEntriesJsonRef.current = freshJson;
-        setEntries(fresh);
+      const freshOthers = othersRes.data || [];
+      const freshSales = salesRes.data || [];
+      const freshJson = JSON.stringify([freshOthers, freshSales]);
+
+      if (mode === "initial" || freshJson !== prevJsonRef.current) {
+        prevJsonRef.current = freshJson;
+        setOtherEntries(freshOthers);
+        setSalesWeeks(freshSales);
       }
       setLoading(false);
     },
@@ -187,34 +242,10 @@ function Ledger() {
     setCategories(data || []);
   }
 
-  const displayRows = (() => {
-    const salesWeeks = {};
-    const others = [];
-
-    entries.forEach((e) => {
-      if (e.ledger_categories?.name === "Sales Revenue") {
-        const { key, label } = getWeekInfo(e.date);
-        if (!salesWeeks[key]) {
-          salesWeeks[key] = {
-            id: `sales-week-${key}`,
-            date: key,
-            detail: label,
-            type: e.type,
-            amount: 0,
-            ledger_categories: e.ledger_categories,
-            isSalesWeek: true,
-          };
-        }
-        salesWeeks[key].amount += e.amount;
-      } else {
-        others.push(e);
-      }
-    });
-
-    return [...Object.values(salesWeeks), ...others].sort((a, b) =>
-      b.date.localeCompare(a.date)
-    );
-  })();
+  // Weekly sales rows (already grouped by the database) + everything else.
+  const displayRows = [...salesWeeks, ...otherEntries].sort((a, b) =>
+    b.date.localeCompare(a.date)
+  );
 
   const totalPages = Math.max(1, Math.ceil(displayRows.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -614,7 +645,7 @@ function Ledger() {
           {!loading && displayRows.length > 0 && totalPages > 1 && (
             <div className="flex items-center justify-between mt-4">
               <p className="text-sm" style={{ color: C.textMuted }}>
-                Page {currentPage} of {totalPages} · {displayRows.length} rows
+                Page {currentPage} of {totalPages} | {displayRows.length} rows
               </p>
               <div className="flex gap-2">
                 <button

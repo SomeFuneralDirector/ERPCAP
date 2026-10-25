@@ -29,7 +29,35 @@ const C = {
   warningBorder: "#F1DDB8",
 };
 
+const FETCH_CHUNK = 1000; // Supabase returns at most 1000 rows per request
+
 const fmtAxis = (v) => `₱${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`;
+
+/* Fetch every non-archived entry in range, paging past the 1000-row cap. */
+async function fetchAllEntries(dateFrom, dateTo) {
+  let all = [];
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("ledger_entries")
+      .select("id, date, detail, type, amount, ledger_categories(name, classification)")
+      .gte("date", dateFrom)
+      .lte("date", dateTo)
+      .eq("archived", false)
+      .order("date", { ascending: true })
+      .order("id", { ascending: true }) // stable order across pages
+      .range(from, from + FETCH_CHUNK - 1);
+
+    if (error) return { data: null, error };
+
+    all = all.concat(data || []);
+    if (!data || data.length < FETCH_CHUNK) break;
+    from += FETCH_CHUNK;
+  }
+
+  return { data: all, error: null };
+}
 
 function Skeleton({ className = "h-8 w-16" }) {
   return <div className={`${className} bg-gray-100 rounded animate-pulse mt-1`} />;
@@ -101,13 +129,7 @@ function Finance() {
       setError("");
 
       const [entriesRes, balancesRes] = await Promise.all([
-        supabase
-          .from("ledger_entries")
-          .select("date, detail, type, amount, ledger_categories(name, classification)")
-          .gte("date", dateFrom)
-          .lte("date", dateTo)
-          .eq("archived", false)
-          .order("date", { ascending: true }),
+        fetchAllEntries(dateFrom, dateTo),
         supabase.rpc("account_balances", { p_from: dateFrom, p_to: dateTo }),
       ]);
 
@@ -131,7 +153,7 @@ function Finance() {
     loadFinanceData(true);
   }, [loadFinanceData]);
 
-  // True P&L (RPC returns cents → pesos)
+  // True P&L. Amounts stay in cents here: formatPeso() already divides by 100.
   const { totalRevenue, totalExpenses, net, isProfit } = useMemo(() => {
     const rows = (accountBalances || [])
       .filter((r) => r.name && r.classification)
@@ -141,15 +163,13 @@ function Finance() {
         credit: toNumber(r.credit),
       }));
 
-    const revenue =
-      rows
-        .filter((r) => r.classification === "revenue")
-        .reduce((sum, r) => sum + (r.debit - r.credit), 0) / 100;
+    const revenue = rows
+      .filter((r) => r.classification === "revenue")
+      .reduce((sum, r) => sum + (r.debit - r.credit), 0);
 
-    const expenses =
-      rows
-        .filter((r) => r.classification === "expense")
-        .reduce((sum, r) => sum + (r.credit - r.debit), 0) / 100;
+    const expenses = rows
+      .filter((r) => r.classification === "expense")
+      .reduce((sum, r) => sum + (r.credit - r.debit), 0);
 
     const netValue = revenue - expenses;
     return {
@@ -160,7 +180,8 @@ function Finance() {
     };
   }, [accountBalances]);
 
-  // Charts – only revenue & expense categories
+  // Charts – only revenue & expense categories.
+  // Charts format with toLocaleString (not formatPeso), so they convert to pesos here.
   const analytics = useMemo(() => {
     const result = { byCategory: {}, byMonth: {} };
 

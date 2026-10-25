@@ -13,7 +13,6 @@ import {
   Cell,
   PieChart,
   Pie,
-  LabelList,
 } from "recharts";
 import {
   Package,
@@ -237,12 +236,12 @@ function DonutWithLegend({ data, height = 150, formatter = (v) => Number(v).toLo
   );
 }
 
-/* Small column chart with value labels. data: [{ name, value, color }] */
+/* Small column chart (values show in the tooltip). data: [{ name, value, color }] */
 function MiniBar({ data, height = 150, formatter = (v) => Number(v).toLocaleString() }) {
   if (!data || data.length === 0) return <EmptyRow>No data.</EmptyRow>;
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <BarChart data={data} margin={{ top: 18, right: 8, left: 8, bottom: 0 }}>
+      <BarChart data={data} margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
         <XAxis
           dataKey="name"
@@ -257,12 +256,6 @@ function MiniBar({ data, height = 150, formatter = (v) => Number(v).toLocaleStri
           {data.map((entry) => (
             <Cell key={entry.name} fill={entry.color || C.accent} />
           ))}
-          <LabelList
-            dataKey="value"
-            position="top"
-            formatter={(v) => formatter(v)}
-            style={{ fontSize: 12, fill: "#374151", fontWeight: 600 }}
-          />
         </Bar>
       </BarChart>
     </ResponsiveContainer>

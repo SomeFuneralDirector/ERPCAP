@@ -76,8 +76,8 @@ function BalanceSheet() {
         credit: toNumber(r.credit),
       }));
 
-      // Everything from RPC is in cents → convert to pesos
-      const cash = rows.reduce((s, r) => s + r.debit - r.credit, 0) / 100;
+      // Amounts stay in cents here: formatPeso() already divides by 100.
+      const cash = rows.reduce((s, r) => s + r.debit - r.credit, 0);
 
       const categorized = rows
         .filter((r) => r.name && r.classification)
@@ -85,25 +85,23 @@ function BalanceSheet() {
 
       const otherAssets = categorized
         .filter((r) => r.classification === "asset")
-        .map((r) => ({ name: r.name, amount: (r.credit - r.debit) / 100 }));
+        .map((r) => ({ name: r.name, amount: r.credit - r.debit }));
 
       const liabilityRows = categorized
         .filter((r) => r.classification === "liability")
-        .map((r) => ({ name: r.name, amount: (r.debit - r.credit) / 100 }));
+        .map((r) => ({ name: r.name, amount: r.debit - r.credit }));
 
       const equityRows = categorized
         .filter((r) => r.classification === "equity")
-        .map((r) => ({ name: r.name, amount: (r.debit - r.credit) / 100 }));
+        .map((r) => ({ name: r.name, amount: r.debit - r.credit }));
 
-      const revenueTotal =
-        categorized
-          .filter((r) => r.classification === "revenue")
-          .reduce((sum, r) => sum + (r.debit - r.credit), 0) / 100;
+      const revenueTotal = categorized
+        .filter((r) => r.classification === "revenue")
+        .reduce((sum, r) => sum + (r.debit - r.credit), 0);
 
-      const expenseTotal =
-        categorized
-          .filter((r) => r.classification === "expense")
-          .reduce((sum, r) => sum + (r.credit - r.debit), 0) / 100;
+      const expenseTotal = categorized
+        .filter((r) => r.classification === "expense")
+        .reduce((sum, r) => sum + (r.credit - r.debit), 0);
 
       setAssets(
         [{ name: "Cash", amount: cash }, ...otherAssets].filter((row) => row.amount !== 0)
@@ -124,7 +122,7 @@ function BalanceSheet() {
   const totalEquity = totalEquityAccounts + netIncome;
   const totalLiabilitiesAndEquity = totalLiabilities + totalEquity;
   const difference = totalAssets - totalLiabilitiesAndEquity;
-  const isBalanced = Math.abs(difference) < 0.01; // allow tiny floating-point noise
+  const isBalanced = Math.abs(difference) < 1; // amounts are in cents, so allow < 1 centavo of noise
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: C.surface }}>
