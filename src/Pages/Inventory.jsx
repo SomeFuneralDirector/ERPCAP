@@ -7,7 +7,6 @@ import {
   Eye,
   Pencil,
   Archive,
-  Boxes,
   Bell,
   Check,
   XCircle,
@@ -569,7 +568,6 @@ function Inventory() {
   const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [itemToArchive, setItemToArchive] = useState(null);
 
-  const [lowMaterials, setLowMaterials] = useState([]);
   const [pendingRequests, setPendingRequests] = useState([]);
 
   const fetchInventory = useCallback(async () => {
@@ -585,17 +583,6 @@ function Inventory() {
     setLoading(false);
   }, []);
 
-  const fetchMaterialAlerts = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("raw_materials")
-      .select("id, material_name, status, current_stock, unit")
-      .neq("status", "In Stock")
-      .order("current_stock", { ascending: true })
-      .limit(6);
-    if (!error) setLowMaterials(data || []);
-    else console.error("raw_materials alert fetch error:", error);
-  }, []);
-
   const fetchPendingRequests = useCallback(async () => {
     const { data, error } = await supabase
       .from("allocation_requests")
@@ -608,9 +595,8 @@ function Inventory() {
 
   useEffect(() => {
     fetchInventory();
-    fetchMaterialAlerts();
     fetchPendingRequests();
-  }, [fetchInventory, fetchMaterialAlerts, fetchPendingRequests]);
+  }, [fetchInventory, fetchPendingRequests]);
 
   // Live-refresh the moment Production files a new request, instead of
   // waiting for a manual "Refresh" click.
@@ -799,34 +785,6 @@ function Inventory() {
             fetchInventory();
           }}
         />
-
-        {/* Cross-module alert: raw materials running low, affects restocking */}
-        {lowMaterials.length > 0 && (
-          <div className="bg-white rounded-lg border shadow-sm p-4" style={{ borderColor: C.warningBorder }}>
-            <div className="flex items-center gap-2 mb-2">
-              <Boxes size={15} style={{ color: C.warning }} />
-              <p className="text-sm font-semibold text-gray-800">
-                Production is low on {lowMaterials.length} raw material{lowMaterials.length !== 1 ? "s" : ""}
-              </p>
-            </div>
-            <p className="text-xs text-gray-500 mb-2">Restocking finished goods that depend on these may be delayed:</p>
-            <div className="flex flex-wrap gap-2">
-              {lowMaterials.map((m) => (
-                <span
-                  key={m.id}
-                  className="px-2 py-1 rounded-md text-xs font-medium border"
-                  style={
-                    m.status === "Out of Stock"
-                      ? { color: C.accent, backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder }
-                      : { color: C.warning, backgroundColor: C.warningSoft, borderColor: C.warningBorder }
-                  }
-                >
-                  {m.material_name} · {m.current_stock} {m.unit}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* Filters */}
         <div className="bg-white rounded-lg border border-gray-200 shadow-sm px-4 py-3 flex flex-col md:flex-row gap-3 items-center">

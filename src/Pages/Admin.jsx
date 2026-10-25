@@ -11,6 +11,9 @@ import {
   CartesianGrid,
   Tooltip,
   Cell,
+  PieChart,
+  Pie,
+  LabelList,
 } from "recharts";
 import {
   Package,
@@ -21,7 +24,6 @@ import {
   ArrowRight,
   ChevronLeft,
   ChevronRight,
-  CheckCircle2,
 } from "lucide-react";
 import { supabase } from "../api/supabase";
 
@@ -60,6 +62,14 @@ const MATERIAL_STATUS_STYLES = {
   "Low Stock": { color: C.warning, backgroundColor: C.warningSoft },
   "Out of Stock": { color: C.accent, backgroundColor: C.accentSoft },
 };
+
+// Chart colors. Red stays reserved for alerts; everything else uses neutral or semantic colors.
+const PLATFORM_COLORS = { Shopee: "#EE4D2D", Lazada: "#0F146D", TikTok: "#101113", Other: "#9CA3AF" };
+const CATEGORY_COLORS = { Men: "#1D4E89", Women: "#8B2976", Unisex: "#475569" };
+const STOCK_STATUS_HEX = { "In Stock": "#15803D", "Low Stock": "#D97706", "Out of Stock": "#B3211B" };
+const CAMPAIGN_HEX = { Active: "#15803D", Upcoming: "#D97706", Ended: "#9CA3AF", Cancelled: "#D1D5DB" };
+const WO_HEX = { Pending: "#D97706", "In Progress": "#2563EB", Completed: "#059669", Cancelled: "#9CA3AF" };
+const SUPPLIER_COLORS = ["#0E7490", "#92400E", "#166534", "#9F1239", "#1E3A8A", "#57534E"];
 
 const PAGE_SIZE = 5;
 
@@ -158,6 +168,107 @@ const localDateBoundary = (value, endOfDay = false) => {
   return date.getTime();
 };
 
+function platformName(value) {
+  const key = String(value || "").toLowerCase();
+  if (key === "shopee") return "Shopee";
+  if (key === "lazada") return "Lazada";
+  if (key === "tiktok") return "TikTok";
+  return "Other";
+}
+
+function bucketWeeklyUnits(workOrders) {
+  const buckets = {};
+  workOrders.forEach((wo) => {
+    const date = toDate(wo.completed_at || wo.created_at);
+    if (!date) return;
+    const start = getStartOfWeek(date);
+    const key = start.getTime();
+    if (!buckets[key]) {
+      buckets[key] = {
+        name: start.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+        sortKey: key,
+        value: 0,
+        color: C.accent,
+      };
+    }
+    buckets[key].value += toNumber(wo.quantity);
+  });
+  return Object.values(buckets)
+    .sort((a, b) => a.sortKey - b.sortKey)
+    .slice(-6);
+}
+
+/* Small donut with a value legend. data: [{ name, value, color }] */
+function DonutWithLegend({ data, height = 150, formatter = (v) => Number(v).toLocaleString(), inline = false }) {
+  if (!data || data.length === 0) return <EmptyRow>No data.</EmptyRow>;
+  return (
+    <div className={inline ? "flex items-center gap-4" : ""}>
+      <div className={inline ? "w-1/2 shrink-0" : ""}>
+        <ResponsiveContainer width="100%" height={height}>
+          <PieChart>
+            <Pie
+              data={data}
+              dataKey="value"
+              nameKey="name"
+              innerRadius={Math.round(height * 0.28)}
+              outerRadius={Math.round(height * 0.44)}
+              paddingAngle={3}
+            >
+              {data.map((entry) => (
+                <Cell key={entry.name} fill={entry.color} />
+              ))}
+            </Pie>
+            <Tooltip formatter={(v, n) => [formatter(v), n]} />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+      <ul className={`space-y-1 ${inline ? "flex-1" : "mt-2"}`}>
+        {data.map((entry) => (
+          <li key={entry.name} className="flex items-center justify-between text-sm gap-2">
+            <span className="flex items-center gap-1.5 text-gray-600 min-w-0">
+              <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: entry.color }} />
+              <span className="truncate">{entry.name}</span>
+            </span>
+            <span className="font-medium text-gray-700 shrink-0">{formatter(entry.value)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/* Small column chart with value labels. data: [{ name, value, color }] */
+function MiniBar({ data, height = 150, formatter = (v) => Number(v).toLocaleString() }) {
+  if (!data || data.length === 0) return <EmptyRow>No data.</EmptyRow>;
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <BarChart data={data} margin={{ top: 18, right: 8, left: 8, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+        <XAxis
+          dataKey="name"
+          tick={{ fontSize: 12, fill: "#374151" }}
+          axisLine={false}
+          tickLine={false}
+          interval={0}
+        />
+        <YAxis hide />
+        <Tooltip formatter={(v) => formatter(v)} />
+        <Bar dataKey="value" radius={[4, 4, 0, 0]} maxBarSize={38}>
+          {data.map((entry) => (
+            <Cell key={entry.name} fill={entry.color || C.accent} />
+          ))}
+          <LabelList
+            dataKey="value"
+            position="top"
+            formatter={(v) => formatter(v)}
+            style={{ fontSize: 12, fill: "#374151", fontWeight: 600 }}
+          />
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
 function usePagination(items, pageSize = PAGE_SIZE) {
   const [page, setPage] = useState(0);
   const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
@@ -214,9 +325,9 @@ function KpiCard({ label, value, sub, loading, tone = "gray" }) {
   );
 }
 
-function SectionCard({ title, icon: Icon, onView, children }) {
+function SectionCard({ title, icon: Icon, onView, children, wide }) {
   return (
-    <Card className="p-6 flex flex-col">
+    <Card className={`p-6 flex flex-col ${wide ? "md:col-span-2" : ""}`}>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-base font-semibold text-gray-700 flex items-center gap-2">
           <Icon size={20} style={{ color: C.accent }} />
@@ -330,7 +441,7 @@ function Admin() {
           .eq("archived", false),
         supabase
           .from("raw_materials")
-          .select("id, material_name, category, current_stock, unit, status"),
+          .select("id, material_name, category, current_stock, status, suppliers(name)"),
         supabase
           .from("campaigns")
           .select("id, name, platform, discount_type, discount_value, start_date, end_date, status"),
@@ -425,7 +536,7 @@ function Admin() {
     return { revenue, expenses, net: revenue - expenses };
   }, [accountBalances]);
 
-  // Monthly chart – only revenue & expense categories (cents → pesos)
+  // Monthly chart: only revenue & expense categories (cents → pesos)
   const monthlyNet = useMemo(() => {
     const map = {};
     ledgerEntries.forEach((e) => {
@@ -476,13 +587,46 @@ function Admin() {
         stockValue(b.tiktok_stock);
       return ta - tb;
     });
-    return { count: products.length, totalStock, low };
+    const productTotal = (p) =>
+      stockValue(p.shopee_stock) + stockValue(p.lazada_stock) + stockValue(p.tiktok_stock);
+    const platformStock = [
+      { name: "Shopee", value: products.reduce((s, p) => s + stockValue(p.shopee_stock), 0), color: PLATFORM_COLORS.Shopee },
+      { name: "Lazada", value: products.reduce((s, p) => s + stockValue(p.lazada_stock), 0), color: PLATFORM_COLORS.Lazada },
+      { name: "TikTok", value: products.reduce((s, p) => s + stockValue(p.tiktok_stock), 0), color: PLATFORM_COLORS.TikTok },
+    ].filter((x) => x.value > 0);
+    const categoryMap = {};
+    products.forEach((p) => {
+      const c = p.category || "Uncategorized";
+      categoryMap[c] = (categoryMap[c] || 0) + productTotal(p);
+    });
+    const categoryStock = Object.entries(categoryMap)
+      .map(([name, value]) => ({ name, value, color: CATEGORY_COLORS[name] || "#6B7280" }))
+      .filter((x) => x.value > 0)
+      .sort((a, b) => b.value - a.value);
+    return { count: products.length, totalStock, low, platformStock, categoryStock };
   }, [products]);
 
   const materialStats = useMemo(() => {
     const low = materials.filter((m) => m.status === "Low Stock");
     const out = materials.filter((m) => m.status === "Out of Stock");
-    return { count: materials.length, low, out, attention: [...out, ...low] };
+    const litres = materials.reduce((sum, m) => sum + stockValue(m.current_stock), 0);
+    const statusData = ["In Stock", "Low Stock", "Out of Stock"]
+      .map((name) => ({
+        name,
+        value: materials.filter((m) => (m.status || "In Stock") === name).length,
+        color: STOCK_STATUS_HEX[name],
+      }))
+      .filter((x) => x.value > 0);
+    const supplierMap = {};
+    materials.forEach((m) => {
+      const n = m.suppliers?.name || "No supplier";
+      supplierMap[n] = (supplierMap[n] || 0) + stockValue(m.current_stock);
+    });
+    const supplierData = Object.entries(supplierMap)
+      .map(([name, value]) => ({ name, value: Math.round(value * 10) / 10 }))
+      .sort((a, b) => b.value - a.value)
+      .map((x, i) => ({ ...x, color: SUPPLIER_COLORS[i % SUPPLIER_COLORS.length] }));
+    return { count: materials.length, low, out, attention: [...out, ...low], litres, statusData, supplierData };
   }, [materials]);
 
   const lowStockAlertCount =
@@ -500,10 +644,17 @@ function Admin() {
         if (!b.end_date) return -1;
         return new Date(a.end_date) - new Date(b.end_date);
       });
-    return { activeCount: active.length, active: active.slice(0, 4) };
+    const statusData = ["Active", "Upcoming", "Ended", "Cancelled"]
+      .map((name) => ({
+        name,
+        value: withStatus.filter((c) => c._status === name).length,
+        color: CAMPAIGN_HEX[name],
+      }))
+      .filter((x) => x.value > 0);
+    return { activeCount: active.length, active: active.slice(0, 4), statusData };
   }, [campaigns]);
 
-  // Sales – same date-boundary logic as Sales Dashboard
+  // Sales: same date-boundary logic as Sales Dashboard
   const salesStats = useMemo(() => {
     const fromTime = localDateBoundary(dateFrom);
     const toTime = localDateBoundary(dateTo, true);
@@ -522,11 +673,22 @@ function Admin() {
     const avgOrder = rangeOrders.length > 0 ? total / rangeOrders.length : 0;
     const trend = bucketWeeklySales(rangeOrders);
 
+    const platformMap = {};
+    rangeOrders.forEach((o) => {
+      const name = platformName(o.platform);
+      platformMap[name] = (platformMap[name] || 0) + centsToPesos(o.total_amount);
+    });
+    const byPlatform = Object.entries(platformMap)
+      .filter(([, value]) => value > 0)
+      .map(([name, value]) => ({ name, value, color: PLATFORM_COLORS[name] }))
+      .sort((a, b) => b.value - a.value);
+
     return {
       total,
       avgOrder,
       ordersCount: rangeOrders.length,
       trend,
+      byPlatform,
     };
   }, [orders, dateFrom, dateTo]);
 
@@ -546,12 +708,14 @@ function Admin() {
       return day && day >= dateFrom && day <= dateTo;
     });
     const unitsFinished = completedInRange.reduce((s, wo) => s + (wo.quantity || 0), 0);
-    const recentlyFinished = [...completedInRange]
-      .sort(
-        (a, b) =>
-          new Date(b.completed_at || b.created_at) - new Date(a.completed_at || a.created_at)
-      )
-      .slice(0, 5);
+    const statusData = ["Pending", "In Progress", "Completed", "Cancelled"]
+      .map((name) => ({
+        name,
+        value: workOrders.filter((wo) => wo.status === name).length,
+        color: WO_HEX[name],
+      }))
+      .filter((x) => x.value > 0);
+    const weeklyUnits = bucketWeeklyUnits(completedInRange);
 
     return {
       activeCount: active.length,
@@ -560,7 +724,8 @@ function Admin() {
       dueSoon,
       unitsFinished,
       finishedOrdersCount: completedInRange.length,
-      recentlyFinished,
+      statusData,
+      weeklyUnits,
     };
   }, [workOrders, dateFrom, dateTo]);
 
@@ -636,7 +801,7 @@ function Admin() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {/* Finance */}
-          <SectionCard title="Finance" icon={TrendingUp} onView={() => goTo("finance")}>
+          <SectionCard wide title="Finance" icon={TrendingUp} onView={() => goTo("finance")}>
             <div className="grid grid-cols-3 gap-3 mb-4">
               <div>
                 <p className="text-sm text-gray-400">Expenses</p>
@@ -662,12 +827,12 @@ function Admin() {
             ) : monthlyNet.length === 0 ? (
               <EmptyRow>No ledger entries in the selected range.</EmptyRow>
             ) : (
-              <ResponsiveContainer width="100%" height={210}>
+              <ResponsiveContainer width="100%" height={280}>
                 <BarChart data={monthlyNet} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
                   <XAxis dataKey="label" tick={{ fontSize: 14, fill: "#000000" }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 14, fill: "#000000" }} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
-                  <Tooltip formatter={(v) => fmtPeso(v)} labelFormatter={(l) => `Net — ${l}`} />
+                  <Tooltip formatter={(v) => fmtPeso(v)} labelFormatter={(l) => `Net: ${l}`} />
                   <Bar dataKey="net" radius={[4, 4, 4, 4]}>
                     {monthlyNet.map((m, i) => (
                       <Cell key={i} fill={m.net >= 0 ? C.success : C.accent} />
@@ -679,7 +844,7 @@ function Admin() {
           </SectionCard>
 
           {/* Sales */}
-          <SectionCard title="Sales — finished products" icon={TrendingUp} onView={() => goTo("sales_db")}>
+          <SectionCard title="Sales: finished products" icon={TrendingUp} onView={() => goTo("sales_db")}>
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div>
                 <p className="text-sm text-gray-400">In range</p>
@@ -711,10 +876,16 @@ function Admin() {
                 </AreaChart>
               </ResponsiveContainer>
             )}
+            {!loading && salesStats.byPlatform.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                <p className="text-sm font-semibold text-gray-500 mb-2">Sales by platform</p>
+                <DonutWithLegend data={salesStats.byPlatform} formatter={fmtPeso} height={150} inline />
+              </div>
+            )}
           </SectionCard>
 
-          {/* Inventory – products */}
-          <SectionCard title="Inventory — finished products" icon={Package} onView={() => goTo("inventory")}>
+          {/* Inventory: products */}
+          <SectionCard title="Inventory: finished products" icon={Package} onView={() => goTo("inventory")}>
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div>
                 <p className="text-sm text-gray-400">Products</p>
@@ -725,6 +896,19 @@ function Admin() {
                 {loading ? <Skeleton /> : <p className="text-xl font-semibold text-gray-900">{productStats.totalStock.toLocaleString()}</p>}
               </div>
             </div>
+            {!loading && (productStats.platformStock.length > 0 || productStats.categoryStock.length > 0) && (
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                  <p className="text-sm font-semibold text-gray-500 mb-1">Stock by platform</p>
+                  <DonutWithLegend data={productStats.platformStock} height={150} />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-500 mb-1">Stock by category</p>
+                  <MiniBar data={productStats.categoryStock} height={150} />
+                </div>
+              </div>
+            )}
+
             {loading ? (
               <Skeleton className="h-24 w-full" />
             ) : productStats.low.length === 0 ? (
@@ -762,12 +946,22 @@ function Admin() {
             )}
           </SectionCard>
 
-          {/* Inventory – materials */}
-          <SectionCard title="Inventory — raw materials" icon={Boxes} onView={() => goTo("production_rm")}>
-            <div className="grid grid-cols-2 gap-3 mb-4">
+          {/* Inventory: materials */}
+          <SectionCard title="Inventory: raw materials" icon={Boxes} onView={() => goTo("production_rm")}>
+            <div className="grid grid-cols-3 gap-3 mb-4">
               <div>
                 <p className="text-sm text-gray-400">Materials tracked</p>
                 {loading ? <Skeleton /> : <p className="text-xl font-semibold text-gray-900">{materialStats.count.toLocaleString()}</p>}
+              </div>
+              <div>
+                <p className="text-sm text-gray-400">Total volume</p>
+                {loading ? (
+                  <Skeleton />
+                ) : (
+                  <p className="text-xl font-semibold text-gray-900">
+                    {materialStats.litres.toLocaleString(undefined, { maximumFractionDigits: 1 })} L
+                  </p>
+                )}
               </div>
               <div>
                 <p className="text-sm text-gray-400">Needs attention</p>
@@ -780,6 +974,23 @@ function Admin() {
                 )}
               </div>
             </div>
+            {!loading && materialStats.count > 0 && (
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                  <p className="text-sm font-semibold text-gray-500 mb-1">Stock status</p>
+                  <DonutWithLegend data={materialStats.statusData} height={150} />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-500 mb-1">Volume by supplier (L)</p>
+                  <MiniBar
+                    data={materialStats.supplierData}
+                    height={150}
+                    formatter={(v) => `${Number(v).toLocaleString(undefined, { maximumFractionDigits: 1 })} L`}
+                  />
+                </div>
+              </div>
+            )}
+
             {loading ? (
               <Skeleton className="h-24 w-full" />
             ) : materialStats.attention.length === 0 ? (
@@ -791,7 +1002,7 @@ function Admin() {
                     <li key={m.id} className="flex items-center justify-between text-sm">
                       <span className="text-gray-700 truncate pr-2">{m.material_name}</span>
                       <StatusChip
-                        label={`${Number(m.current_stock).toLocaleString()} ${m.unit}`}
+                        label={`${Number(m.current_stock).toLocaleString(undefined, { maximumFractionDigits: 1 })} L`}
                         style={MATERIAL_STATUS_STYLES[m.status] || {}}
                       />
                     </li>
@@ -823,6 +1034,13 @@ function Admin() {
                 </p>
               )}
             </div>
+            {!loading && campaignStats.statusData.length > 0 && (
+              <div className="mb-4">
+                <p className="text-sm font-semibold text-gray-500 mb-1">Campaigns by status</p>
+                <DonutWithLegend data={campaignStats.statusData} height={150} inline />
+              </div>
+            )}
+
             {loading ? (
               <Skeleton className="h-24 w-full" />
             ) : campaignStats.active.length === 0 ? (
@@ -846,7 +1064,7 @@ function Admin() {
           </SectionCard>
 
           {/* Production */}
-          <SectionCard title="Production" icon={Factory} onView={() => goTo("production_wo")}>
+          <SectionCard wide title="Production" icon={Factory} onView={() => goTo("production_wo")}>
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div>
                 <p className="text-sm text-gray-400">Units finished</p>
@@ -870,53 +1088,41 @@ function Admin() {
               </div>
             </div>
 
+            {!loading && (
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                  <p className="text-sm font-semibold text-gray-500 mb-1">Work orders by status</p>
+                  <DonutWithLegend data={productionStats.statusData} height={150} />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-500 mb-1">Units finished per week</p>
+                  <MiniBar data={productionStats.weeklyUnits} height={150} />
+                </div>
+              </div>
+            )}
+
             {loading ? (
               <Skeleton className="h-24 w-full" />
             ) : (
-              <div className="space-y-3">
-                <div>
-                  <p className="text-sm font-semibold text-gray-500 mb-1">Due soon</p>
-                  {productionStats.dueSoon.length === 0 ? (
-                    <EmptyRow>No active work orders with a due date.</EmptyRow>
-                  ) : (
-                    <ul className="space-y-1.5">
-                      {productionStats.dueSoon.map((wo) => (
-                        <li key={wo.id} className="flex items-center justify-between text-sm">
-                          <span className="text-gray-700 truncate pr-2">
-                            {wo.wo_number} · {wo.product_name}
-                          </span>
-                          <StatusChip
-                            label={wo.due_date ? new Date(wo.due_date).toLocaleDateString() : "—"}
-                            style={WO_STATUS_STYLES[wo.status] || {}}
-                          />
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-
-                <div>
-                  <p className="text-sm font-semibold text-gray-500 mb-1 flex items-center gap-1">
-                    <CheckCircle2 size={16} style={{ color: C.success }} />
-                    Recently finished
-                  </p>
-                  {productionStats.recentlyFinished.length === 0 ? (
-                    <EmptyRow>Nothing completed in the selected range.</EmptyRow>
-                  ) : (
-                    <ul className="space-y-1.5">
-                      {productionStats.recentlyFinished.map((wo) => (
-                        <li key={wo.id} className="flex items-center justify-between text-sm">
-                          <span className="text-gray-700 truncate pr-2">
-                            {wo.wo_number} · {wo.product_name}
-                          </span>
-                          <span className="shrink-0 text-gray-500 font-medium">
-                            {Number(wo.quantity).toLocaleString()} units
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
+              <div>
+                <p className="text-sm font-semibold text-gray-500 mb-1">Due soon</p>
+                {productionStats.dueSoon.length === 0 ? (
+                  <EmptyRow>No active work orders with a due date.</EmptyRow>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {productionStats.dueSoon.map((wo) => (
+                      <li key={wo.id} className="flex items-center justify-between text-sm">
+                        <span className="text-gray-700 truncate pr-2">
+                          {wo.wo_number} · {wo.product_name}
+                        </span>
+                        <StatusChip
+                          label={wo.due_date ? new Date(wo.due_date).toLocaleDateString() : "No date"}
+                          style={WO_STATUS_STYLES[wo.status] || {}}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             )}
           </SectionCard>

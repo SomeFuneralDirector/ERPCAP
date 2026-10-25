@@ -53,6 +53,9 @@ const STATUS_COLORS = {
   "Out of Stock": C.accent,
 };
 
+// Every material (oils and alcohol) is measured in litres.
+const UNIT = "L";
+
 const SEGMENT_WRAP = "flex gap-0.5 bg-gray-100 rounded-md p-0.5";
 const SEGMENT_BTN = (active) =>
   `px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer ${
@@ -315,7 +318,7 @@ function Inventory_db() {
     let materialsQuery = supabase
       .from("raw_materials")
       .select(
-        "id, material_name, category, unit, current_stock, supplier, unit_cost, status, updated_at"
+        "id, material_name, category, current_stock, reorder_point, status, updated_at, supplier_id, suppliers(name)"
       );
 
     if (!fullResync && lastMaterialsSyncAtRef.current) {
@@ -559,25 +562,28 @@ function Inventory_db() {
 
   const materialStats = useMemo(() => {
     const total = filteredMaterials.length;
-    const value = filteredMaterials.reduce(
-      (sum, m) => sum + nonNegative(m.current_stock) * nonNegative(m.unit_cost),
-      0
-    );
+    const litresOf = (category) =>
+      filteredMaterials
+        .filter((m) => m.category === category)
+        .reduce((sum, m) => sum + nonNegative(m.current_stock), 0);
+    const oilLitres = litresOf("Oil");
+    const alcoholLitres = litresOf("Alcohol");
     const lowStockCount = filteredMaterials.filter((m) => m.status === "Low Stock").length;
     const outCount = filteredMaterials.filter((m) => m.status === "Out of Stock").length;
-    return { total, value, lowStockCount, outOfStockCount: outCount };
+    return { total, oilLitres, alcoholLitres, lowStockCount, outOfStockCount: outCount };
   }, [filteredMaterials]);
 
-  const materialCategoryData = useMemo(() => {
+  // Stock volume (litres) per supplier: Belstar, IFF, MG, Sozio.
+  const materialSupplierData = useMemo(() => {
     const map = {};
     filteredMaterials.forEach((m) => {
-      const c = m.category || "Uncategorized";
-      if (!map[c]) map[c] = { name: c, count: 0, value: 0 };
-      map[c].count += 1;
-      map[c].value += nonNegative(m.current_stock) * nonNegative(m.unit_cost);
+      const name = m.suppliers?.name || "No supplier";
+      if (!map[name]) map[name] = { name, count: 0, litres: 0 };
+      map[name].count += 1;
+      map[name].litres += nonNegative(m.current_stock);
     });
     return Object.values(map)
-      .sort((a, b) => b.value - a.value)
+      .sort((a, b) => b.litres - a.litres)
       .map((c) => ({ ...c, color: colorForCategory(c.name) }));
   }, [filteredMaterials]);
 
@@ -675,23 +681,23 @@ function Inventory_db() {
     });
   }
 
-  function handleMaterialCategoryClick(entry) {
-    const category = entry?.name;
-    if (!category) return;
+  function handleMaterialSupplierClick(entry) {
+    const supplier = entry?.name;
+    if (!supplier) return;
     const materials = filteredMaterials
-      .filter((m) => (m.category || "Uncategorized") === category)
+      .filter((m) => (m.suppliers?.name || "No supplier") === supplier)
       .map((m) => ({
         name: m.material_name || "Unknown",
-        code: m.supplier || "No supplier",
+        code: m.category || "Uncategorized",
         qty: nonNegative(m.current_stock),
-        unit: m.unit || "",
+        unit: UNIT,
         status: m.status || "In Stock",
       }))
       .sort((a, b) => b.qty - a.qty);
 
     setBreakdown({
-      type: "material-category",
-      label: category,
+      type: "material-supplier",
+      label: supplier,
       color: entry.color,
       products: materials,
     });
@@ -706,7 +712,7 @@ function Inventory_db() {
         name: m.material_name || "Unknown",
         code: m.category || "Uncategorized",
         qty: nonNegative(m.current_stock),
-        unit: m.unit || "",
+        unit: UNIT,
         status,
       }))
       .sort((a, b) => a.qty - b.qty);
@@ -720,8 +726,7 @@ function Inventory_db() {
   }
 
   const fmt = (n) => (n ?? 0).toLocaleString();
-  const fmtPeso = (n) =>
-    `₱${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  const fmtL = (n) => `${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} L`;
   const loading = initialLoading;
 
   if (errorMsg && rawInventory.length === 0 && !loading) {
@@ -1168,7 +1173,7 @@ function Inventory_db() {
 
         {/* ══════════════════════ RAW MATERIALS ══════════════════════ */}
         <div id="materials-section" className="scroll-mt-4">
-          <SectionHeading title="Raw materials" subtitle="Production inputs" />
+          <SectionHeading title="Raw materials"  />
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -1181,62 +1186,69 @@ function Inventory_db() {
                 {fmt(materialStats.total)}
               </p>
             )}
-            <p className="text-xs mt-1 text-gray-400">Tracked SKUs</p>
+            <p className="text-xs mt-1 text-gray-400">Oils and alcohol</p>
           </Card>
 
           <Card className="p-4">
-            <p className="text-xs text-gray-500">Estimated value</p>
+            <p className="text-xs text-gray-500">Oils on hand</p>
             {loading ? (
               <Skeleton />
             ) : (
-              <p className="text-2xl font-semibold mt-1" style={{ color: C.success }}>
-                {fmtPeso(materialStats.value)}
+              <p className="text-2xl font-semibold mt-1 text-gray-900">
+                {fmtL(materialStats.oilLitres)}
               </p>
             )}
-            <p className="text-xs mt-1 text-gray-400">Stock × unit cost</p>
+            <p className="text-xs mt-1 text-gray-400">Fragrance oils and aroma chemicals</p>
           </Card>
 
           <Card className="p-4">
-            <p className="text-xs text-gray-500">Low stock</p>
+            <p className="text-xs text-gray-500">Alcohol on hand</p>
             {loading ? (
               <Skeleton />
             ) : (
-              <p className="text-2xl font-semibold mt-1" style={{ color: C.warning }}>
-                {fmt(materialStats.lowStockCount)}
+              <p className="text-2xl font-semibold mt-1 text-gray-900">
+                {fmtL(materialStats.alcoholLitres)}
               </p>
             )}
-            <p className="text-xs mt-1 text-gray-400">Need reordering soon</p>
+            <p className="text-xs mt-1 text-gray-400">Fragrance base</p>
           </Card>
 
           <Card className="p-4">
-            <p className="text-xs text-gray-500">Out of stock</p>
+            <p className="text-xs text-gray-500">Needs reorder</p>
             {loading ? (
               <Skeleton />
             ) : (
-              <p className="text-2xl font-semibold mt-1" style={{ color: C.accent }}>
-                {fmt(materialStats.outOfStockCount)}
+              <p
+                className="text-2xl font-semibold mt-1"
+                style={{
+                  color: materialStats.outOfStockCount > 0 ? C.accent : C.warning,
+                }}
+              >
+                {fmt(materialStats.lowStockCount + materialStats.outOfStockCount)}
               </p>
             )}
-            <p className="text-xs mt-1 text-gray-400">Blocking production</p>
+            <p className="text-xs mt-1 text-gray-400">
+              {fmt(materialStats.lowStockCount)} low · {fmt(materialStats.outOfStockCount)} out
+            </p>
           </Card>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           <Card className="lg:col-span-2 p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">Material value by category</h2>
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">Stock volume by supplier</h2>
             {loading ? (
               <Skeleton className="h-56 w-full" />
-            ) : materialCategoryData.length === 0 ? (
+            ) : materialSupplierData.length === 0 ? (
               <p className="text-xs text-gray-400">No raw materials recorded yet.</p>
             ) : (
               <ResponsiveContainer
                 width="100%"
-                height={Math.max(200, materialCategoryData.length * 42)}
+                height={Math.max(200, materialSupplierData.length * 52)}
               >
                 <BarChart
-                  data={materialCategoryData}
+                  data={materialSupplierData}
                   layout="vertical"
-                  margin={{ top: 0, right: 50, left: 8, bottom: 0 }}
+                  margin={{ top: 0, right: 60, left: 8, bottom: 0 }}
                   barCategoryGap={12}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
@@ -1245,12 +1257,12 @@ function Inventory_db() {
                     tick={{ fontSize: 11, fill: "#6B7280" }}
                     axisLine={false}
                     tickLine={false}
-                    tickFormatter={(v) => fmt(v)}
+                    tickFormatter={(v) => `${fmt(v)} L`}
                   />
                   <YAxis
                     type="category"
                     dataKey="name"
-                    width={140}
+                    width={110}
                     tick={{ fontSize: 11, fill: "#374151" }}
                     axisLine={false}
                     tickLine={false}
@@ -1263,7 +1275,7 @@ function Inventory_db() {
                         <div className="bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2 text-xs">
                           <p className="font-semibold text-gray-700 mb-1">{d.name}</p>
                           <p className="text-gray-600">
-                            {fmtPeso(d.value)} · {fmt(d.count)} material
+                            {fmtL(d.litres)} · {fmt(d.count)} material
                             {d.count !== 1 ? "s" : ""}
                           </p>
                         </div>
@@ -1271,20 +1283,20 @@ function Inventory_db() {
                     }}
                   />
                   <Bar
-                    dataKey="value"
-                    name="Value"
+                    dataKey="litres"
+                    name="Volume"
                     radius={[0, 4, 4, 0]}
-                    barSize={18}
-                    onClick={handleMaterialCategoryClick}
+                    barSize={22}
+                    onClick={handleMaterialSupplierClick}
                     cursor="pointer"
                   >
-                    {materialCategoryData.map((c) => (
+                    {materialSupplierData.map((c) => (
                       <Cell key={c.name} fill={c.color} />
                     ))}
                     <LabelList
-                      dataKey="value"
+                      dataKey="litres"
                       position="right"
-                      formatter={(v) => fmtPeso(v)}
+                      formatter={(v) => fmtL(v)}
                       style={{ fontSize: 10, fill: "#374151", fontWeight: 600 }}
                     />
                   </Bar>
@@ -1404,14 +1416,14 @@ function Inventory_db() {
                       </p>
                       <p className="text-xs text-gray-400 truncate">
                         {m.category || "Uncategorized"}
-                        {m.supplier ? ` · ${m.supplier}` : ""}
+                        {m.suppliers?.name ? ` · ${m.suppliers.name}` : ""}
                       </p>
                     </div>
                     <span
                       className="ml-3 shrink-0 px-1.5 py-0.5 text-xs rounded font-medium"
                       style={{ color: isOut ? C.accent : C.warning }}
                     >
-                      {fmt(m.current_stock)} {m.unit}
+                      {fmt(m.current_stock)} {UNIT}
                     </span>
                   </div>
                 );
@@ -1488,7 +1500,7 @@ function Inventory_db() {
                             </span>
                           </div>
                         )}
-                        {(breakdown.type === "material-category" ||
+                        {(breakdown.type === "material-supplier" ||
                           breakdown.type === "material-status") &&
                           p.status && (
                             <span

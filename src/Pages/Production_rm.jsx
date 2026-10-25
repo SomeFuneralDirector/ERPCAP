@@ -4,7 +4,7 @@
 // Everything is measured in litres (L).
 // Stock goes UP through (a) Receive delivery or (b) a manual edit by the beneficiary.
 import { useState, useEffect, useCallback } from "react";
-import { Search, Plus, X, Eye, Pencil, Trash2, PackagePlus } from "lucide-react";
+import { Search, Plus, X, Eye, Pencil, Trash2, PackagePlus, Boxes } from "lucide-react";
 import { supabase } from "../api/supabase";
 
 /* ── Design tokens ─────────────────────────────────────────────────────── */
@@ -692,6 +692,13 @@ function Production_rm() {
   const lowStockCount = filtered.filter((m) => m.status === "Low Stock").length;
   const outStockCount = filtered.filter((m) => m.status === "Out of Stock").length;
 
+  // Alert strip: materials at or below their reorder point (lowest stock first)
+  const lowAll = materials.filter((m) => m.status === "Low Stock" || m.status === "Out of Stock");
+  const lowTotal = lowAll.length;
+  const lowMaterials = [...lowAll]
+    .sort((a, b) => (Number(a.current_stock) || 0) - (Number(b.current_stock) || 0))
+    .slice(0, 6);
+
   const needsReorderBySupplier = materials.reduce((acc, m) => {
     if (m.status === "Low Stock" || m.status === "Out of Stock") {
       acc[m.supplier_id] = (acc[m.supplier_id] || 0) + 1;
@@ -775,6 +782,36 @@ function Production_rm() {
               <SummaryStat label="Low stock" value={lowStockCount} color={lowStockCount > 0 ? C.warning : C.text} />
               <SummaryStat label="Out of stock" value={outStockCount} color={outStockCount > 0 ? C.accent : C.text} />
             </div>
+
+            {/* Alert: materials running low */}
+            {lowMaterials.length > 0 && (
+              <div className="bg-white rounded-lg border shadow-sm p-4" style={{ borderColor: C.warningBorder }}>
+                <div className="flex items-center gap-2 mb-2">
+                  <Boxes size={15} style={{ color: C.warning }} />
+                  <p className="text-sm font-semibold text-gray-800">
+                    Production is low on {lowTotal} raw material{lowTotal !== 1 ? "s" : ""}
+                  </p>
+                </div>
+                <p className="text-xs text-gray-500 mb-2">
+                  Restocking finished goods that depend on these may be delayed:
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {lowMaterials.map((m) => (
+                    <span
+                      key={m.id}
+                      className="px-2 py-1 rounded-md text-xs font-medium border"
+                      style={
+                        m.status === "Out of Stock"
+                          ? { color: C.accent, backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder }
+                          : { color: C.warning, backgroundColor: C.warningSoft, borderColor: C.warningBorder }
+                      }
+                    >
+                      {m.material_name} · {m.current_stock} {UNIT}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Filters */}
             <div className="bg-white rounded-lg border border-gray-200 shadow-sm px-4 py-3 space-y-3">

@@ -9,12 +9,10 @@ import {
   Line,
   AreaChart,
   Area,
-  ComposedChart,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   PieChart,
   Pie,
   Cell,
@@ -88,6 +86,20 @@ function localDateKey(d) {
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
+}
+
+// Every material (oils and alcohol) is measured in litres.
+// raw_material_usage holds three kinds of rows: supplier deliveries ("[Delivery]"
+// notes, stock in), work-order consumption, and manual deductions (negative).
+// Only the last two count as material USED; deliveries must not inflate usage.
+function isDelivery(u) {
+  return String(u.notes || "").startsWith("[Delivery]");
+}
+
+function consumedQty(u) {
+  if (isDelivery(u)) return 0;
+  const q = toNum(u.quantity_used);
+  return u.wo_number || q < 0 ? Math.abs(q) : 0;
 }
 
 function ChartTooltip({ active, payload }) {
@@ -178,7 +190,7 @@ function Production() {
         .select("*")
         .order("usage_date", { ascending: false })
         .limit(300),
-      supabase.from("raw_materials").select("id, material_name, status, current_stock, unit"),
+      supabase.from("raw_materials").select("id, material_name, category, status, current_stock, suppliers(name)"),
       // Finished goods stock: shared with Inventory's Products page. Same
       // `reorder_point` column that page's threshold is based on, so a
       // product flagged low here is flagged low there too.
@@ -337,6 +349,14 @@ function Production() {
   const pendingOutput = output.filter((o) => !o.allocated);
   const pendingOutputQty = pendingOutput.reduce((sum, o) => sum + Number(o.quantity), 0);
   const lowMaterials = materials.filter((m) => m.status !== "In Stock");
+  const lowMaterialCount = materials.filter((m) => m.status === "Low Stock").length;
+  const outMaterialCount = materials.filter((m) => m.status === "Out of Stock").length;
+
+  const materialLitres = useMemo(() => {
+    const litresOf = (category) =>
+      materials.filter((m) => m.category === category).reduce((sum, m) => sum + toNum(m.current_stock), 0);
+    return { oil: litresOf("Oil"), alcohol: litresOf("Alcohol") };
+  }, [materials]);
 
   // Same rule as Inventory's Products page: total stock across platforms
   // at or below the product's reorder_point (default 5 if unset).
@@ -483,37 +503,11 @@ function Production() {
       const key = localDateKey(d);
       const qty = usage
         .filter((u) => u.usage_date === key)
-        .reduce((sum, u) => sum + Number(u.quantity_used), 0);
+        .reduce((sum, u) => sum + consumedQty(u), 0);
       days.push({ label: d.toLocaleDateString(undefined, { weekday: "short" }), qty });
     }
     return days;
   }, [usage]);
-
-  // Production efficiency, last 14 days: units produced vs. raw material
-  // consumed on the same day, on one timeline. Output and usage were
-  // previously shown in two separate charts on different date ranges
-  // (30 days vs 7 days) with no shared axis, so there was no way to see
-  // whether more material in is actually turning into more output.
-  const efficiencyTrendData = useMemo(() => {
-    const days = [];
-    const today = new Date();
-    for (let i = 13; i >= 0; i--) {
-      const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
-      const key = localDateKey(d);
-      const produced = output
-        .filter((o) => o.production_date === key)
-        .reduce((sum, o) => sum + Number(o.quantity), 0);
-      const used = usage
-        .filter((u) => u.usage_date === key)
-        .reduce((sum, u) => sum + Number(u.quantity_used), 0);
-      days.push({
-        label: d.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
-        produced,
-        used,
-      });
-    }
-    return days;
-  }, [output, usage]);
 
   // Top produced products, last 30 days
   const topProductsChartData = useMemo(() => {
@@ -540,7 +534,7 @@ function Production() {
         .map((m) => ({
           name: m.material_name,
           qty: m.current_stock,
-          unit: m.unit,
+          unit: "L",
           color: m.status === "Out of Stock" ? "#B42318" : "#D97706",
         })),
     [lowMaterials]
@@ -555,14 +549,22 @@ function Production() {
         text: `Produced ${o.quantity} x ${o.product_name} (batch ${o.batch_number})`,
         type: "output",
       })),
-      ...usage.map((u) => ({
-        id: `use-${u.id}`,
-        time: u.created_at,
-        text: `Used ${u.quantity_used} ${u.unit} of ${u.material_name}${
-          u.wo_number ? ` for ${u.wo_number}` : ""
-        }`,
-        type: "usage",
-      })),
+      ...usage.map((u) => {
+        const qty = Math.abs(toNum(u.quantity_used));
+        let type = "usage";
+        let text;
+        if (isDelivery(u)) {
+          type = "delivery";
+          text = `Received ${qty} L of ${u.material_name}`;
+        } else if (u.wo_number) {
+          text = `Used ${qty} L of ${u.material_name} for ${u.wo_number}`;
+        } else if (toNum(u.quantity_used) < 0) {
+          text = `Deducted ${qty} L of ${u.material_name}`;
+        } else {
+          text = `Added ${qty} L of ${u.material_name}`;
+        }
+        return { id: `use-${u.id}`, time: u.created_at, text, type };
+      }),
     ];
     return items.sort((a, b) => new Date(b.time) - new Date(a.time)).slice(0, 8);
   }, [output, usage]);
@@ -661,6 +663,36 @@ function Production() {
           label="Finished goods low"
           value={finishedGoodsLow.length}
           sub="from Inventory, reorder point"
+          color="text-red-700"
+          loading={loading}
+        />
+      </div>
+
+      {/* Raw material stock (litres). Deliveries are recorded on Inventory - Raw Materials. */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard
+          label="Oils on hand"
+          value={`${materialLitres.oil.toLocaleString(undefined, { maximumFractionDigits: 1 })} L`}
+          sub="fragrance oils, aroma chemicals"
+          loading={loading}
+        />
+        <StatCard
+          label="Alcohol on hand"
+          value={`${materialLitres.alcohol.toLocaleString(undefined, { maximumFractionDigits: 1 })} L`}
+          sub="fragrance base"
+          loading={loading}
+        />
+        <StatCard
+          label="Materials low"
+          value={lowMaterialCount}
+          sub="at or below reorder point"
+          color="text-amber-700"
+          loading={loading}
+        />
+        <StatCard
+          label="Materials out"
+          value={outMaterialCount}
+          sub="blocking production"
           color="text-red-700"
           loading={loading}
         />
@@ -806,7 +838,7 @@ function Production() {
         </div>
       </div>
 
-      {/* Work order timeliness + Production efficiency (output vs material used) */}
+      {/* Work order timeliness + Production output trend */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className={`lg:col-span-1 ${CARD} p-5`}>
           <div className="flex items-center gap-2 mb-1">
@@ -851,73 +883,6 @@ function Production() {
             </>
           )}
         </div>
-
-        <div className={`lg:col-span-2 ${CARD} p-5`}>
-          <h2 className="text-sm font-semibold text-gray-800 mb-1">Production efficiency, last 14 days</h2>
-          <p className="text-xs text-gray-400 mb-3">Units produced against raw material consumed, same day</p>
-          {loading ? (
-            <Skeleton className="h-56 w-full" />
-          ) : (
-            <ResponsiveContainer width="100%" height={230}>
-              <ComposedChart data={efficiencyTrendData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f1" vertical={false} />
-                <XAxis
-                  dataKey="label"
-                  tick={{ fontSize: 10, fill: "#6b7280" }}
-                  axisLine={false}
-                  tickLine={false}
-                  interval={1}
-                />
-                <YAxis
-                  yAxisId="left"
-                  tick={{ fontSize: 11, fill: "#6b7280" }}
-                  axisLine={false}
-                  tickLine={false}
-                  allowDecimals={false}
-                />
-                <YAxis
-                  yAxisId="right"
-                  orientation="right"
-                  tick={{ fontSize: 11, fill: "#6b7280" }}
-                  axisLine={false}
-                  tickLine={false}
-                  allowDecimals={false}
-                />
-                <Tooltip
-                  content={({ active, payload, label }) => {
-                    if (!active || !payload?.length) return null;
-                    return (
-                      <div className="bg-white border border-gray-200 rounded-md shadow-md px-3 py-2 text-xs space-y-0.5">
-                        <p className="font-semibold text-gray-700">{label}</p>
-                        <p style={{ color: ACCENT }}>{payload.find((p) => p.dataKey === "produced")?.value ?? 0} units produced</p>
-                        <p className="text-amber-600">{payload.find((p) => p.dataKey === "used")?.value ?? 0} material units used</p>
-                      </div>
-                    );
-                  }}
-                />
-                <Legend
-                  wrapperStyle={{ fontSize: 11 }}
-                  formatter={(value) => (value === "produced" ? "Units produced" : "Material used")}
-                />
-                <Bar yAxisId="left" dataKey="produced" name="produced" fill={ACCENT} radius={[3, 3, 0, 0]} barSize={14} />
-                <Line
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="used"
-                  name="used"
-                  stroke="#D97706"
-                  strokeWidth={2}
-                  dot={{ r: 3, fill: "#D97706" }}
-                  activeDot={{ r: 5 }}
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-      </div>
-
-      {/* Output trend (30 days) + Materials needing reorder */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className={`lg:col-span-2 ${CARD} p-5`}>
           <h2 className="text-sm font-semibold text-gray-800 mb-4">Production output trend, last 30 days</h2>
           {loading ? (
@@ -965,7 +930,10 @@ function Production() {
             </ResponsiveContainer>
           )}
         </div>
+      </div>
 
+      {/* Materials needing reorder + Top produced products + Material usage */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className={`lg:col-span-1 ${CARD} p-5`}>
           <h2 className="text-sm font-semibold text-gray-800 mb-4">
             Materials needing reorder
@@ -1020,44 +988,6 @@ function Production() {
             </ResponsiveContainer>
           )}
         </div>
-      </div>
-
-      {/* Material usage trend + Top produced products */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className={`${CARD} p-5`}>
-          <h2 className="text-sm font-semibold text-gray-800 mb-4">Material usage, last 7 days</h2>
-          {loading ? (
-            <Skeleton className="h-48 w-full" />
-          ) : (
-            <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={usageChartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f1" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={false} tickLine={false} allowDecimals={false} />
-                <Tooltip
-                  content={({ active, payload, label }) => {
-                    if (!active || !payload?.length) return null;
-                    return (
-                      <div className="bg-white border border-gray-200 rounded-md shadow-md px-3 py-2 text-xs">
-                        <p className="font-semibold text-gray-700">{label}</p>
-                        <p className="text-gray-600">{payload[0].value} units used</p>
-                      </div>
-                    );
-                  }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="qty"
-                  stroke="#D97706"
-                  strokeWidth={2}
-                  dot={{ r: 3, fill: "#D97706" }}
-                  activeDot={{ r: 5 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-
         <div className={`${CARD} p-5`}>
           <h2 className="text-sm font-semibold text-gray-800 mb-4">Top produced products, last 30 days</h2>
           {loading ? (
@@ -1077,7 +1007,7 @@ function Production() {
                 <YAxis
                   type="category"
                   dataKey="name"
-                  width={130}
+                  width={110}
                   tick={{ fontSize: 11, fill: "#374151" }}
                   axisLine={false}
                   tickLine={false}
@@ -1087,6 +1017,39 @@ function Production() {
                   <LabelList dataKey="qty" position="right" style={{ fontSize: 11, fill: "#374151", fontWeight: 600 }} />
                 </Bar>
               </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+        <div className={`${CARD} p-5`}>
+          <h2 className="text-sm font-semibold text-gray-800 mb-4">Material usage (L), last 7 days</h2>
+          {loading ? (
+            <Skeleton className="h-48 w-full" />
+          ) : (
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={usageChartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f1" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    return (
+                      <div className="bg-white border border-gray-200 rounded-md shadow-md px-3 py-2 text-xs">
+                        <p className="font-semibold text-gray-700">{label}</p>
+                        <p className="text-gray-600">{payload[0].value} L used</p>
+                      </div>
+                    );
+                  }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="qty"
+                  stroke="#D97706"
+                  strokeWidth={2}
+                  dot={{ r: 3, fill: "#D97706" }}
+                  activeDot={{ r: 5 }}
+                />
+              </LineChart>
             </ResponsiveContainer>
           )}
         </div>
@@ -1171,7 +1134,11 @@ function Production() {
               <div key={a.id} className="flex items-start gap-3 py-2">
                 <span
                   className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${
-                    a.type === "output" ? "bg-emerald-600" : "bg-amber-500"
+                    a.type === "output"
+                      ? "bg-emerald-600"
+                      : a.type === "delivery"
+                      ? "bg-indigo-500"
+                      : "bg-amber-500"
                   }`}
                 />
                 <div>
