@@ -740,9 +740,6 @@ function Production_rm() {
         <div className="bg-white rounded-lg border border-gray-200 shadow-sm px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">Inventory - Raw Materials</h1>
-            <p className="text-xs text-gray-500 mt-1">
-              Oils and other materials as purchased from suppliers. Stock goes up when you record a supplier delivery.
-            </p>
           </div>
           <div className="flex gap-2 self-start md:self-auto flex-wrap">
             <PrimaryButton onClick={() => setShowReceiveModal(true)}>

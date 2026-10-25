@@ -126,9 +126,6 @@ function RawMaterialOverview() {
       <div className="p-6 space-y-4 max-w-350 mx-auto">
         <div className="bg-white rounded-lg border border-gray-200 shadow-sm px-5 py-4">
           <h1 className="text-2xl font-semibold text-gray-900">Production - Raw Material Overview</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            What is available right now. Stock is updated by Inventory when a supplier delivers or a count is corrected.
-          </p>
         </div>
 
         {errorMsg && (

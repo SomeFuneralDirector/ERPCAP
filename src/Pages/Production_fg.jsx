@@ -159,11 +159,6 @@ function Production_fg() {
     <div className="p-6 space-y-4">
       <div className="bg-white rounded-lg shadow p-6">
         <h1 className="text-2xl font-bold text-gray-800">Production - Finished Goods</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Completed work orders, ready to request allocation into sellable stock. A work order
-          split across platforms is requested one platform at a time. Inventory reviews and
-          approves each request before stock is updated.
-        </p>
       </div>
 
       {errorMsg && (

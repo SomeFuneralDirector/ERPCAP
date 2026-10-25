@@ -479,7 +479,7 @@ function Sales_db({ onGoToImport }) {
     return (
       <div className="p-6">
         <div className={`${CARD} p-6 border-red-200`}>
-          <h1 className="text-lg font-semibold text-gray-900 mb-2">Sales - Dashboard</h1>
+          <h1 className="text-2xl font-semibold text-gray-900 mb-2">Sales - Dashboard</h1>
           <p className="text-sm text-red-700 mb-4">{errorMsg}</p>
           <button
             onClick={() => fetchAll("initial")}

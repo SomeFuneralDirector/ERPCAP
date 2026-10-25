@@ -27,6 +27,7 @@ import {
   Amphora,
   PackageCheck,
   Gauge,
+  Blocks,
 } from "lucide-react";
 import logotry from "../assets/logo.jpg";
 import { useAuth } from "../context/AuthContext";
@@ -67,6 +68,7 @@ const navItems = [
       { id: "inventory-dashboard", label: "Dashboard", icon: LayoutDashboard, path: "/inventory_db" },
       { id: "inventory-products", label: "Products", icon: Box, path: "/inventory" },
       { id: "production-rawmaterials", label: "Raw Materials", icon: Amphora, path: "/production_rm" },
+       { id: "packaging-materials", label: "Packaging Material", icon: Blocks, path: "/inventory_pm" },
     ],
   },
   {
