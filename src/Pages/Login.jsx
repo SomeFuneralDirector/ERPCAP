@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, AlertCircle } from 'lucide-react';
 import LOGINBG1 from '../assets/LOGINBG1.jpg';
 import IFLOGO from '../assets/IFLOGO.jpeg';
 import logotry from '../assets/logo.jpg'
@@ -9,6 +9,68 @@ import { supabase } from '../api/supabase';
 const LOCKOUT_MINUTES = 5;
 const MAX_ATTEMPTS = 5;
 
+// Turn raw auth errors into short, friendly messages.
+const friendlyAuthError = (message = '') => {
+  const m = message.toLowerCase();
+  if (m.includes('invalid login credentials') || m.includes('invalid credentials')) {
+    return 'Your email or password is incorrect. Please check and try again.';
+  }
+  if (m.includes('email not confirmed')) {
+    return 'Your email is not confirmed yet. Please check your inbox.';
+  }
+  if (m.includes('failed to fetch') || m.includes('network')) {
+    return 'We could not connect. Please check your internet and try again.';
+  }
+  return message || 'Something went wrong. Please try again.';
+};
+
+function ErrorModal({ title, message, onClose }) {
+  // Close with the Escape key
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/50 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="login-error-title"
+        aria-describedby="login-error-message"
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6 text-center"
+      >
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-50 text-red-600">
+          <AlertCircle size={26} />
+        </div>
+
+        <h3 id="login-error-title" className="mt-4 text-lg font-semibold text-gray-800">
+          {title}
+        </h3>
+        <p id="login-error-message" className="mt-2 text-sm text-gray-600 leading-relaxed">
+          {message}
+        </p>
+
+        <button
+          type="button"
+          autoFocus
+          onClick={onClose}
+          className="mt-6 w-full py-2.5 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+        >
+          Try again
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Login() {
 
   const [email, setEmail] = useState('');
@@ -17,7 +79,11 @@ function Login() {
   const [lockedUntil, setLockedUntil] = useState(null); // Date | null
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [errorModal, setErrorModal] = useState(null); // { title, message } | null
   const navigate = useNavigate();
+
+  const showError = (title, message) => setErrorModal({ title, message });
+  const closeError = () => setErrorModal(null);
 
   // Countdown ticker: recalculates remaining lockout time every second
   // and clears the lock once it expires.
@@ -93,9 +159,10 @@ function Login() {
       if (newLock && newLock.getTime() > Date.now()) {
         setLockedUntil(newLock);
       } else {
-        alert(error.message);
+        showError('Login failed', friendlyAuthError(error.message));
       }
 
+      setPassword('');
       setSubmitting(false);
       return
     }
@@ -111,7 +178,7 @@ function Login() {
     if (profileError || !profile){
       await logLogin('failed');
       await supabase.auth.signOut();
-      alert("No role assigned to the user")
+      showError('No access', 'No role is assigned to this account. Please contact your admin.');
       setSubmitting(false);
       return;
     }
@@ -119,7 +186,7 @@ function Login() {
     if (profile.active === false) {
       await logLogin('failed');
       await supabase.auth.signOut();
-      alert('This account has been deactivated. Contact your admin.');
+      showError('Account deactivated', 'This account has been deactivated. Please contact your admin.');
       setSubmitting(false);
       return;
     }
@@ -228,6 +295,14 @@ function Login() {
 
         </div>
       </div>
+
+      {errorModal && (
+        <ErrorModal
+          title={errorModal.title}
+          message={errorModal.message}
+          onClose={closeError}
+        />
+      )}
     </div>
   );
 }

@@ -4,14 +4,11 @@ import {
   TrendingUp,
   TrendingDown,
   ArrowLeftRight,
-  PackageX,
-  BarChart3,
-  Clock,
   Search,
 } from "lucide-react";
 import { supabase } from "../api/supabase";
 
-/* ── Design tokens — shared with Inventory / Sales / Marketing pages ───── */
+/* Design tokens, shared with Inventory / Sales / Marketing pages */
 const C = {
   accent: "#B3211B",
   accentHover: "#8E1A15",
@@ -89,30 +86,16 @@ const THRESHOLDS = {
   decliningTrendPct: -40,
   minUnitsForTrend: 5,
   platformGapMinUnits: 10,
-  deadStockDays: 60, // kept for messaging clarity; window itself is enforced by DATA_WINDOW_DAYS + last60 bucket
-  campaignMinLiftPct: 10,     // lift below this = underperforming
-  // Orders only land in this database once their marketplace status reaches
-  // "completed" — there's no To Ship / Shipped stage tracked yet — and that
-  // typically takes 1-2+ weeks after purchase. Judging a campaign before then
-  // compares a mostly-empty "during" window against a full baseline and makes
-  // it look artificially bad. 14 days gives completions time to land first.
-  campaignMinElapsedDays: 14,
 };
 
-// How far back to pull order data. Must comfortably cover the 60-day
-// sales-trend window plus the longest campaign baseline we'd compare against.
+// How far back to pull order data. Must cover the 60-day sales-trend window.
 const DATA_WINDOW_DAYS = 180;
 
-// Recommendation types use only the shared app palette (accent red, amber,
-// green, plus the Men / Women / Unisex category colours and neutral gray).
 const TONES = {
   warning: { color: C.warning, soft: C.warningSoft, border: C.warningBorder },
   success: { color: C.success, soft: C.successSoft, border: C.successBorder },
   accent: { color: C.accent, soft: C.accentSoft, border: C.accentSoftBorder },
   blue: { color: "#1D4E89", soft: "#EBF1F8", border: "#C9D8EA" },
-  plum: { color: "#8b2976", soft: "#F7EBF4", border: "#E6C8DF" },
-  slate: { color: "#475569", soft: "#F1F5F9", border: "#D5DDE6" },
-  gray: { color: "#6B6B70", soft: "#F5F5F6", border: "#E4E4E7" },
 };
 
 const TYPE_META = {
@@ -120,23 +103,17 @@ const TYPE_META = {
   rising_star: { label: "Rising Star", icon: TrendingUp, tone: TONES.success },
   declining: { label: "Declining", icon: TrendingDown, tone: TONES.accent },
   platform_gap: { label: "Platform Gap", icon: ArrowLeftRight, tone: TONES.blue },
-  dead_stock: { label: "Dead Stock", icon: PackageX, tone: TONES.gray },
-  campaign_lift_low: { label: "Campaign Underperforming", icon: BarChart3, tone: TONES.plum },
-  campaign_too_early: { label: "Awaiting Data", icon: Clock, tone: TONES.slate },
 };
 
 const SEVERITY_ORDER = {
-  dead_stock: 0,
-  campaign_lift_low: 1,
-  declining: 2,
-  promo_candidate: 3,
-  platform_gap: 4,
-  rising_star: 5,
-  campaign_too_early: 6,
+  declining: 0,
+  promo_candidate: 1,
+  platform_gap: 2,
+  rising_star: 3,
 };
 
 // ══════════════════════════════════════════════════════════════
-// Pure logic — metrics + rules
+// Pure logic: metrics + rules
 // ══════════════════════════════════════════════════════════════
 
 function computeProductMetrics(inventoryRows, orderItems, orderDateById) {
@@ -213,15 +190,7 @@ function generateProductRecommendations(products, campaignsWithStatus) {
   const recs = [];
 
   products.forEach((p) => {
-    if (p.unitsSoldLast60 === 0 && p.currentStock > 0) {
-      recs.push({
-        type: "dead_stock",
-        title: p.product_name,
-        subtitle: p.category || "",
-        message: `No sales in 60+ days with ${p.currentStock} units still in stock. Consider a clearance discount or bundling.`,
-        metrics: [{ label: "Stock", value: p.currentStock }, { label: "Sold (60d)", value: 0 }],
-      });
-    } else if (
+    if (
       p.currentStock >= THRESHOLDS.slowMoverMinStock &&
       p.sellThroughRate < THRESHOLDS.slowMoverSellThrough &&
       p.unitsSoldLast60 > 0
@@ -233,8 +202,8 @@ function generateProductRecommendations(products, campaignsWithStatus) {
         title: p.product_name,
         subtitle: p.category || "",
         message: alreadyPromoted
-          ? `Low sell-through (${(p.sellThroughRate * 100).toFixed(0)}%) with ${p.currentStock} units on hand — despite an active campaign on ${strongPlatform}. Consider a stronger offer or featuring it more prominently in that campaign.`
-          : `Low sell-through (${(p.sellThroughRate * 100).toFixed(0)}%) with ${p.currentStock} units on hand. A promo or bundle could move this stock.`,
+          ? `Only ${(p.sellThroughRate * 100).toFixed(0)}% of stock was sold, and ${p.currentStock} units are left. There is already a campaign on ${strongPlatform}, but it is not enough. Try a better offer or show this product more in that campaign.`
+          : `Only ${(p.sellThroughRate * 100).toFixed(0)}% of stock was sold, and ${p.currentStock} units are left. A promo or bundle can help sell it.`,
         metrics: [
           { label: "Sell-through", value: `${(p.sellThroughRate * 100).toFixed(0)}%` },
           { label: "Stock", value: p.currentStock },
@@ -248,7 +217,7 @@ function generateProductRecommendations(products, campaignsWithStatus) {
           type: "rising_star",
           title: p.product_name,
           subtitle: p.category || "",
-          message: `Sales up ${p.trendPct.toFixed(0)}% vs. the prior 30 days (${p.unitsSoldPrev30} → ${p.unitsSoldLast30} units, ${fmtPHP(p.revenueLast30)}). Consider featuring it or increasing ad spend while it's hot.`,
+          message: `Sales went up ${p.trendPct.toFixed(0)}% compared to the 30 days before (${p.unitsSoldPrev30} to ${p.unitsSoldLast30} units, ${fmtPHP(p.revenueLast30)}). Feature it or add more ads while it is selling well.`,
           metrics: [{ label: "Trend", value: `+${p.trendPct.toFixed(0)}%` }, { label: "Revenue (30d)", value: fmtPHP(p.revenueLast30) }],
         });
       } else if (p.trendPct <= THRESHOLDS.decliningTrendPct) {
@@ -256,7 +225,7 @@ function generateProductRecommendations(products, campaignsWithStatus) {
           type: "declining",
           title: p.product_name,
           subtitle: p.category || "",
-          message: `Sales down ${Math.abs(p.trendPct).toFixed(0)}% vs. the prior 30 days (${p.unitsSoldPrev30} → ${p.unitsSoldLast30} units). Worth investigating or running a win-back promo.`,
+          message: `Sales went down ${Math.abs(p.trendPct).toFixed(0)}% compared to the 30 days before (${p.unitsSoldPrev30} to ${p.unitsSoldLast30} units). Find out why, or try a promo to win buyers back.`,
           metrics: [{ label: "Trend", value: `${p.trendPct.toFixed(0)}%` }, { label: "Sold (30d)", value: p.unitsSoldLast30 }],
         });
       }
@@ -273,77 +242,13 @@ function generateProductRecommendations(products, campaignsWithStatus) {
             type: "platform_gap",
             title: p.product_name,
             subtitle: p.category || "",
-            message: `Sells well on ${strongPlatform} (${strongUnits} units) but 0 sold on ${platform} despite ${stockThere} units in stock there. Check the listing or run a platform-specific promo.`,
+            message: `Sells well on ${strongPlatform} (${strongUnits} units) but none sold on ${platform}, even with ${stockThere} units in stock there. Check the listing or run a promo on that platform.`,
             metrics: [{ label: strongPlatform, value: strongUnits }, { label: platform, value: 0 }],
           });
         }
       });
     }
   });
-
-  return recs;
-}
-
-// Measures whether a campaign actually lifted sales on its platform,
-// by comparing units sold during the campaign to an equal-length
-// window immediately before it started.
-function generateCampaignRecommendations(campaignsWithStatus, orderItems, orderDateById) {
-  const recs = [];
-
-  campaignsWithStatus
-    .filter((c) => ["Active", "Ended"].includes(c.derivedStatus) && c.start_date && c.end_date)
-    .forEach((c) => {
-      const start = safeDate(c.start_date);
-      const now = new Date();
-      const nominalEnd = safeDate(c.end_date);
-      const effectiveEnd = c.derivedStatus === "Active" ? now : nominalEnd;
-      if (!start || !effectiveEnd) return;
-
-      const elapsedDays = Math.floor((effectiveEnd - start) / 86_400_000) + 1;
-      if (elapsedDays < THRESHOLDS.campaignMinElapsedDays) {
-        recs.push({
-          type: "campaign_too_early",
-          title: c.name,
-          subtitle: `${c.platform} · ${elapsedDays} day(s) elapsed`,
-          message: `Only ${elapsedDays} day(s) in — orders take time to reach "completed" status, so lift can't be judged reliably yet. Check back after day ${THRESHOLDS.campaignMinElapsedDays}.`,
-          metrics: [
-            { label: "Elapsed", value: `${elapsedDays}d` },
-            { label: "Needs", value: `${THRESHOLDS.campaignMinElapsedDays}d` },
-          ],
-        });
-        return;
-      }
-
-      const baselineStart = new Date(start.getTime() - elapsedDays * 86_400_000);
-      const baselineEnd = new Date(start.getTime() - 1);
-
-      const unitsInWindow = (from, to) =>
-        orderItems.reduce((sum, item) => {
-          const date = orderDateById[item.order_uuid];
-          if (!date || date < from || date > to) return sum;
-          const platform = normalizePlatform(item.platform);
-          if (c.platform !== "All Platforms" && platform !== c.platform) return sum;
-          return sum + toNumber(item.quantity);
-        }, 0);
-
-      const campaignUnits = unitsInWindow(start, effectiveEnd);
-      const baselineUnits = unitsInWindow(baselineStart, baselineEnd);
-      const liftPct = baselineUnits > 0 ? ((campaignUnits - baselineUnits) / baselineUnits) * 100 : campaignUnits > 0 ? 100 : 0;
-
-      if (liftPct < THRESHOLDS.campaignMinLiftPct) {
-        recs.push({
-          type: "campaign_lift_low",
-          title: c.name,
-          subtitle: `${c.platform} · ${elapsedDays} day(s) elapsed`,
-          message: `${campaignUnits} units sold during the campaign vs. ${baselineUnits} in the equivalent period before it — a lift of only ${liftPct >= 0 ? "+" : ""}${liftPct.toFixed(0)}%. Consider revising the offer, creative, or targeting.`,
-          metrics: [
-            { label: "During campaign", value: campaignUnits },
-            { label: "Baseline", value: baselineUnits },
-            { label: "Lift", value: `${liftPct >= 0 ? "+" : ""}${liftPct.toFixed(0)}%` },
-          ],
-        });
-      }
-    });
 
   return recs;
 }
@@ -470,9 +375,8 @@ function Marketing_reco() {
 
   const recommendations = useMemo(() => {
     const productRecs = generateProductRecommendations(products, campaignsWithStatus);
-    const campaignRecs = generateCampaignRecommendations(campaignsWithStatus, orderItems, orderDateById);
-    return [...productRecs, ...campaignRecs].sort((a, b) => SEVERITY_ORDER[a.type] - SEVERITY_ORDER[b.type]);
-  }, [products, campaignsWithStatus, orderItems, orderDateById]);
+    return [...productRecs].sort((a, b) => SEVERITY_ORDER[a.type] - SEVERITY_ORDER[b.type]);
+  }, [products, campaignsWithStatus]);
 
   const filtered = recommendations.filter((r) => {
     const matchType = typeFilter === "all" || r.type === typeFilter;
@@ -505,7 +409,7 @@ function Marketing_reco() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <button
           onClick={() => setTypeFilter("all")}
           className={`bg-white rounded-lg shadow p-3 text-left transition-all cursor-pointer ${
@@ -536,7 +440,7 @@ function Marketing_reco() {
           </span>
           <input
             type="text"
-            placeholder="Search product or campaign name…"
+            placeholder="Search product name…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none"
@@ -555,13 +459,13 @@ function Marketing_reco() {
       <div className="space-y-3">
         {loading ? (
           <div className="bg-white rounded-lg shadow p-8 text-center text-gray-400 text-sm">
-            Analyzing sales, inventory, and campaign data…
+            Analyzing sales and inventory data…
           </div>
         ) : filtered.length === 0 ? (
           <div className="bg-white rounded-lg shadow p-8 text-center text-gray-400">
             <p className="font-medium text-gray-500">
               {recommendations.length === 0
-                ? "No recommendations right now — nothing crossed a threshold."
+                ? "No recommendations right now. Nothing crossed a threshold."
                 : "No recommendations match this filter."}
             </p>
           </div>

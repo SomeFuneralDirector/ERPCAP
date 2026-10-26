@@ -1047,25 +1047,6 @@ function Activity_logs() {
               })}
             </div>
             <div className="relative w-full md:w-64">
-              <input
-                type="text"
-                placeholder="Search this log…"
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value)
-                  setPage(1)
-                }}
-                className="w-full px-4 py-2.5 border rounded-lg text-base focus:outline-none transition-colors"
-                style={{ borderColor: C.borderStrong, color: C.text }}
-                onFocus={(e) => {
-                  e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`
-                  e.target.style.borderColor = C.accent
-                }}
-                onBlur={(e) => {
-                  e.target.style.boxShadow = 'none'
-                  e.target.style.borderColor = C.borderStrong
-                }}
-              />
               {search && (
                 <button
                   onClick={() => {

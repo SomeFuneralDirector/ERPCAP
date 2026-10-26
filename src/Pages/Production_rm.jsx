@@ -1,10 +1,16 @@
 // INVENTORY - RAW MATERIALS (OILS + ALCOHOL)
-// Materials are tracked as the supplier's purchased items (Belstar, IFF, MG, Sozio),
-// NOT one-per-product. No BOM / recipe: production enters raw mats manually.
-// Everything is measured in litres (L).
-// Stock goes UP through (a) Receive delivery or (b) a manual edit by the beneficiary.
 import { useState, useEffect, useCallback } from "react";
-import { Search, Plus, X, Eye, Pencil, Trash2, PackagePlus, Boxes } from "lucide-react";
+import {
+  Search,
+  Plus,
+  X,
+  Eye,
+  Pencil,
+  Trash2,
+  PackagePlus,
+  Boxes,
+} from "lucide-react";
+import LowStockNotice from "../Components/Lowstocknotice";
 import { supabase } from "../api/supabase";
 
 /* ── Design tokens ─────────────────────────────────────────────────────── */
@@ -27,9 +33,21 @@ const UNIT = "L";
 const CATEGORY_SUGGESTIONS = ["Oil", "Alcohol", "Other"];
 
 const STATUS_STYLE = {
-  "In Stock": { color: C.success, backgroundColor: C.successSoft, borderColor: C.successBorder },
-  "Low Stock": { color: C.warning, backgroundColor: C.warningSoft, borderColor: C.warningBorder },
-  "Out of Stock": { color: C.accent, backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder },
+  "In Stock": {
+    color: C.success,
+    backgroundColor: C.successSoft,
+    borderColor: C.successBorder,
+  },
+  "Low Stock": {
+    color: C.warning,
+    backgroundColor: C.warningSoft,
+    borderColor: C.warningBorder,
+  },
+  "Out of Stock": {
+    color: C.accent,
+    backgroundColor: C.accentSoft,
+    borderColor: C.accentSoftBorder,
+  },
 };
 
 const EMPTY_FORM = {
@@ -90,7 +108,10 @@ function PrimaryButton({ children, className = "", ...props }) {
       {...props}
       className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium text-white transition-colors disabled:opacity-50 cursor-pointer ${className}`}
       style={{ backgroundColor: C.accent }}
-      onMouseEnter={(e) => !props.disabled && (e.currentTarget.style.backgroundColor = C.accentHover)}
+      onMouseEnter={(e) =>
+        !props.disabled &&
+        (e.currentTarget.style.backgroundColor = C.accentHover)
+      }
       onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = C.accent)}
     >
       {children}
@@ -113,7 +134,10 @@ function SummaryStat({ label, value, color }) {
   return (
     <div className="flex-1 min-w-[110px] px-4 py-3">
       <p className="text-xs text-gray-500">{label}</p>
-      <p className="text-lg font-semibold mt-0.5" style={{ color: color || C.text }}>
+      <p
+        className="text-lg font-semibold mt-0.5"
+        style={{ color: color || C.text }}
+      >
         {value}
       </p>
     </div>
@@ -128,7 +152,11 @@ function FilterChip({ active, onClick, children }) {
       style={
         active
           ? { backgroundColor: C.accent, borderColor: C.accent, color: "#fff" }
-          : { backgroundColor: "#fff", borderColor: "#D1D5DB", color: "#142947" }
+          : {
+              backgroundColor: "#fff",
+              borderColor: "#D1D5DB",
+              color: "#142947",
+            }
       }
     >
       {children}
@@ -146,12 +174,17 @@ function ModalShell({ title, onClose, children, footer, wide = false }) {
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
           <h2 className="text-sm font-semibold text-gray-900">{title}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors cursor-pointer">
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
+          >
             <X size={18} />
           </button>
         </div>
         <div className="px-5 py-4 space-y-4">{children}</div>
-        <div className="px-5 py-4 border-t border-gray-200 flex justify-end gap-2">{footer}</div>
+        <div className="px-5 py-4 border-t border-gray-200 flex justify-end gap-2">
+          {footer}
+        </div>
       </div>
     </div>
   );
@@ -162,7 +195,11 @@ function ErrorBox({ error }) {
   return (
     <p
       className="text-xs rounded-md px-3 py-2 border"
-      style={{ color: C.accent, backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder }}
+      style={{
+        color: C.accent,
+        backgroundColor: C.accentSoft,
+        borderColor: C.accentSoftBorder,
+      }}
     >
       {error}
     </p>
@@ -194,7 +231,8 @@ function AddMaterialModal({ onClose, onSaved, suppliers, editItem = null }) {
   const selectedSupplier = suppliers.find((s) => s.id === form.supplier_id);
 
   const handleSubmit = async () => {
-    if (!form.material_name.trim()) return setError("Material name is required.");
+    if (!form.material_name.trim())
+      return setError("Material name is required.");
     if (!form.supplier_id) return setError("Please select a supplier.");
 
     setSaving(true);
@@ -206,14 +244,20 @@ function AddMaterialModal({ onClose, onSaved, suppliers, editItem = null }) {
       category: form.category.trim() || null,
       unit: UNIT,
       current_stock: Number(form.current_stock) || 0,
-      reorder_point: form.reorder_point === "" ? 5 : Math.max(0, Number(form.reorder_point) || 0),
+      reorder_point:
+        form.reorder_point === ""
+          ? 5
+          : Math.max(0, Number(form.reorder_point) || 0),
       supplier_id: form.supplier_id,
       notes: form.notes.trim() || null,
     };
 
     const { error: dbError } =
       isEdit && editItem.id
-        ? await supabase.from("raw_materials").update(payload).eq("id", editItem.id)
+        ? await supabase
+            .from("raw_materials")
+            .update(payload)
+            .eq("id", editItem.id)
         : await supabase.from("raw_materials").insert([payload]);
 
     if (dbError) {
@@ -238,7 +282,11 @@ function AddMaterialModal({ onClose, onSaved, suppliers, editItem = null }) {
         </>
       }
     >
-      <Field label="Material name" required hint="Name it the way the supplier's receipt lists it.">
+      <Field
+        label="Material name"
+        required
+        hint="Name it the way the supplier's receipt lists it."
+      >
         <TextInput
           type="text"
           placeholder="e.g. Lavender Oil"
@@ -248,7 +296,11 @@ function AddMaterialModal({ onClose, onSaved, suppliers, editItem = null }) {
       </Field>
 
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Supplier" required hint={selectedSupplier?.notes || undefined}>
+        <Field
+          label="Supplier"
+          required
+          hint={selectedSupplier?.notes || undefined}
+        >
           <select
             value={form.supplier_id}
             onChange={(e) => set("supplier_id", e.target.value)}
@@ -281,7 +333,11 @@ function AddMaterialModal({ onClose, onSaved, suppliers, editItem = null }) {
       <div className="grid grid-cols-2 gap-3">
         <Field
           label={`Current stock (${UNIT})`}
-          hint={isEdit ? undefined : "Opening balance. Use Receive delivery for new stock later."}
+          hint={
+            isEdit
+              ? undefined
+              : "Opening balance. Use Receive delivery for new stock later."
+          }
         >
           <TextInput
             type="number"
@@ -292,7 +348,10 @@ function AddMaterialModal({ onClose, onSaved, suppliers, editItem = null }) {
             onChange={(e) => set("current_stock", e.target.value)}
           />
         </Field>
-        <Field label={`Reorder point (${UNIT})`} hint="Status flips to Low/Out automatically at or below this.">
+        <Field
+          label={`Reorder point (${UNIT})`}
+          hint="Status flips to Low/Out automatically at or below this."
+        >
           <TextInput
             type="number"
             min="0"
@@ -320,9 +379,24 @@ function AddMaterialModal({ onClose, onSaved, suppliers, editItem = null }) {
   );
 }
 
+// Out of stock first, then low stock, then everything else.
+const STOCK_PRIORITY = { "Out of Stock": 0, "Low Stock": 1 };
+const priorityOf = (m) => STOCK_PRIORITY[m.status] ?? 2;
+
+const optionLabel = (m) =>
+  m.status === "Out of Stock"
+    ? `${m.material_name} (out of stock)`
+    : m.status === "Low Stock"
+      ? `${m.material_name} (low, ${m.current_stock} ${UNIT} left)`
+      : m.material_name;
+
 /* ── Receive delivery (stock-in when a supplier delivers) ──────────────── */
 
-const emptyLine = () => ({ key: Math.random().toString(36).slice(2), material_id: "", quantity: "" });
+const emptyLine = () => ({
+  key: Math.random().toString(36).slice(2),
+  material_id: "",
+  quantity: "",
+});
 
 function ReceiveDeliveryModal({ onClose, onSaved, suppliers, materials }) {
   const [supplierId, setSupplierId] = useState("");
@@ -331,8 +405,18 @@ function ReceiveDeliveryModal({ onClose, onSaved, suppliers, materials }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const supplierMaterials = materials.filter((m) => m.supplier_id === supplierId);
-  const setLine = (key, patch) => setLines((p) => p.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+  const supplierMaterials = materials
+    .filter((m) => m.supplier_id === supplierId)
+    .sort(
+      (a, b) =>
+        priorityOf(a) - priorityOf(b) ||
+        (Number(a.current_stock) || 0) - (Number(b.current_stock) || 0) ||
+        a.material_name.localeCompare(b.material_name),
+    );
+  const needRestock = supplierMaterials.filter((m) => priorityOf(m) < 2);
+  const otherMaterials = supplierMaterials.filter((m) => priorityOf(m) === 2);
+  const setLine = (key, patch) =>
+    setLines((p) => p.map((l) => (l.key === key ? { ...l, ...patch } : l)));
 
   const handleSupplierChange = (id) => {
     setSupplierId(id);
@@ -344,19 +428,25 @@ function ReceiveDeliveryModal({ onClose, onSaved, suppliers, materials }) {
     if (!supplierId) return setError("Select the supplier who delivered.");
 
     const filled = lines.filter((l) => l.material_id || l.quantity);
-    if (filled.length === 0) return setError("Add at least one delivered item.");
+    if (filled.length === 0)
+      return setError("Add at least one delivered item.");
     for (const l of filled) {
       if (!l.material_id) return setError("Every line needs a material.");
-      if (!(Number(l.quantity) > 0)) return setError("Every line needs a quantity greater than 0.");
+      if (!(Number(l.quantity) > 0))
+        return setError("Every line needs a quantity greater than 0.");
     }
     const ids = filled.map((l) => l.material_id);
-    if (new Set(ids).size !== ids.length) return setError("A material appears twice. Combine it into one line.");
+    if (new Set(ids).size !== ids.length)
+      return setError("A material appears twice. Combine it into one line.");
 
     setSaving(true);
     const { error: rpcError } = await supabase.rpc("receive_stock", {
       p_supplier_id: supplierId,
       p_received_date: receivedDate,
-      p_items: filled.map((l) => ({ material_id: l.material_id, quantity: Number(l.quantity) })),
+      p_items: filled.map((l) => ({
+        material_id: l.material_id,
+        quantity: Number(l.quantity),
+      })),
     });
     setSaving(false);
 
@@ -382,7 +472,8 @@ function ReceiveDeliveryModal({ onClose, onSaved, suppliers, materials }) {
       }
     >
       <p className="text-xs text-gray-500">
-        Enter what the supplier delivered. Each quantity is added to the current stock of that item.
+        Enter what the supplier delivered. Each quantity is added to the current
+        stock of that item.
       </p>
 
       <div className="grid grid-cols-2 gap-3">
@@ -401,7 +492,11 @@ function ReceiveDeliveryModal({ onClose, onSaved, suppliers, materials }) {
           </select>
         </Field>
         <Field label="Date received" required>
-          <TextInput type="date" value={receivedDate} onChange={(e) => setReceivedDate(e.target.value)} />
+          <TextInput
+            type="date"
+            value={receivedDate}
+            onChange={(e) => setReceivedDate(e.target.value)}
+          />
         </Field>
       </div>
 
@@ -415,12 +510,31 @@ function ReceiveDeliveryModal({ onClose, onSaved, suppliers, materials }) {
               onChange={(e) => setLine(l.key, { material_id: e.target.value })}
               className={`${inputBase} border-gray-300 cursor-pointer col-span-8 disabled:bg-gray-50`}
             >
-              <option value="">{supplierId ? "Select material…" : "Select supplier first"}</option>
-              {supplierMaterials.map((x) => (
-                <option key={x.id} value={x.id}>
-                  {x.material_name}
-                </option>
-              ))}
+              <option value="">
+                {supplierId ? "Select material…" : "Select supplier first"}
+              </option>
+              {needRestock.length > 0 && (
+                <optgroup label="Needs restock">
+                  {needRestock.map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {optionLabel(x)}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {otherMaterials.length > 0 && (
+                <optgroup
+                  label={
+                    needRestock.length > 0 ? "Other materials" : "Materials"
+                  }
+                >
+                  {otherMaterials.map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {optionLabel(x)}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
             <div className="col-span-3 relative">
               <TextInput
@@ -432,11 +546,19 @@ function ReceiveDeliveryModal({ onClose, onSaved, suppliers, materials }) {
                 value={l.quantity}
                 onChange={(e) => setLine(l.key, { quantity: e.target.value })}
               />
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-gray-400">{UNIT}</span>
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-gray-400">
+                {UNIT}
+              </span>
             </div>
             <button
               type="button"
-              onClick={() => setLines((p) => (p.length === 1 ? [emptyLine()] : p.filter((x) => x.key !== l.key)))}
+              onClick={() =>
+                setLines((p) =>
+                  p.length === 1
+                    ? [emptyLine()]
+                    : p.filter((x) => x.key !== l.key),
+                )
+              }
               className="col-span-1 text-gray-400 hover:text-gray-600 cursor-pointer flex justify-center"
               title="Remove line"
             >
@@ -454,7 +576,10 @@ function ReceiveDeliveryModal({ onClose, onSaved, suppliers, materials }) {
           + Add another item
         </button>
         {supplierId && supplierMaterials.length === 0 && (
-          <p className="text-xs text-gray-400">No materials are linked to this supplier yet. Use Add material first.</p>
+          <p className="text-xs text-gray-400">
+            No materials are linked to this supplier yet. Use Add material
+            first.
+          </p>
         )}
       </div>
 
@@ -476,14 +601,21 @@ function ViewMaterialModal({ item, onClose }) {
   );
 
   return (
-    <ModalShell title="Material details" onClose={onClose} footer={<SecondaryButton onClick={onClose}>Close</SecondaryButton>}>
+    <ModalShell
+      title="Material details"
+      onClose={onClose}
+      footer={<SecondaryButton onClick={onClose}>Close</SecondaryButton>}
+    >
       <Row label="Material name">{item.material_name}</Row>
       <Row label="Supplier">{item.suppliers?.name || "—"}</Row>
       <div className="grid grid-cols-2 gap-4">
         <Row label="Category">{item.category || "—"}</Row>
         <div>
           <p className="text-xs text-gray-500">Status</p>
-          <span className="inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-semibold border" style={STATUS_STYLE[status]}>
+          <span
+            className="inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-semibold border"
+            style={STATUS_STYLE[status]}
+          >
             {status}
           </span>
         </div>
@@ -521,23 +653,39 @@ function DeliveriesTable({ receipts, loading }) {
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="bg-red-900 text-white">
-              <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide">DATE</th>
-              <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide">SUPPLIER</th>
-              <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide">ITEMS RECEIVED</th>
+              <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide">
+                DATE
+              </th>
+              <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide">
+                SUPPLIER
+              </th>
+              <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide">
+                ITEMS RECEIVED
+              </th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={3} className="px-4 py-8 text-center text-gray-400 text-sm">
+                <td
+                  colSpan={3}
+                  className="px-4 py-8 text-center text-gray-400 text-sm"
+                >
                   Loading…
                 </td>
               </tr>
             ) : receipts.length === 0 ? (
               <tr>
-                <td colSpan={3} className="px-4 py-14 text-center text-gray-400">
-                  <p className="text-sm font-medium text-gray-500">No deliveries recorded yet</p>
-                  <p className="text-xs mt-1">Use "Receive delivery" when a supplier delivers.</p>
+                <td
+                  colSpan={3}
+                  className="px-4 py-14 text-center text-gray-400"
+                >
+                  <p className="text-sm font-medium text-gray-500">
+                    No deliveries recorded yet
+                  </p>
+                  <p className="text-xs mt-1">
+                    Use "Receive delivery" when a supplier delivers.
+                  </p>
                 </td>
               </tr>
             ) : (
@@ -546,7 +694,9 @@ function DeliveriesTable({ receipts, loading }) {
                   <td className="px-3 py-2 text-xs text-gray-600 whitespace-nowrap">
                     {new Date(r.received_date).toLocaleDateString()}
                   </td>
-                  <td className="px-3 py-2 text-xs text-gray-600">{r.suppliers?.name || "—"}</td>
+                  <td className="px-3 py-2 text-xs text-gray-600">
+                    {r.suppliers?.name || "—"}
+                  </td>
                   <td className="px-3 py-2 text-xs text-gray-700">
                     {(r.stock_receipt_items || []).map((it, i) => (
                       <div key={i}>
@@ -591,7 +741,10 @@ function Production_rm() {
   const [deleteError, setDeleteError] = useState("");
 
   const fetchSuppliers = useCallback(async () => {
-    const { data, error } = await supabase.from("suppliers").select("*").order("name", { ascending: true });
+    const { data, error } = await supabase
+      .from("suppliers")
+      .select("*")
+      .order("name", { ascending: true });
     if (!error && data) setSuppliers(data);
     else if (error) console.error("suppliers fetch error:", error);
   }, []);
@@ -612,7 +765,9 @@ function Production_rm() {
     setLoadingReceipts(true);
     const { data, error } = await supabase
       .from("stock_receipts")
-      .select("*, suppliers(name), stock_receipt_items(quantity, raw_materials(material_name, unit))")
+      .select(
+        "*, suppliers(name), stock_receipt_items(quantity, raw_materials(material_name, unit))",
+      )
       .order("received_date", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(100);
@@ -634,7 +789,11 @@ function Production_rm() {
   useEffect(() => {
     const channel = supabase
       .channel("raw_materials_live")
-      .on("postgres_changes", { event: "*", schema: "public", table: "raw_materials" }, () => fetchMaterials())
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "raw_materials" },
+        () => fetchMaterials(),
+      )
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
@@ -659,12 +818,15 @@ function Production_rm() {
     if (!itemToDelete) return;
     setSaving(true);
     setDeleteError("");
-    const { error } = await supabase.from("raw_materials").delete().eq("id", itemToDelete.id);
+    const { error } = await supabase
+      .from("raw_materials")
+      .delete()
+      .eq("id", itemToDelete.id);
     if (error) {
       setDeleteError(
         error.code === "23503"
           ? "This material has delivery or usage history, so it can't be deleted. Set its stock to 0 instead."
-          : error.message
+          : error.message,
       );
     } else {
       setMaterials((prev) => prev.filter((i) => i.id !== itemToDelete.id));
@@ -674,12 +836,16 @@ function Production_rm() {
     setSaving(false);
   };
 
-  const categories = Array.from(new Set(materials.map((m) => m.category).filter(Boolean))).sort();
+  const categories = Array.from(
+    new Set(materials.map((m) => m.category).filter(Boolean)),
+  ).sort();
 
   const filtered = materials.filter((item) => {
     const supplierName = item.suppliers?.name || "";
-    const matchCat = filterCategory === "All" || item.category === filterCategory;
-    const matchSupplier = filterSupplier === "All" || item.supplier_id === filterSupplier;
+    const matchCat =
+      filterCategory === "All" || item.category === filterCategory;
+    const matchSupplier =
+      filterSupplier === "All" || item.supplier_id === filterSupplier;
     const q = search.toLowerCase();
     const matchSearch =
       !search ||
@@ -688,15 +854,23 @@ function Production_rm() {
     return matchCat && matchSupplier && matchSearch;
   });
 
-  const inStockCount = filtered.filter((m) => (m.status || "In Stock") === "In Stock").length;
+  const inStockCount = filtered.filter(
+    (m) => (m.status || "In Stock") === "In Stock",
+  ).length;
   const lowStockCount = filtered.filter((m) => m.status === "Low Stock").length;
-  const outStockCount = filtered.filter((m) => m.status === "Out of Stock").length;
+  const outStockCount = filtered.filter(
+    (m) => m.status === "Out of Stock",
+  ).length;
 
   // Alert strip: materials at or below their reorder point (lowest stock first)
-  const lowAll = materials.filter((m) => m.status === "Low Stock" || m.status === "Out of Stock");
+  const lowAll = materials.filter(
+    (m) => m.status === "Low Stock" || m.status === "Out of Stock",
+  );
   const lowTotal = lowAll.length;
   const lowMaterials = [...lowAll]
-    .sort((a, b) => (Number(a.current_stock) || 0) - (Number(b.current_stock) || 0))
+    .sort(
+      (a, b) => (Number(a.current_stock) || 0) - (Number(b.current_stock) || 0),
+    )
     .slice(0, 6);
 
   const needsReorderBySupplier = materials.reduce((acc, m) => {
@@ -717,11 +891,13 @@ function Production_rm() {
       .eq("id", id)
       .select("*, suppliers(id, name, notes)")
       .single();
-    if (!error && data) setMaterials((prev) => prev.map((i) => (i.id === id ? data : i)));
+    if (!error && data)
+      setMaterials((prev) => prev.map((i) => (i.id === id ? data : i)));
     setSaving(false);
   };
 
-  const handleStockEdit = (item) => setEditingStock({ id: item.id, value: String(item.current_stock ?? 0) });
+  const handleStockEdit = (item) =>
+    setEditingStock({ id: item.id, value: String(item.current_stock ?? 0) });
 
   const handleKeyDown = (e, id) => {
     if (e.key === "Enter" && editingStock) {
@@ -739,7 +915,9 @@ function Production_rm() {
         {/* Header */}
         <div className="bg-white rounded-lg border border-gray-200 shadow-sm px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold text-gray-900">Inventory - Raw Materials</h1>
+            <h1 className="text-2xl font-semibold text-gray-900">
+              Inventory - Raw Materials
+            </h1>
           </div>
           <div className="flex gap-2 self-start md:self-auto flex-wrap">
             <PrimaryButton onClick={() => setShowReceiveModal(true)}>
@@ -760,10 +938,16 @@ function Production_rm() {
 
         {/* Tabs */}
         <div className="flex gap-2">
-          <FilterChip active={tab === "materials"} onClick={() => setTab("materials")}>
+          <FilterChip
+            active={tab === "materials"}
+            onClick={() => setTab("materials")}
+          >
             Materials
           </FilterChip>
-          <FilterChip active={tab === "deliveries"} onClick={() => setTab("deliveries")}>
+          <FilterChip
+            active={tab === "deliveries"}
+            onClick={() => setTab("deliveries")}
+          >
             Deliveries
           </FilterChip>
         </div>
@@ -775,39 +959,35 @@ function Production_rm() {
             {/* Summary strip */}
             <div className="bg-white rounded-lg border border-gray-200 shadow-sm flex flex-wrap divide-x divide-gray-300">
               <SummaryStat label="Materials" value={filtered.length} />
-              <SummaryStat label="In stock" value={inStockCount} color={C.success} />
-              <SummaryStat label="Low stock" value={lowStockCount} color={lowStockCount > 0 ? C.warning : C.text} />
-              <SummaryStat label="Out of stock" value={outStockCount} color={outStockCount > 0 ? C.accent : C.text} />
+              <SummaryStat
+                label="In stock"
+                value={inStockCount}
+                color={C.success}
+              />
+              <SummaryStat
+                label="Low stock"
+                value={lowStockCount}
+                color={lowStockCount > 0 ? C.warning : C.text}
+              />
+              <SummaryStat
+                label="Out of stock"
+                value={outStockCount}
+                color={outStockCount > 0 ? C.accent : C.text}
+              />
             </div>
 
             {/* Alert: materials running low */}
-            {lowMaterials.length > 0 && (
-              <div className="bg-white rounded-lg border shadow-sm p-4" style={{ borderColor: C.warningBorder }}>
-                <div className="flex items-center gap-2 mb-2">
-                  <Boxes size={15} style={{ color: C.warning }} />
-                  <p className="text-sm font-semibold text-gray-800">
-                    Production is low on {lowTotal} raw material{lowTotal !== 1 ? "s" : ""}
-                  </p>
-                </div>
-                <p className="text-xs text-gray-500 mb-2">
-                  Restocking finished goods that depend on these may be delayed:
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {lowMaterials.map((m) => (
-                    <span
-                      key={m.id}
-                      className="px-2 py-1 rounded-md text-xs font-medium border"
-                      style={
-                        m.status === "Out of Stock"
-                          ? { color: C.accent, backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder }
-                          : { color: C.warning, backgroundColor: C.warningSoft, borderColor: C.warningBorder }
-                      }
-                    >
-                      {m.material_name} · {m.current_stock} {UNIT}
-                    </span>
-                  ))}
-                </div>
-              </div>
+            {lowTotal > 0 && (
+              <LowStockNotice
+                title={`${lowTotal} raw material${lowTotal !== 1 ? "s are" : " is"} running low`}
+                items={lowMaterials.map((m) => ({
+                  id: m.id,
+                  name: m.material_name,
+                  qty: `${m.current_stock} ${UNIT}`,
+                  out: m.status === "Out of Stock",
+                }))}
+                moreCount={lowTotal - lowMaterials.length}
+              />
             )}
 
             {/* Filters */}
@@ -836,14 +1016,23 @@ function Production_rm() {
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-medium text-gray-500 w-16 shrink-0">Supplier</span>
-                <FilterChip active={filterSupplier === "All"} onClick={() => setFilterSupplier("All")}>
+                <span className="text-xs font-medium text-gray-500 w-16 shrink-0">
+                  Supplier
+                </span>
+                <FilterChip
+                  active={filterSupplier === "All"}
+                  onClick={() => setFilterSupplier("All")}
+                >
                   All
                 </FilterChip>
                 {suppliers.map((s) => {
                   const count = needsReorderBySupplier[s.id] || 0;
                   return (
-                    <FilterChip key={s.id} active={filterSupplier === s.id} onClick={() => setFilterSupplier(s.id)}>
+                    <FilterChip
+                      key={s.id}
+                      active={filterSupplier === s.id}
+                      onClick={() => setFilterSupplier(s.id)}
+                    >
                       {s.name}
                       {count > 0 && (
                         <span
@@ -851,7 +1040,10 @@ function Production_rm() {
                           style={
                             filterSupplier === s.id
                               ? { backgroundColor: "#fff", color: C.accent }
-                              : { backgroundColor: C.accentSoft, color: C.accent }
+                              : {
+                                  backgroundColor: C.accentSoft,
+                                  color: C.accent,
+                                }
                           }
                           title={`${count} need reorder`}
                         >
@@ -864,9 +1056,15 @@ function Production_rm() {
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-medium text-gray-500 w-16 shrink-0">Category</span>
+                <span className="text-xs font-medium text-gray-500 w-16 shrink-0">
+                  Category
+                </span>
                 {["All", ...categories].map((cat) => (
-                  <FilterChip key={cat} active={filterCategory === cat} onClick={() => setFilterCategory(cat)}>
+                  <FilterChip
+                    key={cat}
+                    active={filterCategory === cat}
+                    onClick={() => setFilterCategory(cat)}
+                  >
                     {cat}
                   </FilterChip>
                 ))}
@@ -880,12 +1078,24 @@ function Production_rm() {
                   <thead>
                     <tr className="bg-red-900 text-white">
                       <th className="px-2 py-2.5 w-8" />
-                      <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide min-w-[200px]">MATERIAL</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide">SUPPLIER</th>
-                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">STOCK</th>
-                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">REORDER AT</th>
-                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">STATUS</th>
-                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">VIEW · EDIT · DELETE</th>
+                      <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide min-w-[200px]">
+                        MATERIAL
+                      </th>
+                      <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide">
+                        SUPPLIER
+                      </th>
+                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
+                        STOCK
+                      </th>
+                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
+                        REORDER AT
+                      </th>
+                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
+                        STATUS
+                      </th>
+                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
+                        VIEW · EDIT · DELETE
+                      </th>
                     </tr>
                   </thead>
 
@@ -902,8 +1112,13 @@ function Production_rm() {
                       ))
                     ) : filtered.length === 0 ? (
                       <tr>
-                        <td colSpan={TOTAL_COLS} className="px-4 py-14 text-center text-gray-400">
-                          <p className="text-sm font-medium text-gray-500">No raw materials found</p>
+                        <td
+                          colSpan={TOTAL_COLS}
+                          className="px-4 py-14 text-center text-gray-400"
+                        >
+                          <p className="text-sm font-medium text-gray-500">
+                            No raw materials found
+                          </p>
                           <p className="text-xs text-gray-400 mt-1">
                             Try a different search term, supplier, or category.
                           </p>
@@ -912,16 +1127,25 @@ function Production_rm() {
                     ) : (
                       filtered.map((item, idx) => {
                         const status = item.status || "In Stock";
-                        const low = status === "Low Stock" || status === "Out of Stock";
-                        const rowBg = low ? {} : (idx + 1) % 2 === 0 ? { backgroundColor: "#FAFAFA" } : {};
+                        const low =
+                          status === "Low Stock" || status === "Out of Stock";
+                        const rowBg = low
+                          ? {}
+                          : (idx + 1) % 2 === 0
+                            ? { backgroundColor: "#FAFAFA" }
+                            : {};
 
                         return (
                           <tr
                             key={item.id}
                             className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
-                            style={low ? { backgroundColor: C.accentSoft } : rowBg}
+                            style={
+                              low ? { backgroundColor: C.accentSoft } : rowBg
+                            }
                           >
-                            <td className="px-2 py-2 text-center text-xs text-gray-400 w-8">{idx + 1}</td>
+                            <td className="px-2 py-2 text-center text-xs text-gray-400 w-8">
+                              {idx + 1}
+                            </td>
 
                             <td className="px-3 py-2 text-xs text-gray-800">
                               <div className="flex items-center gap-2">
@@ -938,7 +1162,9 @@ function Production_rm() {
                             </td>
 
                             <td className="px-3 py-2 text-xs text-gray-500">
-                              {item.suppliers?.name || <span className="text-gray-300">—</span>}
+                              {item.suppliers?.name || (
+                                <span className="text-gray-300">—</span>
+                              )}
                             </td>
 
                             <td className="px-3 py-2 text-center">
@@ -948,7 +1174,12 @@ function Production_rm() {
                                   min="0"
                                   step="any"
                                   value={editingStock.value}
-                                  onChange={(e) => setEditingStock({ ...editingStock, value: e.target.value })}
+                                  onChange={(e) =>
+                                    setEditingStock({
+                                      ...editingStock,
+                                      value: e.target.value,
+                                    })
+                                  }
                                   onBlur={() => {
                                     saveStock(item.id, editingStock.value);
                                     setEditingStock(null);
@@ -956,7 +1187,10 @@ function Production_rm() {
                                   onKeyDown={(e) => handleKeyDown(e, item.id)}
                                   autoFocus
                                   className="w-20 text-center text-xs border rounded px-1 py-0.5 focus:outline-none focus:ring-2"
-                                  style={{ borderColor: C.accent, boxShadow: `0 0 0 2px ${C.accent}22` }}
+                                  style={{
+                                    borderColor: C.accent,
+                                    boxShadow: `0 0 0 2px ${C.accent}22`,
+                                  }}
                                 />
                               ) : (
                                 <button
@@ -1004,7 +1238,10 @@ function Production_rm() {
                                   title="Delete"
                                   className="p-1.5 rounded-md hover:bg-red-200 transition-colors cursor-pointer"
                                 >
-                                  <Trash2 size={16} style={{ color: C.accent }} />
+                                  <Trash2
+                                    size={16}
+                                    style={{ color: C.accent }}
+                                  />
                                 </button>
                               </div>
                             </td>
@@ -1014,13 +1251,28 @@ function Production_rm() {
                     )}
 
                     {!loading && filtered.length > 0 && (
-                      <tr className="border-t-2 font-semibold" style={{ borderTopColor: C.accent, backgroundColor: "#FAFAFA" }}>
-                        <td className="px-2 py-2.5 text-center text-xs text-gray-400">—</td>
-                        <td colSpan={2} className="px-3 py-2.5 text-xs text-gray-700">
+                      <tr
+                        className="border-t-2 font-semibold"
+                        style={{
+                          borderTopColor: C.accent,
+                          backgroundColor: "#FAFAFA",
+                        }}
+                      >
+                        <td className="px-2 py-2.5 text-center text-xs text-gray-400">
+                          —
+                        </td>
+                        <td
+                          colSpan={2}
+                          className="px-3 py-2.5 text-xs text-gray-700"
+                        >
                           TOTAL ({filtered.length} materials)
                         </td>
-                        <td className="px-3 py-2.5 text-center text-xs text-gray-400">—</td>
-                        <td className="px-3 py-2.5 text-center text-xs text-gray-400">—</td>
+                        <td className="px-3 py-2.5 text-center text-xs text-gray-400">
+                          —
+                        </td>
+                        <td className="px-3 py-2.5 text-center text-xs text-gray-400">
+                          —
+                        </td>
                         <td className="px-3 py-2.5 text-center text-xs">
                           {lowStockCount + outStockCount > 0 && (
                             <span
@@ -1031,7 +1283,9 @@ function Production_rm() {
                             </span>
                           )}
                         </td>
-                        <td className="px-3 py-2.5 text-center text-xs text-gray-400">—</td>
+                        <td className="px-3 py-2.5 text-center text-xs text-gray-400">
+                          —
+                        </td>
                       </tr>
                     )}
                   </tbody>
@@ -1042,15 +1296,30 @@ function Production_rm() {
             {/* Legend */}
             <div className="flex gap-4 flex-wrap text-xs text-gray-500 pb-2">
               <span className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded-sm inline-block border" style={{ backgroundColor: C.warningSoft, borderColor: C.warningBorder }} />
+                <span
+                  className="w-3 h-3 rounded-sm inline-block border"
+                  style={{
+                    backgroundColor: C.warningSoft,
+                    borderColor: C.warningBorder,
+                  }}
+                />
                 Low stock (at/below reorder point)
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded-sm inline-block border" style={{ backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder }} />
+                <span
+                  className="w-3 h-3 rounded-sm inline-block border"
+                  style={{
+                    backgroundColor: C.accentSoft,
+                    borderColor: C.accentSoftBorder,
+                  }}
+                />
                 Out of stock
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="px-1.5 rounded-full text-[11px] font-semibold" style={{ backgroundColor: C.accentSoft, color: C.accent }}>
+                <span
+                  className="px-1.5 rounded-full text-[11px] font-semibold"
+                  style={{ backgroundColor: C.accentSoft, color: C.accent }}
+                >
                   n
                 </span>
                 Items needing reorder from that supplier
@@ -1118,8 +1387,12 @@ function Production_rm() {
             }
           >
             <p className="text-sm text-gray-600">
-              Delete <span className="font-medium text-gray-800">{itemToDelete.material_name}</span>? This can't be undone.
-              Materials that already have delivery history can't be deleted.
+              Delete{" "}
+              <span className="font-medium text-gray-800">
+                {itemToDelete.material_name}
+              </span>
+              ? This can't be undone. Materials that already have delivery
+              history can't be deleted.
             </p>
             <ErrorBox error={deleteError} />
           </ModalShell>

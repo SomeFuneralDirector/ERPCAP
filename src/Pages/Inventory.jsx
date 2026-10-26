@@ -373,17 +373,7 @@ function ViewProductModal({ item, onClose }) {
   );
 }
 
-/* ── AllocationRequestsPanel ─────────────────────────────────────────────
-   Notification: Production requests allocation, Inventory approves/rejects
-   here. This is the only place that writes stock changes caused by
-   production output, keeping Inventory as the source of truth.
 
-   Inventory NEVER chooses which platform to allocate into — that decision
-   belongs to Production, and is already baked into req.platform when the
-   request was filed. Inventory's only actions are Approve / Reject.
-   If a request somehow arrives without a concrete platform ("All" or
-   empty), it cannot be approved — Inventory can only reject it and ask
-   Production to resubmit with a specific platform. */
 function AllocationRequestsPanel({ requests, inventory, onResolved }) {
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState("");
@@ -517,7 +507,6 @@ function AllocationRequestsPanel({ requests, inventory, onResolved }) {
                   className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white rounded-md disabled:opacity-40 transition-colors cursor-pointer"
                   style={{ backgroundColor: C.success }}
                 >
-                  <Check size={13} />
                   {busyId === req.id ? "…" : "Approve"}
                 </button>
                 <button
@@ -526,7 +515,6 @@ function AllocationRequestsPanel({ requests, inventory, onResolved }) {
                   className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md disabled:opacity-40 transition-colors cursor-pointer hover:opacity-80"
                   style={{ color: C.accent, backgroundColor: C.accentSoft }}
                 >
-                  <XCircle size={13} />
                   Reject
                 </button>
               </div>

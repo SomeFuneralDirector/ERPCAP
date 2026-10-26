@@ -1186,7 +1186,6 @@ function Inventory_db() {
                 {fmt(materialStats.total)}
               </p>
             )}
-            <p className="text-xs mt-1 text-gray-400">Oils and alcohol</p>
           </Card>
 
           <Card className="p-4">
@@ -1198,7 +1197,6 @@ function Inventory_db() {
                 {fmtL(materialStats.oilLitres)}
               </p>
             )}
-            <p className="text-xs mt-1 text-gray-400">Fragrance oils and aroma chemicals</p>
           </Card>
 
           <Card className="p-4">
@@ -1210,7 +1208,6 @@ function Inventory_db() {
                 {fmtL(materialStats.alcoholLitres)}
               </p>
             )}
-            <p className="text-xs mt-1 text-gray-400">Fragrance base</p>
           </Card>
 
           <Card className="p-4">
