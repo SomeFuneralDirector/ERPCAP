@@ -5,10 +5,6 @@ import {
   ResponsiveContainer,
   BarChart,
   Bar,
-  LineChart,
-  Line,
-  AreaChart,
-  Area,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -36,9 +32,7 @@ const PLATFORM_BADGE = {
 };
 
 // NOTE: keys must match the lowercase `platform` values coming from
-// production_orders (shopee / lazada / tiktok). A prior "tikTok" typo
-// here silently dropped the TikTok slice's color in every chart that
-// keyed off this map — fixed so all three platforms render consistently.
+// production_orders (shopee / lazada / tiktok).
 const PLATFORM_HEX = {
   shopee: "#EE4D2D",
   lazada: "#0F146D",
@@ -52,12 +46,28 @@ const WO_STATUS_HEX = {
   Cancelled: "#9CA3AF",
 };
 
-const DATE_RANGE_OPTIONS = [
-  { value: "all", label: "All time" },
-  { value: "today", label: "Today" },
-  { value: "7d", label: "Last 7 days" },
-  { value: "30d", label: "Last 30 days" },
-];
+// Parse a YYYY-MM-DD key as a LOCAL date (new Date("YYYY-MM-DD") would be UTC).
+function keyToDate(key) {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function addDays(d, n) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+}
+
+// True if `value` falls between start and end (either may be null = open).
+function withinRange(value, start, end) {
+  if (!start && !end) return true;
+  const t = new Date(value);
+  if (isNaN(t)) return false;
+  if (start && t < start) return false;
+  if (end && t > end) return false;
+  return true;
+}
+
+const fmtKey = (k) =>
+  keyToDate(k).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 
 const FINISHED_GOODS_PAGE_SIZE = 6;
 const POLL_INTERVAL_MS = 5000;
@@ -71,16 +81,16 @@ const SEGMENT_BTN = (active) =>
 const PRIMARY_BTN =
   "px-3.5 py-2 rounded-md text-sm font-medium text-white transition-colors disabled:opacity-50 cursor-pointer";
 
-// Build a YYYY-MM-DD key from a Date's LOCAL calendar fields.
-// Never use toISOString() for this: it converts to UTC first, which
-// shifts the date backward for any local time before UTC catches up
-// (e.g. before 8am in Manila, UTC+8), silently breaking day-bucket
-// matches against date-only DB columns like `production_date`.
 function toNum(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 }
 
+// Build a YYYY-MM-DD key from a Date's LOCAL calendar fields.
+// Never use toISOString() for this: it converts to UTC first, which
+// shifts the date backward for any local time before UTC catches up
+// (e.g. before 8am in Manila, UTC+8), silently breaking day-bucket
+// matches against date-only DB columns like `production_date`.
 function localDateKey(d) {
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
@@ -91,15 +101,8 @@ function localDateKey(d) {
 // Every material (oils and alcohol) is measured in litres.
 // raw_material_usage holds three kinds of rows: supplier deliveries ("[Delivery]"
 // notes, stock in), work-order consumption, and manual deductions (negative).
-// Only the last two count as material USED; deliveries must not inflate usage.
 function isDelivery(u) {
   return String(u.notes || "").startsWith("[Delivery]");
-}
-
-function consumedQty(u) {
-  if (isDelivery(u)) return 0;
-  const q = toNum(u.quantity_used);
-  return u.wo_number || q < 0 ? Math.abs(q) : 0;
 }
 
 function ChartTooltip({ active, payload }) {
@@ -136,13 +139,16 @@ function Production() {
   const [readyToShip, setReadyToShip] = useState([]);
   const [shippedTodayCount, setShippedTodayCount] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [softErrors, setSoftErrors] = useState([]);
 
-  // Filters for the "Ready to Ship by platform" chart specifically
+  // Global date range (header, top right): from / to as YYYY-MM-DD keys.
+  // Defaults to the last 30 days; clearing both shows all time.
+  const [dateFrom, setDateFrom] = useState(() => localDateKey(addDays(new Date(), -29)));
+  const [dateTo, setDateTo] = useState(() => localDateKey(new Date()));
+
+  // Platform filter for the "Ready to Ship by platform" chart
   const [rtsPlatform, setRtsPlatform] = useState("all");
-  const [rtsDateRange, setRtsDateRange] = useState("all");
 
   // Pagination for the "Finished goods running low" list
   const [finishedGoodsPage, setFinishedGoodsPage] = useState(0);
@@ -152,8 +158,7 @@ function Production() {
   // created_at), so a created_at-based incremental fetch would silently
   // miss exactly the changes the KPIs here depend on. Instead: every poll
   // still fetches each table in full, but setState is skipped unless the
-  // payload actually differs from last time — same "don't re-render for
-  // nothing" benefit, without the correctness risk of a stale cursor.
+  // payload actually differs from last time.
   const prevWorkOrdersJsonRef = useRef("");
   const prevOutputJsonRef = useRef("");
   const prevUsageJsonRef = useRef("");
@@ -163,15 +168,14 @@ function Production() {
   const prevShippedCountRef = useRef(-1);
 
   /**
-   * mode: "initial" | "manual" | "poll"
-   * All three fetch the same full data — only the loading indicator
-   * differs. The diff-skip above is what keeps "poll" cheap for the UI.
+   * mode: "initial" | "poll"
+   * Both fetch the same full data — only the loading indicator differs.
+   * The diff-skip above is what keeps "poll" cheap for the UI.
    */
   const fetchAll = useCallback(async (mode = "poll") => {
     const isInitial = mode === "initial";
 
     if (isInitial) setLoading(true);
-    else if (mode === "manual") setRefreshing(true);
     setErrorMsg("");
     setSoftErrors([]);
 
@@ -209,8 +213,7 @@ function Production() {
     ]);
 
     // work_orders is the one dataset the whole page depends on. If it
-    // fails, block with a full-page error + retry, same as Inventory_db
-    // does for its primary `inventory` fetch. Everything else below is
+    // fails, block with a full-page error + retry. Everything else below is
     // supplementary: a failure there is surfaced as a small amber notice
     // and doesn't stop the rest of the dashboard from rendering.
     const softIssues = [];
@@ -299,7 +302,6 @@ function Production() {
 
     setSoftErrors(softIssues);
     setLoading(false);
-    setRefreshing(false);
   }, []);
 
   // Polling: refetches on an interval, but only while the tab is visible —
@@ -344,6 +346,32 @@ function Production() {
     };
   }, [fetchAll]);
 
+  // ── Date range derivations ────────────────────────────────────────────
+  const rangeStartDate = useMemo(() => (dateFrom ? keyToDate(dateFrom) : null), [dateFrom]);
+  const rangeEndDate = useMemo(() => {
+    if (!dateTo) return null;
+    const d = keyToDate(dateTo);
+    d.setHours(23, 59, 59, 999);
+    return d;
+  }, [dateTo]);
+
+  const rangeLabel =
+    !dateFrom && !dateTo
+      ? "all time"
+      : dateFrom && dateTo
+      ? dateFrom === dateTo
+        ? fmtKey(dateFrom)
+        : `${fmtKey(dateFrom)} – ${fmtKey(dateTo)}`
+      : dateFrom
+      ? `since ${fmtKey(dateFrom)}`
+      : `up to ${fmtKey(dateTo)}`;
+
+  const woInRange = useMemo(
+    () => workOrders.filter((w) => withinRange(w.created_at, rangeStartDate, rangeEndDate)),
+    [workOrders, rangeStartDate, rangeEndDate]
+  );
+
+  // Current-state cards (not filtered by range)
   const activeWOs = workOrders.filter((w) => ["Pending", "In Progress"].includes(w.status));
   const inProgressWOs = workOrders.filter((w) => w.status === "In Progress");
   const pendingOutput = output.filter((o) => !o.allocated);
@@ -395,24 +423,21 @@ function Production() {
 
   const readyToShipValue = readyToShip.reduce((sum, o) => sum + (o.total_amount || 0), 0) / 100;
 
-  // Ready to Ship chart: filtered by platform + date range
+  // Ready to Ship chart: filtered by platform + the header date range
   const filteredReadyToShip = useMemo(() => {
     return readyToShip.filter((o) => {
       if (rtsPlatform !== "all" && o.platform !== rtsPlatform) return false;
-      if (rtsDateRange === "all") return true;
+      if (!rangeStartDate && !rangeEndDate) return true;
       if (!o.created_at) return false;
-      const days = rtsDateRange === "today" ? 1 : rtsDateRange === "7d" ? 7 : 30;
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - days);
-      return new Date(o.created_at) >= cutoff;
+      return withinRange(o.created_at, rangeStartDate, rangeEndDate);
     });
-  }, [readyToShip, rtsPlatform, rtsDateRange]);
+  }, [readyToShip, rtsPlatform, rangeStartDate, rangeEndDate]);
 
   const filteredReadyValue = filteredReadyToShip.reduce((sum, o) => sum + (o.total_amount || 0), 0) / 100;
 
-  // Per-platform breakdown now carries both order count AND peso value —
+  // Per-platform breakdown carries both order count AND peso value —
   // count alone hides the fact that a platform with fewer orders can be
-  // worth more, which matters more to the business than a raw tally.
+  // worth more.
   const readyPlatformChartData = useMemo(() => {
     const map = { shopee: { count: 0, value: 0 }, lazada: { count: 0, value: 0 }, tiktok: { count: 0, value: 0 } };
     filteredReadyToShip.forEach((o) => {
@@ -433,24 +458,23 @@ function Production() {
 
   const woStatusChartData = useMemo(() => {
     const map = { Pending: 0, "In Progress": 0, Completed: 0, Cancelled: 0 };
-    workOrders.forEach((w) => {
+    woInRange.forEach((w) => {
       if (map[w.status] !== undefined) map[w.status] += 1;
     });
     return Object.entries(map)
       .filter(([, count]) => count > 0)
       .map(([status, count]) => ({ name: status, value: count, color: WO_STATUS_HEX[status] }));
-  }, [workOrders]);
+  }, [woInRange]);
 
   // Work order timeliness: for Completed orders, compare completed_at
   // against due_date; for still-open orders, flag anything already past
-  // its due date as overdue. This is the metric that actually tells
-  // Production whether the queue is under control, not just how big it is.
+  // its due date as overdue.
   const woTimeliness = useMemo(() => {
     const now = new Date();
     let onTime = 0;
     let late = 0;
     let overdue = 0;
-    workOrders.forEach((w) => {
+    woInRange.forEach((w) => {
       if (w.status === "Completed") {
         if (!w.due_date || !w.completed_at) return;
         const due = new Date(w.due_date);
@@ -464,7 +488,7 @@ function Production() {
     const completedWithDueDate = onTime + late;
     const onTimeRate = completedWithDueDate > 0 ? Math.round((onTime / completedWithDueDate) * 100) : null;
     return { onTime, late, overdue, onTimeRate };
-  }, [workOrders]);
+  }, [woInRange]);
 
   const woTimelinessChartData = useMemo(
     () =>
@@ -476,53 +500,20 @@ function Production() {
     [woTimeliness]
   );
 
-  // Output trend, last 30 days (local date keys, not UTC). Replaces the
-  // old 7-day bar chart with a line/area trend, mirroring the Sales
-  // dashboard's "Sales trend" chart so production and sales read the
-  // same way at a glance.
-  const outputTrendData = useMemo(() => {
-    const days = [];
-    const today = new Date();
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
-      const key = localDateKey(d);
-      const qty = output
-        .filter((o) => o.production_date === key)
-        .reduce((sum, o) => sum + Number(o.quantity), 0);
-      days.push({ label: d.toLocaleDateString(undefined, { month: "short", day: "numeric" }), qty });
-    }
-    return days;
-  }, [output]);
-
-  // Material usage by day, last 7 days
-  const usageChartData = useMemo(() => {
-    const days = [];
-    const today = new Date();
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
-      const key = localDateKey(d);
-      const qty = usage
-        .filter((u) => u.usage_date === key)
-        .reduce((sum, u) => sum + consumedQty(u), 0);
-      days.push({ label: d.toLocaleDateString(undefined, { weekday: "short" }), qty });
-    }
-    return days;
-  }, [usage]);
-
-  // Top produced products, last 30 days
+  // Top products by work order quantity within the selected range.
+  // Based on work orders (what Production is actually creating), not the
+  // production_output log. Cancelled work orders are excluded.
   const topProductsChartData = useMemo(() => {
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 30);
     const map = {};
-    output.forEach((o) => {
-      if (new Date(o.production_date) < cutoff) return;
-      map[o.product_name] = (map[o.product_name] || 0) + Number(o.quantity);
+    woInRange.forEach((w) => {
+      if (w.status === "Cancelled") return;
+      map[w.product_name] = (map[w.product_name] || 0) + toNum(w.quantity);
     });
     return Object.entries(map)
       .map(([name, qty]) => ({ name, qty }))
       .sort((a, b) => b.qty - a.qty)
       .slice(0, 6);
-  }, [output]);
+  }, [woInRange]);
 
   // Materials needing reorder, as a chart
   const materialsChartData = useMemo(
@@ -540,7 +531,7 @@ function Production() {
     [lowMaterials]
   );
 
-  // Recent activity feed
+  // Recent activity feed (filtered by the selected range)
   const activity = useMemo(() => {
     const items = [
       ...output.map((o) => ({
@@ -566,11 +557,14 @@ function Production() {
         return { id: `use-${u.id}`, time: u.created_at, text, type };
       }),
     ];
-    return items.sort((a, b) => new Date(b.time) - new Date(a.time)).slice(0, 8);
-  }, [output, usage]);
+    return items
+      .filter((a) => withinRange(a.time, rangeStartDate, rangeEndDate))
+      .sort((a, b) => new Date(b.time) - new Date(a.time))
+      .slice(0, 8);
+  }, [output, usage, rangeStartDate, rangeEndDate]);
 
-  // Blocking error state: same pattern as Inventory_db, replace the page
-  // with a single card + retry when the primary dataset failed to load.
+  // Blocking error state: replace the page with a single card + retry when
+  // the primary dataset failed to load.
   if (errorMsg && workOrders.length === 0) {
     return (
       <div className="p-6">
@@ -593,20 +587,39 @@ function Production() {
 
   return (
     <div className="p-6 space-y-4">
-      <div className={`${CARD} p-5 flex flex-col md:flex-row md:items-center justify-between gap-3`}>
-        <div>
-          <h1 className="text-lg font-semibold text-gray-900">Production - Dashboard</h1>
+      <div className={`${CARD} p-5 flex items-center justify-between gap-3`}>
+        <h1 className="text-lg font-semibold text-gray-900">Production - Dashboard</h1>
+        <div className="flex items-center gap-2">
+          <input
+            type="date"
+            value={dateFrom}
+            max={dateTo || undefined}
+            onChange={(e) => setDateFrom(e.target.value)}
+            aria-label="From date"
+            className="px-2.5 py-1.5 border border-gray-200 rounded-md text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-300 bg-white cursor-pointer"
+          />
+          <span className="text-sm text-gray-400">to</span>
+          <input
+            type="date"
+            value={dateTo}
+            min={dateFrom || undefined}
+            onChange={(e) => setDateTo(e.target.value)}
+            aria-label="To date"
+            className="px-2.5 py-1.5 border border-gray-200 rounded-md text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-300 bg-white cursor-pointer"
+          />
+          {(dateFrom || dateTo) && (
+            <button
+              onClick={() => {
+                setDateFrom("");
+                setDateTo("");
+              }}
+              className="text-xs font-medium text-gray-500 hover:text-gray-700 cursor-pointer"
+              title="Show all time"
+            >
+              Clear
+            </button>
+          )}
         </div>
-        <button
-          onClick={() => fetchAll("manual")}
-          disabled={loading || refreshing}
-          className={`${PRIMARY_BTN} self-start md:self-auto`}
-          style={{ background: ACCENT }}
-          onMouseEnter={(e) => !(loading || refreshing) && (e.currentTarget.style.background = ACCENT_HOVER)}
-          onMouseLeave={(e) => (e.currentTarget.style.background = ACCENT)}
-        >
-          {loading || refreshing ? "Loading…" : "Refresh"}
-        </button>
       </div>
 
       {softErrors.length > 0 && (
@@ -673,26 +686,22 @@ function Production() {
         <StatCard
           label="Oils on hand"
           value={`${materialLitres.oil.toLocaleString(undefined, { maximumFractionDigits: 1 })} L`}
-          sub="fragrance oils, aroma chemicals"
           loading={loading}
         />
         <StatCard
           label="Alcohol on hand"
           value={`${materialLitres.alcohol.toLocaleString(undefined, { maximumFractionDigits: 1 })} L`}
-          sub="fragrance base"
           loading={loading}
         />
         <StatCard
           label="Materials low"
           value={lowMaterialCount}
-          sub="at or below reorder point"
           color="text-amber-700"
           loading={loading}
         />
         <StatCard
           label="Materials out"
           value={outMaterialCount}
-          sub="blocking production"
           color="text-red-700"
           loading={loading}
         />
@@ -703,29 +712,16 @@ function Production() {
         <div className={`lg:col-span-2 ${CARD} p-5`}>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
             <h2 className="text-sm font-semibold text-gray-800">Ready to Ship by platform</h2>
-            <div className="flex gap-2 flex-wrap">
-              <div className={SEGMENT_WRAP}>
-                {["all", "shopee", "lazada", "tiktok"].map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => setRtsPlatform(p)}
-                    className={`${SEGMENT_BTN(rtsPlatform === p)} capitalize`}
-                  >
-                    {p === "all" ? "All" : p}
-                  </button>
-                ))}
-              </div>
-              <select
-                value={rtsDateRange}
-                onChange={(e) => setRtsDateRange(e.target.value)}
-                className="px-2.5 py-1 border border-gray-200 rounded-md text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-300 bg-white cursor-pointer"
-              >
-                {DATE_RANGE_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+            <div className={SEGMENT_WRAP}>
+              {["all", "shopee", "lazada", "tiktok"].map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setRtsPlatform(p)}
+                  className={`${SEGMENT_BTN(rtsPlatform === p)} capitalize`}
+                >
+                  {p === "all" ? "All" : p}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -802,7 +798,7 @@ function Production() {
           {loading ? (
             <Skeleton className="h-40 w-full" />
           ) : woStatusChartData.length === 0 ? (
-            <p className="text-xs text-gray-400">No work orders yet.</p>
+            <p className="text-xs text-gray-400">No work orders for {rangeLabel}.</p>
           ) : (
             <>
               <ResponsiveContainer width="100%" height={160}>
@@ -838,14 +834,13 @@ function Production() {
         </div>
       </div>
 
-      {/* Work order timeliness + Production output trend */}
+      {/* Work order timeliness + Materials needing reorder + Top produced products */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className={`lg:col-span-1 ${CARD} p-5`}>
+        <div className={`${CARD} p-5`}>
           <div className="flex items-center gap-2 mb-1">
             <TimerReset size={16} className="text-gray-500" />
             <h2 className="text-sm font-semibold text-gray-800">Work order timeliness</h2>
           </div>
-          <p className="text-xs text-gray-400 mb-3">Completed vs. due date, plus open orders already overdue</p>
           {loading ? (
             <Skeleton className="h-40 w-full" />
           ) : woTimelinessChartData.length === 0 ? (
@@ -883,58 +878,7 @@ function Production() {
             </>
           )}
         </div>
-        <div className={`lg:col-span-2 ${CARD} p-5`}>
-          <h2 className="text-sm font-semibold text-gray-800 mb-4">Production output trend, last 30 days</h2>
-          {loading ? (
-            <Skeleton className="h-56 w-full" />
-          ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={outputTrendData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="outputFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={ACCENT} stopOpacity={0.22} />
-                    <stop offset="100%" stopColor={ACCENT} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f1" vertical={false} />
-                <XAxis
-                  dataKey="label"
-                  tick={{ fontSize: 10, fill: "#6b7280" }}
-                  axisLine={false}
-                  tickLine={false}
-                  interval={4}
-                />
-                <YAxis tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={false} tickLine={false} allowDecimals={false} />
-                <Tooltip
-                  content={({ active, payload, label }) => {
-                    if (!active || !payload?.length) return null;
-                    return (
-                      <div className="bg-white border border-gray-200 rounded-md shadow-md px-3 py-2 text-xs">
-                        <p className="font-semibold text-gray-700">{label}</p>
-                        <p style={{ color: ACCENT }}>{payload[0].value} units produced</p>
-                      </div>
-                    );
-                  }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="qty"
-                  name="Units produced"
-                  stroke={ACCENT}
-                  strokeWidth={2}
-                  fill="url(#outputFill)"
-                  dot={false}
-                  activeDot={{ r: 4 }}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-      </div>
-
-      {/* Materials needing reorder + Top produced products + Material usage */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className={`lg:col-span-1 ${CARD} p-5`}>
+        <div className={`${CARD} p-5`}>
           <h2 className="text-sm font-semibold text-gray-800 mb-4">
             Materials needing reorder
             {!loading && (
@@ -989,11 +933,11 @@ function Production() {
           )}
         </div>
         <div className={`${CARD} p-5`}>
-          <h2 className="text-sm font-semibold text-gray-800 mb-4">Top produced products, last 30 days</h2>
+          <h2 className="text-sm font-semibold text-gray-800 mb-4">Top products (work orders)</h2>
           {loading ? (
             <Skeleton className="h-48 w-full" />
           ) : topProductsChartData.length === 0 ? (
-            <p className="text-xs text-gray-400">No output logged in the last 30 days.</p>
+            <p className="text-xs text-gray-400">No work orders for {rangeLabel}.</p>
           ) : (
             <ResponsiveContainer width="100%" height={Math.max(180, topProductsChartData.length * 34)}>
               <BarChart
@@ -1017,39 +961,6 @@ function Production() {
                   <LabelList dataKey="qty" position="right" style={{ fontSize: 11, fill: "#374151", fontWeight: 600 }} />
                 </Bar>
               </BarChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-        <div className={`${CARD} p-5`}>
-          <h2 className="text-sm font-semibold text-gray-800 mb-4">Material usage (L), last 7 days</h2>
-          {loading ? (
-            <Skeleton className="h-48 w-full" />
-          ) : (
-            <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={usageChartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f1" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={false} tickLine={false} allowDecimals={false} />
-                <Tooltip
-                  content={({ active, payload, label }) => {
-                    if (!active || !payload?.length) return null;
-                    return (
-                      <div className="bg-white border border-gray-200 rounded-md shadow-md px-3 py-2 text-xs">
-                        <p className="font-semibold text-gray-700">{label}</p>
-                        <p className="text-gray-600">{payload[0].value} L used</p>
-                      </div>
-                    );
-                  }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="qty"
-                  stroke="#D97706"
-                  strokeWidth={2}
-                  dot={{ r: 3, fill: "#D97706" }}
-                  activeDot={{ r: 5 }}
-                />
-              </LineChart>
             </ResponsiveContainer>
           )}
         </div>
@@ -1127,7 +1038,7 @@ function Production() {
             ))}
           </div>
         ) : activity.length === 0 ? (
-          <p className="text-xs text-gray-400">No recent production activity.</p>
+          <p className="text-xs text-gray-400">No production activity for {rangeLabel}.</p>
         ) : (
           <div className="divide-y divide-gray-100">
             {activity.map((a) => (

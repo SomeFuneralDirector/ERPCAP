@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Plus, X } from "lucide-react";
 import { supabase } from "../api/supabase";
 
@@ -65,8 +65,23 @@ function buildBreakdown(rows) {
   }));
 }
 
+// Finished-goods stock level. Same rule as the Production dashboard and
+// Inventory's Products page: total across platforms vs reorder_point (default 5).
+function getStockInfo(p) {
+  const total =
+    (Number(p.shopee_stock) || 0) +
+    (Number(p.lazada_stock) || 0) +
+    (Number(p.tiktok_stock) || 0);
+  const threshold = p.reorder_point ?? 5;
+  const level = total <= 0 ? "out" : total <= threshold ? "low" : "ok";
+  return { total, threshold, level };
+}
+
+const STOCK_RANK = { out: 0, low: 1, ok: 2 };
+
 // ── Searchable product input ─────────────────────────────────────────────
 // Lets the user search existing inventory products instead of blind-typing.
+// No-stock and low-stock products are listed first and highlighted.
 // If nothing matches, the typed text is kept as a free-text product name
 // (e.g. a brand-new product not yet added to Inventory).
 function ProductSearchInput({ productId, productName, onSelect, products }) {
@@ -88,12 +103,27 @@ function ProductSearchInput({ productId, productName, onSelect, products }) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // No stock first, then low stock (emptiest first), then everything else A–Z.
+  const ranked = useMemo(
+    () =>
+      products
+        .map((p) => ({ ...p, stock: getStockInfo(p) }))
+        .sort((a, b) => {
+          const r = STOCK_RANK[a.stock.level] - STOCK_RANK[b.stock.level];
+          if (r !== 0) return r;
+          if (a.stock.level !== "ok") return a.stock.total - b.stock.total;
+          return a.product_name.localeCompare(b.product_name);
+        }),
+    [products]
+  );
+
+  const q = query.toLowerCase();
   const filtered = !query
-    ? products
-    : products.filter(
+    ? ranked
+    : ranked.filter(
         (p) =>
-          p.product_name.toLowerCase().includes(query.toLowerCase()) ||
-          p.product_code.toLowerCase().includes(query.toLowerCase())
+          p.product_name.toLowerCase().includes(q) ||
+          p.product_code.toLowerCase().includes(q)
       );
 
   const handlePick = (p) => {
@@ -132,12 +162,32 @@ function ProductSearchInput({ productId, productName, onSelect, products }) {
               key={p.id}
               type="button"
               onClick={() => handlePick(p)}
-              className="w-full text-left px-3 py-2 text-sm hover:bg-red-50 cursor-pointer flex justify-between items-center"
+              className={`w-full text-left px-3 py-2 text-sm cursor-pointer flex justify-between items-center gap-2 ${
+                p.stock.level === "out"
+                  ? "bg-red-50 hover:bg-red-100"
+                  : p.stock.level === "low"
+                  ? "bg-amber-50 hover:bg-amber-100"
+                  : "hover:bg-red-50"
+              }`}
             >
-              <span className="text-gray-800">{p.product_name}</span>
-              <span className="text-xs text-gray-400 font-mono ml-2">
-                {p.product_code}
+              <span className="min-w-0">
+                <span className="block text-gray-800 truncate">
+                  {p.product_name}
+                </span>
+                <span className="block text-xs text-gray-400 font-mono">
+                  {p.product_code}
+                </span>
               </span>
+              {p.stock.level === "out" && (
+                <span className="shrink-0 text-[10px] font-semibold text-red-700 bg-red-100 border border-red-200 px-1.5 py-0.5 rounded">
+                  No stock
+                </span>
+              )}
+              {p.stock.level === "low" && (
+                <span className="shrink-0 text-[10px] font-semibold text-amber-700 bg-amber-100 border border-amber-200 px-1.5 py-0.5 rounded">
+                  Low · {p.stock.total} left
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -363,10 +413,13 @@ function Production_wo() {
     setLoading(false);
   }
 
+  // Includes the stock columns so the product picker can flag low / no stock.
   async function fetchProducts() {
     const { data, error } = await supabase
       .from("inventory")
-      .select("id, product_code, product_name")
+      .select(
+        "id, product_code, product_name, shopee_stock, lazada_stock, tiktok_stock, reorder_point"
+      )
       .order("product_name", { ascending: true });
     if (!error) setProducts(data || []);
   }
@@ -394,6 +447,8 @@ function Production_wo() {
     setFormData({ ...emptyForm(), wo_number: "" });
     setPlatformRows(emptyRows());
     setIsFormOpen(true);
+    // Refresh stock levels so the picker reflects the latest numbers.
+    fetchProducts();
     const wo_number = await generateWoNumber();
     setFormData((prev) => ({ ...prev, wo_number }));
     setLoadingWoNumber(false);
