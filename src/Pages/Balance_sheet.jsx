@@ -20,6 +20,16 @@ const C = {
   surface: "#F6F6F7",
 };
 
+function focusDateInput(e) {
+  e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`;
+  e.target.style.borderColor = C.accent;
+}
+
+function blurDateInput(e) {
+  e.target.style.boxShadow = "none";
+  e.target.style.borderColor = C.borderStrong;
+}
+
 function BalanceRows({ rows, emptyText }) {
   if (rows.length === 0) {
     return <p className="text-base" style={{ color: C.textFaint }}>{emptyText}</p>;
@@ -133,13 +143,15 @@ function BalanceSheet() {
         >
           <h1 className="text-3xl font-semibold" style={{ color: C.text }}>Balance Sheet</h1>
           <div className="flex items-center gap-2">
-            <span className="text-base" style={{ color: C.textMuted }}>As of</span>
+            <span className="text-sm" style={{ color: C.textMuted }}>As of</span>
             <input
               type="date"
               value={asOfDate}
               onChange={(e) => setAsOfDate(e.target.value)}
-              className="border rounded-md px-3 py-2 text-base cursor-pointer focus:outline-none"
+              className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none"
               style={{ borderColor: C.borderStrong, color: C.text }}
+              onFocus={focusDateInput}
+              onBlur={blurDateInput}
             />
           </div>
         </div>

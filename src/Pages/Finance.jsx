@@ -33,6 +33,16 @@ const FETCH_CHUNK = 1000; // Supabase returns at most 1000 rows per request
 
 const fmtAxis = (v) => `₱${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`;
 
+function focusDateInput(e) {
+  e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`;
+  e.target.style.borderColor = C.accent;
+}
+
+function blurDateInput(e) {
+  e.target.style.boxShadow = "none";
+  e.target.style.borderColor = "#D1D5DB";
+}
+
 /* Fetch every non-archived entry in range, paging past the 1000-row cap. */
 async function fetchAllEntries(dateFrom, dateTo) {
   let all = [];
@@ -71,24 +81,6 @@ function Card({ children, className = "" }) {
   );
 }
 
-function PrimaryButton({ children, className = "", ...props }) {
-  return (
-    <button
-      {...props}
-      className={`inline-flex items-center gap-1.5 px-5 py-2.5 rounded-md text-base font-medium text-white transition-colors disabled:opacity-50 cursor-pointer ${className}`}
-      style={{ backgroundColor: C.accent }}
-      onMouseEnter={(e) => {
-        if (!props.disabled) e.currentTarget.style.backgroundColor = C.accentHover;
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.backgroundColor = C.accent;
-      }}
-    >
-      {children}
-    </button>
-  );
-}
-
 function TrendTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   return (
@@ -105,7 +97,6 @@ function TrendTooltip({ active, payload, label }) {
 
 function Finance() {
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [dateFrom, setDateFrom] = useState(firstOfMonthKey());
   const [dateTo, setDateTo] = useState(localDateKey());
 
@@ -120,12 +111,10 @@ function Finance() {
         setAccountBalances([]);
         setError("Invalid date range.");
         setLoading(false);
-        setRefreshing(false);
         return;
       }
 
       if (isInitial) setLoading(true);
-      else setRefreshing(true);
       setError("");
 
       const [entriesRes, balancesRes] = await Promise.all([
@@ -144,7 +133,6 @@ function Finance() {
       }
 
       setLoading(false);
-      setRefreshing(false);
     },
     [dateFrom, dateTo]
   );
@@ -230,19 +218,20 @@ function Finance() {
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
-                className="border border-gray-300 rounded-md px-3 py-2 text-base text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
+                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none"
+                onFocus={focusDateInput}
+                onBlur={blurDateInput}
               />
-              <span className="text-gray-400 text-base">to</span>
+              <span className="text-gray-400 text-sm">to</span>
               <input
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
-                className="border border-gray-300 rounded-md px-3 py-2 text-base text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
+                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none"
+                onFocus={focusDateInput}
+                onBlur={blurDateInput}
               />
             </div>
-            <PrimaryButton onClick={() => loadFinanceData(false)} disabled={loading || refreshing}>
-              {loading || refreshing ? "Loading..." : "Refresh"}
-            </PrimaryButton>
           </div>
         </Card>
 

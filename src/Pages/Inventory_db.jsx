@@ -64,6 +64,28 @@ const SEGMENT_BTN = (active) =>
 
 const POLL_INTERVAL_MS = 5000;
 
+function localDateKey(d = new Date()) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function firstOfMonthKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+function focusDateInput(e) {
+  e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`;
+  e.target.style.borderColor = C.accent;
+}
+
+function blurDateInput(e) {
+  e.target.style.boxShadow = "none";
+  e.target.style.borderColor = "#D1D5DB";
+}
+
 // ─── Helpers ──────────────────────────────────────────────────
 
 function toNumber(value) {
@@ -208,8 +230,8 @@ function Inventory_db() {
 
   // Filters (same UX as Sales dashboard)
   const [platformFilter, setPlatformFilter] = useState("all");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [dateFrom, setDateFrom] = useState(firstOfMonthKey);
+  const [dateTo, setDateTo] = useState(localDateKey);
 
   // Drill-down state
   const [breakdown, setBreakdown] = useState(null);
@@ -775,7 +797,9 @@ function Inventory_db() {
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
-                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
+                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none"
+                onFocus={focusDateInput}
+                onBlur={blurDateInput}
                 title="Updated from"
               />
               <span className="text-gray-400 text-sm">to</span>
@@ -783,7 +807,9 @@ function Inventory_db() {
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
-                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
+                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none"
+                onFocus={focusDateInput}
+                onBlur={blurDateInput}
                 title="Updated to"
               />
             </div>

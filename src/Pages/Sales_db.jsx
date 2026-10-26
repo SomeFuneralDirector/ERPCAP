@@ -11,7 +11,6 @@ import {
   Cell,
   BarChart,
   Bar,
-  LabelList,
 } from "recharts";
 import { supabase } from "../api/supabase";
 import { toNumber, localDateKey, firstOfMonthKey } from "../lib/Finance";
@@ -698,7 +697,7 @@ function Sales_db({ onGoToImport }) {
           <EmptyState onImport={onGoToImport} />
         ) : (
           <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={platformTotals} margin={{ top: 20, right: 16, left: 0, bottom: 0 }}>
+            <BarChart data={platformTotals} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f1" vertical={false} />
               <XAxis dataKey="platform" tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
@@ -707,7 +706,6 @@ function Sales_db({ onGoToImport }) {
                 {platformTotals.map((p) => (
                   <Cell key={p.platform} fill={p.color} />
                 ))}
-                <LabelList dataKey="amount" position="top" formatter={fmtAxis} style={{ fontSize: 11, fill: "#374151", fontWeight: 600 }} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -738,7 +736,7 @@ function Sales_db({ onGoToImport }) {
           <EmptyState onImport={onGoToImport} />
         ) : (
           <ResponsiveContainer width="100%" height={Math.max(180, topProducts.length * 40)}>
-            <BarChart data={topProducts} layout="vertical" margin={{ top: 0, right: 48, left: 8, bottom: 0 }}>
+            <BarChart data={topProducts} layout="vertical" margin={{ top: 0, right: 16, left: 8, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f1" horizontal={false} />
               <XAxis type="number" tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={false} tickLine={false} />
               <YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 11, fill: "#374151" }} axisLine={false} tickLine={false} />
@@ -751,12 +749,6 @@ function Sales_db({ onGoToImport }) {
                 {topProducts.map((_, i) => (
                   <Cell key={i} fill={i === 0 ? ACCENT : "#E8B9B9"} />
                 ))}
-                <LabelList
-                  dataKey={productSort}
-                  position="right"
-                  formatter={(v) => (productSort === "amount" ? fmtAxis(v) : v)}
-                  style={{ fontSize: 11, fill: "#374151", fontWeight: 600 }}
-                />
               </Bar>
             </BarChart>
           </ResponsiveContainer>

@@ -17,6 +17,16 @@ const C = {
   surface: "#F6F6F7",
 };
 
+function focusDateInput(e) {
+  e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`;
+  e.target.style.borderColor = C.accent;
+}
+
+function blurDateInput(e) {
+  e.target.style.boxShadow = "none";
+  e.target.style.borderColor = C.borderStrong;
+}
+
 function StatementRows({ rows }) {
   return (
     <table className="w-full text-base mb-2">
@@ -108,16 +118,20 @@ function IncomeStatement() {
               type="date"
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
-              className="border rounded-md px-3 py-2 text-base cursor-pointer focus:outline-none"
+              className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none"
               style={{ borderColor: C.borderStrong, color: C.text }}
+              onFocus={focusDateInput}
+              onBlur={blurDateInput}
             />
-            <span className="text-base" style={{ color: C.textFaint }}>to</span>
+            <span className="text-sm" style={{ color: C.textFaint }}>to</span>
             <input
               type="date"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
-              className="border rounded-md px-3 py-2 text-base cursor-pointer focus:outline-none"
+              className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none"
               style={{ borderColor: C.borderStrong, color: C.text }}
+              onFocus={focusDateInput}
+              onBlur={blurDateInput}
             />
           </div>
         </div>
