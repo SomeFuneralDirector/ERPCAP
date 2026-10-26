@@ -35,6 +35,18 @@ const PAGE_SIZE = 20 // rows shown per page
 const FETCH_LIMIT = 500 // most recent rows loaded per log (paged + searched on the client)
 const POLL_INTERVAL_MS = 5000
 
+function localDateKey(d = new Date()) {
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
+function firstOfMonthKey() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+}
+
 const CASH_TYPE_LABEL = { debit: 'Cash In', credit: 'Cash Out' }
 
 // Table that holds your users' id + email (used to show who archived a cash book entry).
@@ -627,10 +639,8 @@ function Activity_logs() {
   const [archivedEntries, setArchivedEntries] = useState([])
 
   // Date range — same pattern as Admin / Finance dashboards
-  const [dateFrom, setDateFrom] = useState(
-    new Date(new Date().setDate(1)).toISOString().slice(0, 10)
-  )
-  const [dateTo, setDateTo] = useState(new Date().toISOString().slice(0, 10))
+  const [dateFrom, setDateFrom] = useState(firstOfMonthKey)
+  const [dateTo, setDateTo] = useState(localDateKey)
 
   const [loading, setLoading] = useState({
     logins: true,
@@ -982,7 +992,7 @@ function Activity_logs() {
                   setDateFrom(e.target.value)
                   setPage(1)
                 }}
-                className="border rounded-md px-3 py-2 text-base cursor-pointer focus:outline-none"
+                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none"
                 style={{ borderColor: C.borderStrong, color: C.text }}
                 onFocus={(e) => {
                   e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`
@@ -993,7 +1003,7 @@ function Activity_logs() {
                   e.target.style.borderColor = C.borderStrong
                 }}
               />
-              <span className="text-base" style={{ color: C.textFaint }}>
+              <span className="text-sm" style={{ color: C.textFaint }}>
                 to
               </span>
               <input
@@ -1003,7 +1013,7 @@ function Activity_logs() {
                   setDateTo(e.target.value)
                   setPage(1)
                 }}
-                className="border rounded-md px-3 py-2 text-base cursor-pointer focus:outline-none"
+                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none"
                 style={{ borderColor: C.borderStrong, color: C.text }}
                 onFocus={(e) => {
                   e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`

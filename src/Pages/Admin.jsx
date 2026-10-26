@@ -72,6 +72,28 @@ const SUPPLIER_COLORS = ["#0E7490", "#92400E", "#166534", "#9F1239", "#1E3A8A", 
 
 const PAGE_SIZE = 5;
 
+function localDateKey(d = new Date()) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function firstOfMonthKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+function focusDateInput(e) {
+  e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`;
+  e.target.style.borderColor = C.accent;
+}
+
+function blurDateInput(e) {
+  e.target.style.boxShadow = "none";
+  e.target.style.borderColor = "#D1D5DB";
+}
+
 const fmtPeso = (pesos) =>
   `₱${(pesos ?? 0).toLocaleString("en-PH", {
     minimumFractionDigits: 2,
@@ -282,24 +304,6 @@ function Card({ children, className = "" }) {
   );
 }
 
-function PrimaryButton({ children, className = "", ...props }) {
-  return (
-    <button
-      {...props}
-      className={`inline-flex items-center gap-1.5 px-5 py-2.5 rounded-md text-base font-medium text-white transition-colors disabled:opacity-50 cursor-pointer ${className}`}
-      style={{ backgroundColor: C.accent }}
-      onMouseEnter={(e) => {
-        if (!props.disabled) e.currentTarget.style.backgroundColor = C.accentHover;
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.backgroundColor = C.accent;
-      }}
-    >
-      {children}
-    </button>
-  );
-}
-
 function KpiCard({ label, value, sub, loading, tone = "gray" }) {
   const toneColor =
     tone === "green" ? C.success : tone === "red" ? C.accent : tone === "amber" ? C.warning : C.text;
@@ -387,13 +391,10 @@ function Admin() {
   const [orders, setOrders] = useState([]);
   const [workOrders, setWorkOrders] = useState([]);
 
-  const [dateFrom, setDateFrom] = useState(
-    new Date(new Date().setDate(1)).toISOString().slice(0, 10)
-  );
-  const [dateTo, setDateTo] = useState(new Date().toISOString().slice(0, 10));
+  const [dateFrom, setDateFrom] = useState(firstOfMonthKey);
+  const [dateTo, setDateTo] = useState(localDateKey);
 
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
   const navigate = useNavigate();
@@ -405,12 +406,10 @@ function Admin() {
       if (!dateFrom || !dateTo || dateFrom > dateTo) {
         setErrorMsg("Invalid date range.");
         setLoading(false);
-        setRefreshing(false);
         return;
       }
 
       if (isInitial) setLoading(true);
-      else setRefreshing(true);
       setErrorMsg("");
 
       const [
@@ -473,7 +472,6 @@ function Admin() {
       setWorkOrders(workOrdersRes.data || []);
 
       setLoading(false);
-      setRefreshing(false);
     },
     [dateFrom, dateTo]
   );
@@ -738,19 +736,20 @@ function Admin() {
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
-                className="border border-gray-300 rounded-md px-3 py-2 text-base text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
+                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none"
+                onFocus={focusDateInput}
+                onBlur={blurDateInput}
               />
-              <span className="text-gray-400 text-base">to</span>
+              <span className="text-gray-400 text-sm">to</span>
               <input
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
-                className="border border-gray-300 rounded-md px-3 py-2 text-base text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
+                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none"
+                onFocus={focusDateInput}
+                onBlur={blurDateInput}
               />
             </div>
-            <PrimaryButton onClick={() => loadDashboard(false)} disabled={loading || refreshing}>
-              {loading || refreshing ? "Loading…" : "Refresh"}
-            </PrimaryButton>
           </div>
         </Card>
 
