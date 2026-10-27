@@ -15,15 +15,20 @@ import {
 import { supabase } from "../api/supabase";
 import { toNumber, localDateKey, firstOfMonthKey } from "../lib/Finance";
 
-/* ---------------------------------------------------------------------
- * Design tokens (ISONFAM ERP)
- * Red is reserved for primary actions and true alerts, not decoration.
- * Platform colors stay recognizable but are muted to sit inside a
- * neutral, professional palette instead of competing with it.
- * ------------------------------------------------------------------- */
-const ACCENT = "#9A1B1B"; // primary action / brand accent (muted deep red)
-const ACCENT_HOVER = "#7F1616";
-const ALERT = "#B42318"; // reserved for out-of-stock / error states
+/* ── Design tokens (shared with Finance, Cash Book and Dashboard) ─ */
+const C = {
+  accent: "#B3211B",
+  accentHover: "#8E1A15",
+  accentSoft: "#FBEAE9",
+  accentSoftBorder: "#F3C9C7",
+  text: "#1C1C1F",
+  textMuted: "#6B6B70",
+  border: "#E4E4E7",
+  success: "#15803D",
+  warning: "#A15C07",
+  warningSoft: "#FBF3E7",
+  warningBorder: "#F1DDB8",
+};
 
 const PLATFORM_COLORS = {
   Shopee: "#EE4D2D",
@@ -31,16 +36,9 @@ const PLATFORM_COLORS = {
   TikTok: "#101113",
 };
 
-const CARD = "bg-white rounded-md border border-gray-200 shadow-sm";
-const SEGMENT_WRAP = "flex gap-0.5 bg-gray-100 rounded-md p-0.5";
-const SEGMENT_BTN = (active) =>
-  `px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer ${
-    active ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
-  }`;
-const PRIMARY_BTN =
-  "px-3.5 py-2 rounded-md text-sm font-medium text-white transition-colors disabled:opacity-50 cursor-pointer";
-
 const POLL_INTERVAL_MS = 5000;
+const FETCH_CHUNK = 1000; // Supabase returns at most 1000 rows per request
+const ORDER_ITEMS_CHUNK_SIZE = 50; // keeps .in() URLs short and each chunk well under 1000 rows
 
 const fmtPHP = (n) =>
   `₱${(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -48,6 +46,8 @@ const fmtPHP = (n) =>
 const fmtAxis = (v) => `₱${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`;
 
 const centsToPesos = (c) => Math.max(0, toNumber(c)) / 100;
+
+const axisTick = { fontSize: 14, fill: "#000000" };
 
 const safeDate = (value) => {
   if (!value) return null;
@@ -84,6 +84,23 @@ const chunkArray = (arr, size) => {
   }
   return chunks;
 };
+
+/* Fetch every row of a query, paging past the 1000-row cap.
+   buildQuery must return a fresh query (with a stable order) on each call. */
+async function fetchAllPages(buildQuery) {
+  let all = [];
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await buildQuery().range(from, from + FETCH_CHUNK - 1);
+    if (error) return { data: null, error };
+    all = all.concat(data || []);
+    if (!data || data.length < FETCH_CHUNK) break;
+    from += FETCH_CHUNK;
+  }
+
+  return { data: all, error: null };
+}
 
 function getStartOfWeek(d) {
   const date = new Date(d);
@@ -155,14 +172,72 @@ function useCountUp(target, duration = 500) {
   return value;
 }
 
-function Skeleton({ className = "h-7 w-16" }) {
+/* ── UI building blocks (same as the other pages) ─ */
+function Card({ children, className = "" }) {
+  return (
+    <div className={`bg-white rounded-lg border border-gray-200 shadow-sm ${className}`}>
+      {children}
+    </div>
+  );
+}
+
+function Skeleton({ className = "h-8 w-24" }) {
   return <div className={`${className} bg-gray-100 rounded animate-pulse mt-1`} />;
+}
+
+function PrimaryButton({ children, className = "", ...props }) {
+  return (
+    <button
+      {...props}
+      className={`inline-flex items-center gap-1.5 px-5 py-2.5 rounded-md text-base font-medium text-white transition-colors disabled:opacity-50 cursor-pointer ${className}`}
+      style={{ backgroundColor: C.accent }}
+      onMouseEnter={(e) => {
+        if (!props.disabled) e.currentTarget.style.backgroundColor = C.accentHover;
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.backgroundColor = C.accent;
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SegmentedControl({ options, value, onChange }) {
+  return (
+    <div className="flex gap-0.5 bg-gray-100 rounded-md p-0.5">
+      {options.map((opt) => {
+        const active = value === opt.value;
+        return (
+          <button
+            key={opt.value}
+            onClick={() => onChange(opt.value)}
+            className={`px-3 py-1.5 text-sm font-medium rounded transition-colors cursor-pointer ${
+              active ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function KpiCard({ label, loading, sub, children }) {
+  return (
+    <Card className="p-4">
+      <p className="text-sm text-gray-500">{label}</p>
+      {loading ? <Skeleton /> : <div className="flex items-center gap-2 mt-1">{children}</div>}
+      {sub && <p className="text-sm mt-1 text-gray-400">{sub}</p>}
+    </Card>
+  );
 }
 
 function CurrencyTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-white border border-gray-200 rounded-md shadow-md px-3 py-2 text-xs">
+    <div className="bg-white border border-gray-200 rounded-md shadow-lg px-4 py-3.5 text-sm">
       <p className="font-semibold text-gray-700 mb-1">{label}</p>
       {payload.map((p) => (
         <p key={p.dataKey} style={{ color: p.color || p.fill }}>
@@ -179,7 +254,7 @@ function ChangeBadge({ current, previous }) {
   const isUp = pct >= 0;
   return (
     <span
-      className={`inline-flex items-center gap-0.5 text-xs font-medium px-1.5 py-0.5 rounded ${
+      className={`inline-flex items-center gap-0.5 text-sm font-medium px-1.5 py-0.5 rounded ${
         isUp ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
       }`}
     >
@@ -191,21 +266,11 @@ function ChangeBadge({ current, previous }) {
 function EmptyState({ onImport }) {
   return (
     <div className="flex flex-col items-center justify-center py-12 text-center">
-      <p className="text-sm font-medium text-gray-600">No sales in this range</p>
-      <p className="text-xs text-gray-400 mt-1 mb-4">
+      <p className="text-base font-medium text-gray-600">No sales in this range</p>
+      <p className="text-sm text-gray-400 mt-1 mb-4">
         Adjust the dates, or import a CSV to see data here
       </p>
-      {onImport && (
-        <button
-          onClick={onImport}
-          className={PRIMARY_BTN}
-          style={{ background: ACCENT }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = ACCENT_HOVER)}
-          onMouseLeave={(e) => (e.currentTarget.style.background = ACCENT)}
-        >
-          Go to Import
-        </button>
-      )}
+      {onImport && <PrimaryButton onClick={onImport}>Go to Import</PrimaryButton>}
     </div>
   );
 }
@@ -247,16 +312,18 @@ function Sales_db({ onGoToImport }) {
     setErrorMsg("");
     setItemsWarning("");
 
-    let ordersQuery = supabase
-      .from("orders")
-      .select("id, order_id, platform, total_amount, completed_at, created_at, paid_time, status")
-      .eq("status", "COMPLETED");
+    const { data: fetchedOrders, error: ordersError } = await fetchAllPages(() => {
+      let q = supabase
+        .from("orders")
+        .select("id, order_id, platform, total_amount, completed_at, created_at, paid_time, status")
+        .eq("status", "COMPLETED")
+        .order("id", { ascending: true }); // stable order across pages
 
-    if (!fullResync && lastOrderSyncAtRef.current) {
-      ordersQuery = ordersQuery.gt("created_at", lastOrderSyncAtRef.current);
-    }
-
-    const { data: fetchedOrders, error: ordersError } = await ordersQuery;
+      if (!fullResync && lastOrderSyncAtRef.current) {
+        q = q.gt("created_at", lastOrderSyncAtRef.current);
+      }
+      return q;
+    });
 
     if (ordersError) {
       setErrorMsg(ordersError.message || "Couldn't load orders.");
@@ -289,18 +356,21 @@ function Sales_db({ onGoToImport }) {
     const idsNeedingItems = newOrders.map((o) => o.id).filter(Boolean);
 
     if (idsNeedingItems.length > 0) {
-      // Fetch order_items in chunks. A single .in() call with hundreds of
-      // UUIDs produces a URL long enough that Supabase/PostgREST (and most
-      // proxies in front of it) reject it with a 400.
-      const ORDER_ITEMS_CHUNK_SIZE = 150;
+      // Fetch order_items in small chunks. A single .in() call with hundreds
+      // of UUIDs produces a URL long enough that Supabase/PostgREST (and most
+      // proxies in front of it) reject it with a 400. Each chunk is also
+      // paged, so a chunk with more than 1000 item rows is never truncated.
       const chunks = chunkArray(idsNeedingItems, ORDER_ITEMS_CHUNK_SIZE);
 
       const results = await Promise.all(
         chunks.map((chunk) =>
-          supabase
-            .from("order_items")
-            .select("order_uuid, order_id, platform, product_name, sku, quantity, unit_price")
-            .in("order_uuid", chunk)
+          fetchAllPages(() =>
+            supabase
+              .from("order_items")
+              .select("order_uuid, order_id, platform, product_name, sku, quantity, unit_price")
+              .in("order_uuid", chunk)
+              .order("order_uuid", { ascending: true })
+          )
         )
       );
 
@@ -476,283 +546,272 @@ function Sales_db({ onGoToImport }) {
 
   if (errorMsg && orders.length === 0) {
     return (
-      <div className="p-6">
-        <div className={`${CARD} p-6 border-red-200`}>
-          <h1 className="text-2xl font-semibold text-gray-900 mb-2">Sales - Dashboard</h1>
-          <p className="text-sm text-red-700 mb-4">{errorMsg}</p>
-          <button
-            onClick={() => fetchAll("initial")}
-            className={PRIMARY_BTN}
-            style={{ background: ACCENT }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = ACCENT_HOVER)}
-            onMouseLeave={(e) => (e.currentTarget.style.background = ACCENT)}
-          >
-            Retry
-          </button>
+      <div className="min-h-screen" style={{ backgroundColor: "#F6F6F7" }}>
+        <div className="p-6">
+          <Card className="p-6">
+            <h1 className="text-3xl font-semibold text-gray-900 mb-2">Sales Dashboard</h1>
+            <p className="text-base mb-4" style={{ color: C.accent }}>{errorMsg}</p>
+            <PrimaryButton onClick={() => fetchAll("initial")}>Retry</PrimaryButton>
+          </Card>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="p-6 space-y-4">
-      <div className={`${CARD} p-5 flex flex-col md:flex-row md:items-center justify-between gap-3`}>
-        <div>
-          <h1 className="text-lg font-semibold text-gray-900">Sales - Dashboard</h1>
-          {lastSynced && !loading && (
-            <p className="text-xs text-gray-400 mt-0.5">Synced {timeAgo(lastSynced)}</p>
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
-          <div className={SEGMENT_WRAP}>
-            {["all", "Shopee", "Lazada", "TikTok"].map((p) => (
-              <button
-                key={p}
-                onClick={() => setPlatformFilter(p)}
-                className={SEGMENT_BTN(platformFilter === p)}
-              >
-                {p === "all" ? "All" : p}
-              </button>
-            ))}
+    <div className="min-h-screen" style={{ backgroundColor: "#F6F6F7" }}>
+      <div className="p-6 space-y-4">
+        {/* Header */}
+        <Card className="px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div>
+            <h1 className="text-3xl font-semibold text-gray-900">Sales Dashboard</h1>
+            {lastSynced && !loading && (
+              <p className="text-sm text-gray-400 mt-0.5">Synced {timeAgo(lastSynced)}</p>
+            )}
           </div>
 
-          <div className="flex items-center gap-2">
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
+          <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
+            <SegmentedControl
+              value={platformFilter}
+              onChange={setPlatformFilter}
+              options={["all", "Shopee", "Lazada", "TikTok"].map((p) => ({
+                value: p,
+                label: p === "all" ? "All" : p,
+              }))}
             />
-            <span className="text-gray-400 text-sm">to</span>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
-            />
-            
+
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="border border-gray-300 rounded-md px-3 py-2 text-base text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
+              />
+              <span className="text-gray-400 text-base">to</span>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="border border-gray-300 rounded-md px-3 py-2 text-base text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
+              />
+            </div>
+
+            <PrimaryButton onClick={() => fetchAll("manual")} disabled={loading || refreshing}>
+              {loading || refreshing ? "Loading..." : "Refresh"}
+            </PrimaryButton>
           </div>
+        </Card>
 
-        </div>
-      </div>
+        {errorMsg && orders.length > 0 && (
+          <div
+            className="rounded-md border px-4 py-4 text-sm"
+            style={{ backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder, color: C.accent }}
+          >
+            Last refresh failed: {errorMsg}
+          </div>
+        )}
+        {itemsWarning && (
+          <div
+            className="rounded-md border px-4 py-4 text-sm"
+            style={{ backgroundColor: C.warningSoft, borderColor: C.warningBorder, color: C.warning }}
+          >
+            {itemsWarning}
+          </div>
+        )}
 
-      {errorMsg && orders.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-md p-3 text-xs">
-          Last refresh failed: {errorMsg}
-        </div>
-      )}
-      {itemsWarning && (
-        <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-md p-3 text-xs">
-          {itemsWarning}
-        </div>
-      )}
+        {/* KPIs */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <KpiCard
+            label="Total sales"
+            loading={loading}
+            sub={`${filteredOrders.length.toLocaleString()} completed orders`}
+          >
+            <p className="text-3xl font-semibold text-gray-900">{fmtPHP(animatedTotalSales)}</p>
+            {periodComparison.totalPrev != null && (
+              <ChangeBadge current={periodComparison.totalCurr} previous={periodComparison.totalPrev} />
+            )}
+          </KpiCard>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className={`${CARD} p-5`}>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Total Sales</p>
-          {loading ? (
-            <Skeleton />
-          ) : (
-            <div className="flex items-center gap-2 mt-1">
-              <p className="text-2xl font-semibold text-gray-900">{fmtPHP(animatedTotalSales)}</p>
-              {periodComparison.totalPrev != null && (
-                <ChangeBadge current={periodComparison.totalCurr} previous={periodComparison.totalPrev} />
-              )}
-            </div>
-          )}
-          <p className="text-xs mt-1 text-gray-400">{filteredOrders.length} completed orders</p>
-        </div>
+          <KpiCard label="Avg order value" loading={loading} sub="per completed order">
+            <p className="text-3xl font-semibold text-gray-900">{fmtPHP(animatedAvgOrder)}</p>
+            {periodComparison.avgPrev != null && (
+              <ChangeBadge current={periodComparison.avgCurr} previous={periodComparison.avgPrev} />
+            )}
+          </KpiCard>
 
-        <div className={`${CARD} p-5`}>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Avg Order Value</p>
-          {loading ? (
-            <Skeleton />
-          ) : (
-            <div className="flex items-center gap-2 mt-1">
-              <p className="text-2xl font-semibold text-gray-900">{fmtPHP(animatedAvgOrder)}</p>
-              {periodComparison.avgPrev != null && (
-                <ChangeBadge current={periodComparison.avgCurr} previous={periodComparison.avgPrev} />
-              )}
-            </div>
-          )}
-          <p className="text-xs mt-1 text-gray-400">per completed order</p>
+          <KpiCard label="Items sold" loading={loading} sub="units across all orders">
+            <p className="text-3xl font-semibold text-gray-900">
+              {Math.round(animatedItemsSold).toLocaleString()}
+            </p>
+          </KpiCard>
+
+          <KpiCard
+            label="Latest period"
+            loading={loading}
+            sub={`vs previous ${trendMode.slice(0, -2) || trendMode}`}
+          >
+            <p className="text-3xl font-semibold text-gray-900">
+              {trendChange ? fmtPHP(trendChange.current) : "-"}
+            </p>
+            {trendChange && <ChangeBadge current={trendChange.current} previous={trendChange.previous} />}
+          </KpiCard>
         </div>
 
-        <div className={`${CARD} p-5`}>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Items Sold</p>
-          {loading ? (
-            <Skeleton />
-          ) : (
-            <p className="text-2xl font-semibold mt-1 text-gray-900">{Math.round(animatedItemsSold).toLocaleString()}</p>
-          )}
-          <p className="text-xs mt-1 text-gray-400">units across all orders</p>
-        </div>
-
-        <div className={`${CARD} p-5`}>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Latest Period</p>
-          {loading ? (
-            <Skeleton />
-          ) : (
-            <div className="flex items-center gap-2 mt-1">
-              <p className="text-2xl font-semibold text-gray-900">
-                {trendChange ? fmtPHP(trendChange.current) : "-"}
-              </p>
-              {trendChange && <ChangeBadge current={trendChange.current} previous={trendChange.previous} />}
-            </div>
-          )}
-          <p className="text-xs mt-1 text-gray-400">vs previous {trendMode.slice(0, -2) || trendMode}</p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {["Shopee", "Lazada", "TikTok"].map((platform) => {
-          const entry = platformTotals.find((p) => p.platform === platform);
-          const color = PLATFORM_COLORS[platform];
-          const share = totalSales > 0 ? ((entry?.amount || 0) / totalSales) * 100 : 0;
-          return (
-            <div key={platform} className={`${CARD} p-5`}>
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full inline-block" style={{ background: color }} />
-                {platform}
-              </p>
-              {loading ? <Skeleton /> : (
-                <p className="text-2xl font-semibold mt-1" style={{ color }}>
-                  {fmtPHP(entry?.amount)}
+        {/* Platform cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {["Shopee", "Lazada", "TikTok"].map((platform) => {
+            const entry = platformTotals.find((p) => p.platform === platform);
+            const color = PLATFORM_COLORS[platform];
+            const share = totalSales > 0 ? ((entry?.amount || 0) / totalSales) * 100 : 0;
+            return (
+              <Card key={platform} className="p-4">
+                <p className="text-sm text-gray-500 flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: color }} />
+                  {platform}
                 </p>
-              )}
-              <p className="text-xs mt-1 text-gray-400">{share.toFixed(0)}% of total sales</p>
-            </div>
-          );
-        })}
-      </div>
-
-      <div className={`${CARD} p-5`}>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-semibold text-gray-800">Sales trend</h2>
-          <div className={SEGMENT_WRAP}>
-            {["weekly", "monthly", "yearly"].map((mode) => (
-              <button
-                key={mode}
-                onClick={() => setTrendMode(mode)}
-                className={SEGMENT_BTN(trendMode === mode)}
-              >
-                {mode.charAt(0).toUpperCase() + mode.slice(1)}
-              </button>
-            ))}
-          </div>
+                {loading ? (
+                  <Skeleton />
+                ) : (
+                  <p className="text-3xl font-semibold mt-1" style={{ color }}>
+                    {fmtPHP(entry?.amount)}
+                  </p>
+                )}
+                <p className="text-sm mt-1 text-gray-400">{share.toFixed(0)}% of total sales</p>
+              </Card>
+            );
+          })}
         </div>
-        {loading ? (
-          <Skeleton className="h-64 w-full" />
-        ) : trendPoints.length === 0 ? (
-          <EmptyState onImport={onGoToImport} />
-        ) : (
-          <ResponsiveContainer width="100%" height={260}>
-            <AreaChart data={trendPoints} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-              <defs>
-                <linearGradient id="salesFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={ACCENT} stopOpacity={0.22} />
-                  <stop offset="100%" stopColor={ACCENT} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f1" vertical={false} />
-              <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
-              <Tooltip
-                content={({ active, payload, label }) => {
-                  if (!active || !payload?.length) return null;
-                  const point = payload[0].payload;
-                  return (
-                    <div className="bg-white border border-gray-200 rounded-md shadow-md px-3 py-2 text-xs">
-                      <p className="font-semibold text-gray-700 mb-1">{label}</p>
-                      <p style={{ color: ACCENT }}>
-                        {trendMode.charAt(0).toUpperCase() + trendMode.slice(1)} sales: {fmtPHP(point.value)}
-                      </p>
-                      <p className="text-gray-500">{point.orders} order{point.orders !== 1 ? "s" : ""}</p>
-                    </div>
-                  );
-                }}
-              />
-              <Area
-                type="monotone"
-                dataKey="value"
-                name={`${trendMode.charAt(0).toUpperCase() + trendMode.slice(1)} Sales`}
-                stroke={ACCENT}
-                strokeWidth={2}
-                fill="url(#salesFill)"
-                dot={{ r: 3, fill: ACCENT, strokeWidth: 0 }}
-                activeDot={{ r: 5 }}
-              />
-              <Legend verticalAlign="top" height={28} iconType="line" wrapperStyle={{ fontSize: 12 }} />
-            </AreaChart>
-          </ResponsiveContainer>
-        )}
-      </div>
 
-      <div className={`${CARD} p-5`}>
-        <h2 className="text-sm font-semibold text-gray-800 mb-4">Sales per platform</h2>
-        {loading ? (
-          <Skeleton className="h-56 w-full" />
-        ) : platformTotals.length === 0 ? (
-          <EmptyState onImport={onGoToImport} />
-        ) : (
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={platformTotals} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f1" vertical={false} />
-              <XAxis dataKey="platform" tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
-              <Tooltip content={<CurrencyTooltip />} />
-              <Bar dataKey="amount" name="Sales" radius={[4, 4, 0, 0]}>
-                {platformTotals.map((p) => (
-                  <Cell key={p.platform} fill={p.color} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        )}
-      </div>
-
-      <div className={`${CARD} p-5`}>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-semibold text-gray-800">Top products sold</h2>
-          <div className={SEGMENT_WRAP}>
-            {[
-              { key: "qty", label: "Units" },
-              { key: "amount", label: "Revenue" },
-            ].map((opt) => (
-              <button
-                key={opt.key}
-                onClick={() => setProductSort(opt.key)}
-                className={SEGMENT_BTN(productSort === opt.key)}
-              >
-                {opt.label}
-              </button>
-            ))}
+        {/* Sales trend */}
+        <Card className="p-6">
+          <div className="flex items-center justify-between mb-3 gap-3">
+            <h2 className="text-base font-semibold text-gray-700">Sales trend</h2>
+            <SegmentedControl
+              value={trendMode}
+              onChange={setTrendMode}
+              options={["weekly", "monthly", "yearly"].map((m) => ({
+                value: m,
+                label: m.charAt(0).toUpperCase() + m.slice(1),
+              }))}
+            />
           </div>
-        </div>
-        {loading ? (
-          <Skeleton className="h-56 w-full" />
-        ) : topProducts.length === 0 ? (
-          <EmptyState onImport={onGoToImport} />
-        ) : (
-          <ResponsiveContainer width="100%" height={Math.max(180, topProducts.length * 40)}>
-            <BarChart data={topProducts} layout="vertical" margin={{ top: 0, right: 16, left: 8, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f1" horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={false} tickLine={false} />
-              <YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 11, fill: "#374151" }} axisLine={false} tickLine={false} />
-              <Tooltip
-                formatter={(value, name) =>
-                  name === "amount" ? [fmtPHP(value), "Revenue"] : [`${value} sold`, "Quantity"]
-                }
-              />
-              <Bar dataKey={productSort} name={productSort} radius={[0, 4, 4, 0]} barSize={18}>
-                {topProducts.map((_, i) => (
-                  <Cell key={i} fill={i === 0 ? ACCENT : "#E8B9B9"} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        )}
+          {loading ? (
+            <Skeleton className="h-72 w-full" />
+          ) : trendPoints.length === 0 ? (
+            <EmptyState onImport={onGoToImport} />
+          ) : (
+            <ResponsiveContainer width="100%" height={330}>
+              <AreaChart data={trendPoints} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="salesFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={C.accent} stopOpacity={0.35} />
+                    <stop offset="100%" stopColor={C.accent} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+                <XAxis dataKey="label" tick={axisTick} axisLine={false} tickLine={false} />
+                <YAxis tick={axisTick} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    const point = payload[0].payload;
+                    return (
+                      <div className="bg-white border border-gray-200 rounded-md shadow-lg px-4 py-3.5 text-sm">
+                        <p className="font-semibold text-gray-700 mb-1">{label}</p>
+                        <p style={{ color: C.accent }}>
+                          {trendMode.charAt(0).toUpperCase() + trendMode.slice(1)} sales: {fmtPHP(point.value)}
+                        </p>
+                        <p className="text-gray-500">
+                          {point.orders} order{point.orders !== 1 ? "s" : ""}
+                        </p>
+                      </div>
+                    );
+                  }}
+                />
+                <Legend verticalAlign="top" height={36} iconType="line" wrapperStyle={{ fontSize: 15 }} />
+                <Area
+                  type="monotone"
+                  dataKey="value"
+                  name={`${trendMode.charAt(0).toUpperCase() + trendMode.slice(1)} Sales`}
+                  stroke={C.accent}
+                  strokeWidth={2}
+                  fill="url(#salesFill)"
+                  dot={{ r: 3, fill: C.accent, strokeWidth: 0 }}
+                  activeDot={{ r: 5 }}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
+        </Card>
+
+        {/* Sales per platform */}
+        <Card className="p-6">
+          <h2 className="text-base font-semibold text-gray-700 mb-3">Sales per platform</h2>
+          {loading ? (
+            <Skeleton className="h-56 w-full" />
+          ) : platformTotals.length === 0 ? (
+            <EmptyState onImport={onGoToImport} />
+          ) : (
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={platformTotals} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+                <XAxis dataKey="platform" tick={axisTick} axisLine={false} tickLine={false} />
+                <YAxis tick={axisTick} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
+                <Tooltip content={<CurrencyTooltip />} cursor={{ fill: "#F9FAFB" }} />
+                <Bar dataKey="amount" name="Sales" radius={[4, 4, 0, 0]} maxBarSize={80}>
+                  {platformTotals.map((p) => (
+                    <Cell key={p.platform} fill={p.color} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </Card>
+
+        {/* Top products */}
+        <Card className="p-6">
+          <div className="flex items-center justify-between mb-3 gap-3">
+            <h2 className="text-base font-semibold text-gray-700">Top products sold</h2>
+            <SegmentedControl
+              value={productSort}
+              onChange={setProductSort}
+              options={[
+                { value: "qty", label: "Units" },
+                { value: "amount", label: "Revenue" },
+              ]}
+            />
+          </div>
+          {loading ? (
+            <Skeleton className="h-56 w-full" />
+          ) : topProducts.length === 0 ? (
+            <EmptyState onImport={onGoToImport} />
+          ) : (
+            <ResponsiveContainer width="100%" height={Math.max(220, topProducts.length * 48)}>
+              <BarChart
+                data={topProducts}
+                layout="vertical"
+                margin={{ top: 0, right: 16, left: 8, bottom: 0 }}
+                barCategoryGap={12}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
+                <XAxis type="number" tick={axisTick} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="name" width={180} tick={axisTick} axisLine={false} tickLine={false} />
+                <Tooltip
+                  cursor={{ fill: "#F9FAFB" }}
+                  contentStyle={{ fontSize: 15, borderRadius: 8, borderColor: C.border }}
+                  formatter={(value, name) =>
+                    name === "amount" ? [fmtPHP(value), "Revenue"] : [`${value} sold`, "Quantity"]
+                  }
+                />
+                <Bar dataKey={productSort} name={productSort} radius={[0, 4, 4, 0]} barSize={26}>
+                  {topProducts.map((_, i) => (
+                    <Cell key={i} fill={i === 0 ? C.accent : "#E8B9B9"} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </Card>
       </div>
     </div>
   );

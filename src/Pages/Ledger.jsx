@@ -5,7 +5,6 @@ import { useAuth } from "../context/AuthContext";
 import { Loader2, Plus, Trash2, X, AlertCircle, Archive } from "lucide-react";
 import { formatPeso, localDateKey, firstOfMonthKey } from "../lib/Finance";
 
-/* ── Design tokens (aligned with Inventory / Activity Logs) ──────────────── */
 const C = {
   accent: "#B3211B",
   accentHover: "#8E1A15",
@@ -28,7 +27,7 @@ const TYPE_LABEL = { debit: "Cash In", credit: "Cash Out" };
 
 const PAGE_SIZE = 10;
 const POLL_INTERVAL_MS = 5000;
-const FETCH_CHUNK = 1000; // Supabase returns at most 1000 rows per request
+const FETCH_CHUNK = 1000;
 const SALES_CATEGORY = "Sales Revenue";
 
 function getWeekInfo(dateStr) {
@@ -69,7 +68,6 @@ function newRow() {
   };
 }
 
-/* Fetch every non-sales entry in range, paging past the 1000-row cap. */
 async function fetchOtherEntries(dateFrom, dateTo) {
   let all = [];
   let from = 0;
@@ -85,7 +83,7 @@ async function fetchOtherEntries(dateFrom, dateTo) {
       .eq("archived", false)
       .neq("ledger_categories.name", SALES_CATEGORY)
       .order("date", { ascending: false })
-      .order("id", { ascending: true }) // stable order across pages
+      .order("id", { ascending: true })
       .range(from, from + FETCH_CHUNK - 1);
 
     if (error) return { data: null, error };
@@ -98,28 +96,55 @@ async function fetchOtherEntries(dateFrom, dateTo) {
   return { data: all, error: null };
 }
 
-/* Weekly sales totals, grouped by the database (one row per week). */
+/* In-range Sales Revenue only, then grouped by week.
+   Matches account_balances, so Cash Book sales = Income Statement sales. */
 async function fetchWeeklySales(dateFrom, dateTo) {
-  const { data, error } = await supabase.rpc("ledger_weekly_sales", {
-    p_from: dateFrom,
-    p_to: dateTo,
-  });
-  if (error) return { data: null, error };
+  let all = [];
+  let from = 0;
 
-  const weeks = (data || []).map((w) => {
-    const { key, label } = getWeekInfo(w.week_start);
-    return {
-      id: `sales-week-${key}-${w.type}`,
-      date: key,
-      detail: label,
-      type: w.type,
-      amount: Number(w.total),
-      ledger_categories: { name: SALES_CATEGORY, classification: "revenue" },
-      isSalesWeek: true,
-    };
-  });
+  while (true) {
+    const { data, error } = await supabase
+      .from("ledger_entries")
+      .select(
+        "id, date, type, amount, ledger_categories!inner ( name, classification )"
+      )
+      .gte("date", dateFrom)
+      .lte("date", dateTo)
+      .eq("archived", false)
+      .eq("ledger_categories.name", SALES_CATEGORY)
+      .order("id", { ascending: true })
+      .range(from, from + FETCH_CHUNK - 1);
 
-  return { data: weeks, error: null };
+    if (error) return { data: null, error };
+
+    all = all.concat(data || []);
+    if (!data || data.length < FETCH_CHUNK) break;
+    from += FETCH_CHUNK;
+  }
+
+  const groups = new Map();
+
+  for (const row of all) {
+    const { key, label } = getWeekInfo(row.date);
+    const type = row.type === "credit" ? "credit" : "debit";
+    const gkey = `${key}|${type}`;
+
+    if (!groups.has(gkey)) {
+      groups.set(gkey, {
+        id: `sales-week-${key}-${type}`,
+        date: key < dateFrom ? dateFrom : key,
+        detail: label,
+        type,
+        amount: 0,
+        ledger_categories: { name: SALES_CATEGORY, classification: "revenue" },
+        isSalesWeek: true,
+      });
+    }
+
+    groups.get(gkey).amount += Number(row.amount) || 0;
+  }
+
+  return { data: [...groups.values()], error: null };
 }
 
 function Ledger() {
@@ -242,7 +267,6 @@ function Ledger() {
     setCategories(data || []);
   }
 
-  // Weekly sales rows (already grouped by the database) + everything else.
   const displayRows = [...salesWeeks, ...otherEntries].sort((a, b) =>
     b.date.localeCompare(a.date)
   );
@@ -405,7 +429,6 @@ function Ledger() {
   return (
     <div className="min-h-screen" style={{ backgroundColor: C.surface }}>
       <div className="p-6 space-y-4">
-        {/* Header */}
         <div
           className="bg-white rounded-lg shadow-sm px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3"
           style={{ border: `1px solid ${C.border}` }}
@@ -466,7 +489,6 @@ function Ledger() {
           </div>
         </div>
 
-        {/* Table card */}
         <div
           className="bg-white rounded-lg shadow-sm p-5"
           style={{ border: `1px solid ${C.border}` }}
@@ -510,42 +532,12 @@ function Ledger() {
                   }}
                 >
                   <tr>
-                    <th
-                      className="py-3 px-4 text-left text-sm font-semibold"
-                      style={{ color: C.textMuted }}
-                    >
-                      No
-                    </th>
-                    <th
-                      className="py-3 px-4 text-left text-sm font-semibold"
-                      style={{ color: C.textMuted }}
-                    >
-                      Date
-                    </th>
-                    <th
-                      className="py-3 px-4 text-left text-sm font-semibold"
-                      style={{ color: C.textMuted }}
-                    >
-                      Detail
-                    </th>
-                    <th
-                      className="py-3 px-4 text-right text-sm font-semibold"
-                      style={{ color: C.textMuted }}
-                    >
-                      {TYPE_LABEL.debit}
-                    </th>
-                    <th
-                      className="py-3 px-4 text-right text-sm font-semibold"
-                      style={{ color: C.textMuted }}
-                    >
-                      {TYPE_LABEL.credit}
-                    </th>
-                    <th
-                      className="py-3 px-4 text-right text-sm font-semibold"
-                      style={{ color: C.textMuted }}
-                    >
-                      Action
-                    </th>
+                    <th className="py-3 px-4 text-left text-sm font-semibold" style={{ color: C.textMuted }}>No</th>
+                    <th className="py-3 px-4 text-left text-sm font-semibold" style={{ color: C.textMuted }}>Date</th>
+                    <th className="py-3 px-4 text-left text-sm font-semibold" style={{ color: C.textMuted }}>Detail</th>
+                    <th className="py-3 px-4 text-right text-sm font-semibold" style={{ color: C.textMuted }}>{TYPE_LABEL.debit}</th>
+                    <th className="py-3 px-4 text-right text-sm font-semibold" style={{ color: C.textMuted }}>{TYPE_LABEL.credit}</th>
+                    <th className="py-3 px-4 text-right text-sm font-semibold" style={{ color: C.textMuted }}>Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -565,16 +557,10 @@ function Ledger() {
                           i % 2 === 1 ? C.surface : "#fff")
                       }
                     >
-                      <td
-                        className="py-3 px-4"
-                        style={{ color: C.textFaint }}
-                      >
+                      <td className="py-3 px-4" style={{ color: C.textFaint }}>
                         {(currentPage - 1) * PAGE_SIZE + i + 1}
                       </td>
-                      <td
-                        className="py-3 px-4 whitespace-nowrap font-medium"
-                        style={{ color: C.text }}
-                      >
+                      <td className="py-3 px-4 whitespace-nowrap font-medium" style={{ color: C.text }}>
                         {e.date}
                       </td>
                       <td className="py-3 px-4" style={{ color: C.text }}>
@@ -582,10 +568,7 @@ function Ledger() {
                         {e.ledger_categories?.name && (
                           <span
                             className="ml-2 inline-block px-2 py-0.5 rounded-full text-xs font-semibold"
-                            style={{
-                              backgroundColor: C.surface,
-                              color: C.textMuted,
-                            }}
+                            style={{ backgroundColor: C.surface, color: C.textMuted }}
                           >
                             {e.ledger_categories.name}
                           </span>
@@ -593,29 +576,21 @@ function Ledger() {
                       </td>
                       <td className="py-3 px-4 text-right font-medium">
                         {e.type === "debit" ? (
-                          <span style={{ color: C.success }}>
-                            {formatPeso(e.amount)}
-                          </span>
+                          <span style={{ color: C.success }}>{formatPeso(e.amount)}</span>
                         ) : (
                           <span style={{ color: C.textFaint }}>—</span>
                         )}
                       </td>
                       <td className="py-3 px-4 text-right font-medium">
                         {e.type === "credit" ? (
-                          <span style={{ color: C.accent }}>
-                            {formatPeso(e.amount)}
-                          </span>
+                          <span style={{ color: C.accent }}>{formatPeso(e.amount)}</span>
                         ) : (
                           <span style={{ color: C.textFaint }}>—</span>
                         )}
                       </td>
                       <td className="py-3 px-4 text-right">
                         {e.isSalesWeek ? (
-                          <span
-                            className="text-xs"
-                            style={{ color: C.textFaint }}
-                            title="Weekly sales totals come from automatic sale postings"
-                          >
+                          <span className="text-xs" style={{ color: C.textFaint }} title="Weekly sales totals come from automatic sale postings">
                             Auto
                           </span>
                         ) : (
@@ -623,12 +598,8 @@ function Ledger() {
                             onClick={() => setArchiveTarget(e)}
                             className="inline-flex items-center gap-1 text-sm font-semibold cursor-pointer transition-colors"
                             style={{ color: C.textMuted }}
-                            onMouseEnter={(ev) =>
-                              (ev.currentTarget.style.color = C.accent)
-                            }
-                            onMouseLeave={(ev) =>
-                              (ev.currentTarget.style.color = C.textMuted)
-                            }
+                            onMouseEnter={(ev) => (ev.currentTarget.style.color = C.accent)}
+                            onMouseLeave={(ev) => (ev.currentTarget.style.color = C.textMuted)}
                           >
                             <Archive size={14} />
                             Archive
@@ -652,16 +623,12 @@ function Ledger() {
                   onClick={() => setPage(Math.max(1, currentPage - 1))}
                   disabled={currentPage === 1}
                   className="px-3 py-1.5 border rounded-lg text-sm disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                  style={{
-                    borderColor: C.border,
-                    color: C.textMuted,
-                  }}
+                  style={{ borderColor: C.border, color: C.textMuted }}
                 >
                   ← Prev
                 </button>
                 {[...Array(Math.min(5, totalPages))].map((_, i) => {
-                  const pageNum =
-                    Math.max(1, Math.min(currentPage - 2, totalPages - 4)) + i;
+                  const pageNum = Math.max(1, Math.min(currentPage - 2, totalPages - 4)) + i;
                   const active = currentPage === pageNum;
                   return (
                     <button
@@ -670,15 +637,8 @@ function Ledger() {
                       className="px-3 py-1.5 border rounded-lg text-sm transition-colors cursor-pointer"
                       style={
                         active
-                          ? {
-                              backgroundColor: C.accent,
-                              borderColor: C.accent,
-                              color: "#fff",
-                            }
-                          : {
-                              borderColor: C.border,
-                              color: C.textMuted,
-                            }
+                          ? { backgroundColor: C.accent, borderColor: C.accent, color: "#fff" }
+                          : { borderColor: C.border, color: C.textMuted }
                       }
                     >
                       {pageNum}
@@ -689,10 +649,7 @@ function Ledger() {
                   onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
                   disabled={currentPage === totalPages}
                   className="px-3 py-1.5 border rounded-lg text-sm disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                  style={{
-                    borderColor: C.border,
-                    color: C.textMuted,
-                  }}
+                  style={{ borderColor: C.border, color: C.textMuted }}
                 >
                   Next →
                 </button>
@@ -702,62 +659,32 @@ function Ledger() {
         </div>
       </div>
 
-      {/* Archive confirmation modal */}
       {archiveTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div
-            className="bg-white rounded-lg shadow-xl w-full max-w-md"
-            style={{ border: `1px solid ${C.border}` }}
-          >
-            <div
-              className="flex items-center justify-between px-5 py-4"
-              style={{ borderBottom: `1px solid ${C.border}` }}
-            >
-              <h2 className="text-lg font-semibold" style={{ color: C.text }}>
-                Archive entry?
-              </h2>
-              <button
-                type="button"
-                onClick={() => setArchiveTarget(null)}
-                className="cursor-pointer transition-colors"
-                style={{ color: C.textFaint }}
-              >
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md" style={{ border: `1px solid ${C.border}` }}>
+            <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: `1px solid ${C.border}` }}>
+              <h2 className="text-lg font-semibold" style={{ color: C.text }}>Archive entry?</h2>
+              <button type="button" onClick={() => setArchiveTarget(null)} className="cursor-pointer" style={{ color: C.textFaint }}>
                 <X size={20} />
               </button>
             </div>
-
             <div className="px-5 py-4">
-              <div
-                className="rounded-lg p-3 text-sm mb-4"
-                style={{
-                  backgroundColor: C.surface,
-                  border: `1px solid ${C.border}`,
-                }}
-              >
-                <p className="font-medium" style={{ color: C.text }}>
-                  {archiveTarget.detail}
-                </p>
+              <div className="rounded-lg p-3 text-sm mb-4" style={{ backgroundColor: C.surface, border: `1px solid ${C.border}` }}>
+                <p className="font-medium" style={{ color: C.text }}>{archiveTarget.detail}</p>
                 <p className="text-sm mt-0.5" style={{ color: C.textMuted }}>
-                  {archiveTarget.date} · {TYPE_LABEL[archiveTarget.type]} ·{" "}
-                  {formatPeso(archiveTarget.amount)}
+                  {archiveTarget.date} · {TYPE_LABEL[archiveTarget.type]} · {formatPeso(archiveTarget.amount)}
                 </p>
               </div>
-
               <p className="text-sm" style={{ color: C.textMuted }}>
-                This entry is removed from the Cash Book and stops counting in
-                reports. You can restore it later from{" "}
+                This entry is removed from the Cash Book and stops counting in reports. You can restore it later from{" "}
                 <strong style={{ color: C.text }}>Activity Logs → Archive</strong>.
               </p>
             </div>
-
-            <div
-              className="px-5 py-4 flex justify-end gap-2"
-              style={{ borderTop: `1px solid ${C.border}` }}
-            >
+            <div className="px-5 py-4 flex justify-end gap-2" style={{ borderTop: `1px solid ${C.border}` }}>
               <button
                 type="button"
                 onClick={() => setArchiveTarget(null)}
-                className="px-4 py-2 rounded-md text-base font-medium cursor-pointer transition-colors"
+                className="px-4 py-2 rounded-md text-base font-medium cursor-pointer"
                 style={{ color: C.textMuted, backgroundColor: C.surface }}
               >
                 Cancel
@@ -766,15 +693,8 @@ function Ledger() {
                 type="button"
                 onClick={handleArchiveConfirm}
                 disabled={archiving}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-base font-semibold text-white cursor-pointer transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-base font-semibold text-white cursor-pointer disabled:opacity-50"
                 style={{ backgroundColor: C.accent }}
-                onMouseEnter={(e) => {
-                  if (!archiving)
-                    e.currentTarget.style.backgroundColor = C.accentHover;
-                }}
-                onMouseLeave={(e) =>
-                  (e.currentTarget.style.backgroundColor = C.accent)
-                }
               >
                 {archiving && <Loader2 size={16} className="animate-spin" />}
                 {archiving ? "Archiving…" : "Yes, Archive"}
@@ -784,7 +704,6 @@ function Ledger() {
         </div>
       )}
 
-      {/* Add entries modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <form
@@ -796,12 +715,7 @@ function Ledger() {
               <h2 className="text-lg font-semibold" style={{ color: C.text }}>
                 {step === "edit" ? "Add Entries" : "Confirm Entries"}
               </h2>
-              <button
-                type="button"
-                onClick={closeModal}
-                className="cursor-pointer transition-colors"
-                style={{ color: C.textFaint }}
-              >
+              <button type="button" onClick={closeModal} className="cursor-pointer" style={{ color: C.textFaint }}>
                 <X size={20} />
               </button>
             </div>
@@ -809,38 +723,20 @@ function Ledger() {
             {step === "edit" ? (
               <>
                 <p className="text-sm mb-4" style={{ color: C.textMuted }}>
-                  Add as many rows as you need, then review before saving.
-                  Money coming in (sales, loans received, owner investment) is{" "}
-                  <strong style={{ color: C.text }}>Cash In</strong>. Money
-                  going out (expenses, loan repayments, equipment purchases) is{" "}
-                  <strong style={{ color: C.text }}>Cash Out</strong>. Record
-                  salaries and bills when you actually pay them.
+                  Add as many rows as you need, then review before saving. Money coming in is{" "}
+                  <strong style={{ color: C.text }}>Cash In</strong>. Money going out is{" "}
+                  <strong style={{ color: C.text }}>Cash Out</strong>.
                 </p>
-
                 {banner && (
-                  <div
-                    className="flex items-start gap-2 rounded-lg p-3 text-sm mb-4"
-                    style={{
-                      backgroundColor: C.accentSoft,
-                      color: C.accent,
-                      border: `1px solid ${C.accentSoftBorder}`,
-                    }}
-                  >
+                  <div className="flex items-start gap-2 rounded-lg p-3 text-sm mb-4" style={{ backgroundColor: C.accentSoft, color: C.accent, border: `1px solid ${C.accentSoftBorder}` }}>
                     <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
                     <span>{banner.message}</span>
                   </div>
                 )}
-
                 <div className="overflow-y-auto flex-1 -mx-6 px-6">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr
-                        className="text-left text-xs uppercase"
-                        style={{
-                          color: C.textMuted,
-                          borderBottom: `1px solid ${C.border}`,
-                        }}
-                      >
+                      <tr className="text-left text-xs uppercase" style={{ color: C.textMuted, borderBottom: `1px solid ${C.border}` }}>
                         <th className="py-2 pr-2">Date</th>
                         <th className="py-2 pr-2">Detail</th>
                         <th className="py-2 pr-2">Category</th>
@@ -853,93 +749,23 @@ function Ledger() {
                       {rows.map((r) => {
                         const err = rowErrors[r._rowId] || {};
                         return (
-                          <tr
-                            key={r._rowId}
-                            style={{ borderBottom: `1px solid ${C.border}` }}
-                          >
+                          <tr key={r._rowId} style={{ borderBottom: `1px solid ${C.border}` }}>
                             <td className="py-2 pr-2 align-top">
-                              <input
-                                type="date"
-                                value={r.date}
-                                onChange={(e) =>
-                                  handleRowChange(
-                                    r._rowId,
-                                    "date",
-                                    e.target.value
-                                  )
-                                }
-                                className="w-36 border rounded px-2 py-1.5 text-sm"
-                                style={{
-                                  borderColor: err.date
-                                    ? C.accent
-                                    : C.borderStrong,
-                                  color: C.text,
-                                }}
-                              />
+                              <input type="date" value={r.date} onChange={(e) => handleRowChange(r._rowId, "date", e.target.value)} className="w-36 border rounded px-2 py-1.5 text-sm" style={{ borderColor: err.date ? C.accent : C.borderStrong, color: C.text }} />
                             </td>
                             <td className="py-2 pr-2 align-top">
-                              <input
-                                type="text"
-                                value={r.detail}
-                                onChange={(e) =>
-                                  handleRowChange(
-                                    r._rowId,
-                                    "detail",
-                                    e.target.value
-                                  )
-                                }
-                                placeholder="e.g. Staff salaries, Aug 1-15"
-                                className="w-48 border rounded px-2 py-1.5 text-sm"
-                                style={{
-                                  borderColor: err.detail
-                                    ? C.accent
-                                    : C.borderStrong,
-                                  color: C.text,
-                                }}
-                              />
+                              <input type="text" value={r.detail} onChange={(e) => handleRowChange(r._rowId, "detail", e.target.value)} placeholder="e.g. Staff salaries, Aug 1-15" className="w-48 border rounded px-2 py-1.5 text-sm" style={{ borderColor: err.detail ? C.accent : C.borderStrong, color: C.text }} />
                             </td>
                             <td className="py-2 pr-2 align-top">
-                              <select
-                                value={r.category_id}
-                                onChange={(e) =>
-                                  handleRowChange(
-                                    r._rowId,
-                                    "category_id",
-                                    e.target.value
-                                  )
-                                }
-                                className="w-40 border rounded px-2 py-1.5 text-sm cursor-pointer"
-                                style={{
-                                  borderColor: err.category_id
-                                    ? C.accent
-                                    : C.borderStrong,
-                                  color: C.text,
-                                }}
-                              >
+                              <select value={r.category_id} onChange={(e) => handleRowChange(r._rowId, "category_id", e.target.value)} className="w-40 border rounded px-2 py-1.5 text-sm cursor-pointer" style={{ borderColor: err.category_id ? C.accent : C.borderStrong, color: C.text }}>
                                 <option value="">Select</option>
-                                {[
-                                  "asset",
-                                  "liability",
-                                  "equity",
-                                  "revenue",
-                                  "expense",
-                                ].map((cls) => {
-                                  const inClass = categories.filter(
-                                    (c) => c.classification === cls
-                                  );
+                                {["asset", "liability", "equity", "revenue", "expense"].map((cls) => {
+                                  const inClass = categories.filter((c) => c.classification === cls);
                                   if (inClass.length === 0) return null;
                                   return (
-                                    <optgroup
-                                      key={cls}
-                                      label={
-                                        cls.charAt(0).toUpperCase() +
-                                        cls.slice(1)
-                                      }
-                                    >
+                                    <optgroup key={cls} label={cls.charAt(0).toUpperCase() + cls.slice(1)}>
                                       {inClass.map((c) => (
-                                        <option key={c.id} value={c.id}>
-                                          {c.name}
-                                        </option>
+                                        <option key={c.id} value={c.id}>{c.name}</option>
                                       ))}
                                     </optgroup>
                                   );
@@ -948,100 +774,15 @@ function Ledger() {
                             </td>
                             <td className="py-2 pr-2 align-top">
                               <div className="flex gap-1">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleRowChange(r._rowId, "type", "debit")
-                                  }
-                                  className="px-2 py-1.5 rounded text-xs font-semibold border whitespace-nowrap cursor-pointer"
-                                  style={
-                                    r.type === "debit"
-                                      ? {
-                                          backgroundColor: C.success,
-                                          color: "#fff",
-                                          borderColor: C.success,
-                                        }
-                                      : {
-                                          borderColor: C.borderStrong,
-                                          color: C.textMuted,
-                                        }
-                                  }
-                                >
-                                  {TYPE_LABEL.debit}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleRowChange(r._rowId, "type", "credit")
-                                  }
-                                  className="px-2 py-1.5 rounded text-xs font-semibold border whitespace-nowrap cursor-pointer"
-                                  style={
-                                    r.type === "credit"
-                                      ? {
-                                          backgroundColor: C.accent,
-                                          color: "#fff",
-                                          borderColor: C.accent,
-                                        }
-                                      : {
-                                          borderColor: C.borderStrong,
-                                          color: C.textMuted,
-                                        }
-                                  }
-                                >
-                                  {TYPE_LABEL.credit}
-                                </button>
+                                <button type="button" onClick={() => handleRowChange(r._rowId, "type", "debit")} className="px-2 py-1.5 rounded text-xs font-semibold border cursor-pointer" style={r.type === "debit" ? { backgroundColor: C.success, color: "#fff", borderColor: C.success } : { borderColor: C.borderStrong, color: C.textMuted }}>{TYPE_LABEL.debit}</button>
+                                <button type="button" onClick={() => handleRowChange(r._rowId, "type", "credit")} className="px-2 py-1.5 rounded text-xs font-semibold border cursor-pointer" style={r.type === "credit" ? { backgroundColor: C.accent, color: "#fff", borderColor: C.accent } : { borderColor: C.borderStrong, color: C.textMuted }}>{TYPE_LABEL.credit}</button>
                               </div>
-                              {(() => {
-                                const cat = categories.find(
-                                  (c) => c.id === r.category_id
-                                );
-                                if (!cat) return null;
-                                const expected = normalType(
-                                  cat.classification
-                                );
-                                if (r.type === expected) return null;
-                                return (
-                                  <p
-                                    className="text-[10px] mt-1 leading-tight"
-                                    style={{ color: C.warning }}
-                                  >
-                                    {cat.name} is usually{" "}
-                                    {TYPE_LABEL[expected]}
-                                  </p>
-                                );
-                              })()}
                             </td>
                             <td className="py-2 pr-2 align-top">
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                value={r.amount}
-                                onChange={(e) =>
-                                  handleRowChange(
-                                    r._rowId,
-                                    "amount",
-                                    e.target.value
-                                  )
-                                }
-                                placeholder="0.00"
-                                className="w-28 border rounded px-2 py-1.5 text-sm"
-                                style={{
-                                  borderColor: err.amount
-                                    ? C.accent
-                                    : C.borderStrong,
-                                  color: C.text,
-                                }}
-                              />
+                              <input type="number" step="0.01" min="0" value={r.amount} onChange={(e) => handleRowChange(r._rowId, "amount", e.target.value)} placeholder="0.00" className="w-28 border rounded px-2 py-1.5 text-sm" style={{ borderColor: err.amount ? C.accent : C.borderStrong, color: C.text }} />
                             </td>
                             <td className="py-2 align-top">
-                              <button
-                                type="button"
-                                onClick={() => removeRow(r._rowId)}
-                                disabled={rows.length === 1}
-                                className="p-1.5 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                                style={{ color: C.textFaint }}
-                              >
+                              <button type="button" onClick={() => removeRow(r._rowId)} disabled={rows.length === 1} className="p-1.5 disabled:opacity-30 cursor-pointer" style={{ color: C.textFaint }}>
                                 <Trash2 size={16} />
                               </button>
                             </td>
@@ -1051,145 +792,68 @@ function Ledger() {
                     </tbody>
                   </table>
                 </div>
-
                 <div className="flex items-center justify-between pt-4">
                   <div className="flex gap-3">
-                    <button
-                      type="button"
-                      onClick={addRow}
-                      className="inline-flex items-center gap-1.5 text-sm font-semibold cursor-pointer"
-                      style={{ color: C.accent }}
-                    >
-                      <Plus size={14} />
-                      Add Row
+                    <button type="button" onClick={addRow} className="inline-flex items-center gap-1.5 text-sm font-semibold cursor-pointer" style={{ color: C.accent }}>
+                      <Plus size={14} /> Add Row
                     </button>
-                    <button
-                      type="button"
-                      onClick={duplicateLastRow}
-                      className="text-sm font-semibold cursor-pointer"
-                      style={{ color: C.textFaint }}
-                    >
+                    <button type="button" onClick={duplicateLastRow} className="text-sm font-semibold cursor-pointer" style={{ color: C.textFaint }}>
                       Duplicate Last
                     </button>
                   </div>
                   <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={closeModal}
-                      className="px-4 py-2 rounded-md text-sm font-medium cursor-pointer"
-                      style={{ color: C.textMuted, backgroundColor: C.surface }}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      className="px-4 py-2 rounded-md text-sm font-semibold text-white cursor-pointer"
-                      style={{ backgroundColor: C.accent }}
-                    >
-                      Review{" "}
-                      {rows.length > 1 ? `${rows.length} Entries` : "Entry"}
+                    <button type="button" onClick={closeModal} className="px-4 py-2 rounded-md text-sm font-medium cursor-pointer" style={{ color: C.textMuted, backgroundColor: C.surface }}>Cancel</button>
+                    <button type="submit" className="px-4 py-2 rounded-md text-sm font-semibold text-white cursor-pointer" style={{ backgroundColor: C.accent }}>
+                      Review {rows.length > 1 ? `${rows.length} Entries` : "Entry"}
                     </button>
                   </div>
                 </div>
               </>
             ) : (
               <>
-                <div
-                  className="flex items-start gap-2 rounded-lg p-3 text-sm mb-4"
-                  style={{
-                    backgroundColor: C.warningSoft,
-                    color: C.warning,
-                    border: `1px solid ${C.warningBorder}`,
-                  }}
-                >
+                <div className="flex items-start gap-2 rounded-lg p-3 text-sm mb-4" style={{ backgroundColor: C.warningSoft, color: C.warning, border: `1px solid ${C.warningBorder}` }}>
                   <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
                   <span>
-                    <strong>Double-check the entries below before saving.</strong>{" "}
-                    Entries can&apos;t be edited once saved, but you can archive
-                    an entry from the Cash Book if it was recorded by mistake.
+                    <strong>Double-check the entries below before saving.</strong> Entries can't be edited once saved, but you can archive an entry from the Cash Book if it was recorded by mistake.
                   </span>
                 </div>
-
                 {banner && (
-                  <div
-                    className="flex items-start gap-2 rounded-lg p-3 text-sm mb-4"
-                    style={{
-                      backgroundColor: C.accentSoft,
-                      color: C.accent,
-                      border: `1px solid ${C.accentSoftBorder}`,
-                    }}
-                  >
+                  <div className="flex items-start gap-2 rounded-lg p-3 text-sm mb-4" style={{ backgroundColor: C.accentSoft, color: C.accent, border: `1px solid ${C.accentSoftBorder}` }}>
                     <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
                     <span>{banner.message}</span>
                   </div>
                 )}
-
                 <div className="overflow-y-auto flex-1 -mx-6 px-6">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr
-                        className="text-left text-xs uppercase"
-                        style={{
-                          backgroundColor: C.surface,
-                          color: C.textMuted,
-                          borderBottom: `1px solid ${C.border}`,
-                        }}
-                      >
+                      <tr className="text-left text-xs uppercase" style={{ backgroundColor: C.surface, color: C.textMuted, borderBottom: `1px solid ${C.border}` }}>
                         <th className="py-2 px-3">Date</th>
                         <th className="py-2 px-3">Detail</th>
                         <th className="py-2 px-3">Category</th>
-                        <th className="py-2 px-3 text-right">
-                          {TYPE_LABEL.debit}
-                        </th>
-                        <th className="py-2 px-3 text-right">
-                          {TYPE_LABEL.credit}
-                        </th>
+                        <th className="py-2 px-3 text-right">{TYPE_LABEL.debit}</th>
+                        <th className="py-2 px-3 text-right">{TYPE_LABEL.credit}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {rows.map((r) => (
-                        <tr
-                          key={r._rowId}
-                          style={{ borderBottom: `1px solid ${C.border}` }}
-                        >
-                          <td
-                            className="py-2 px-3 whitespace-nowrap"
-                            style={{ color: C.text }}
-                          >
-                            {r.date}
-                          </td>
-                          <td className="py-2 px-3" style={{ color: C.text }}>
-                            {r.detail}
-                          </td>
+                        <tr key={r._rowId} style={{ borderBottom: `1px solid ${C.border}` }}>
+                          <td className="py-2 px-3 whitespace-nowrap" style={{ color: C.text }}>{r.date}</td>
+                          <td className="py-2 px-3" style={{ color: C.text }}>{r.detail}</td>
                           <td className="py-2 px-3">
-                            <span
-                              className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold"
-                              style={{
-                                backgroundColor: C.surface,
-                                color: C.textMuted,
-                              }}
-                            >
+                            <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold" style={{ backgroundColor: C.surface, color: C.textMuted }}>
                               {categoryName(r.category_id)}
                             </span>
                           </td>
                           <td className="py-2 px-3 text-right font-medium">
                             {r.type === "debit" ? (
-                              <span style={{ color: C.success }}>
-                                {formatPeso(
-                                  Math.round(parseFloat(r.amount) * 100)
-                                )}
-                              </span>
+                              <span style={{ color: C.success }}>{formatPeso(Math.round(parseFloat(r.amount) * 100))}</span>
                             ) : (
                               <span style={{ color: C.textFaint }}>—</span>
                             )}
                           </td>
                           <td className="py-2 px-3 text-right font-medium">
                             {r.type === "credit" ? (
-                              <span style={{ color: C.accent }}>
-                                {formatPeso(
-                                  Math.round(parseFloat(r.amount) * 100)
-                                )}
-                              </span>
+                              <span style={{ color: C.accent }}>{formatPeso(Math.round(parseFloat(r.amount) * 100))}</span>
                             ) : (
                               <span style={{ color: C.textFaint }}>—</span>
                             )}
@@ -1199,23 +863,11 @@ function Ledger() {
                     </tbody>
                   </table>
                 </div>
-
                 <div className="flex items-center justify-end gap-2 pt-4">
-                  <button
-                    type="button"
-                    onClick={() => setStep("edit")}
-                    className="px-4 py-2 rounded-md text-sm font-medium cursor-pointer"
-                    style={{ color: C.textMuted, backgroundColor: C.surface }}
-                  >
+                  <button type="button" onClick={() => setStep("edit")} className="px-4 py-2 rounded-md text-sm font-medium cursor-pointer" style={{ color: C.textMuted, backgroundColor: C.surface }}>
                     ← Back to Edit
                   </button>
-                  <button
-                    type="button"
-                    onClick={handleConfirmSave}
-                    disabled={saving}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold text-white cursor-pointer disabled:opacity-50"
-                    style={{ backgroundColor: C.accent }}
-                  >
+                  <button type="button" onClick={handleConfirmSave} disabled={saving} className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold text-white cursor-pointer disabled:opacity-50" style={{ backgroundColor: C.accent }}>
                     {saving && <Loader2 size={14} className="animate-spin" />}
                     {saving ? "Saving…" : "Save Entries"}
                   </button>
