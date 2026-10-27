@@ -53,8 +53,10 @@ const STATUS_COLORS = {
   "Out of Stock": C.accent,
 };
 
-// Every material (oils and alcohol) is measured in litres.
+// Every raw material (oils and alcohol) is measured in litres.
 const UNIT = "L";
+// Packaging materials are counted in pieces.
+const PM_UNIT = "pcs";
 
 const SEGMENT_WRAP = "flex gap-0.5 bg-gray-100 rounded-md p-0.5";
 const SEGMENT_BTN = (active) =>
@@ -163,6 +165,21 @@ function mergeById(prev, fresh) {
   return Array.from(map.values());
 }
 
+/** Keep only rows whose updated_at falls inside the date range. */
+function filterByUpdatedAt(rows, dateFrom, dateTo) {
+  const fromTime = localDateBoundary(dateFrom);
+  const toTime = localDateBoundary(dateTo, true);
+  if (fromTime === null && toTime === null) return rows;
+
+  return rows.filter((m) => {
+    const t = safeDate(m.updated_at)?.getTime();
+    if (t == null) return false;
+    if (fromTime !== null && t < fromTime) return false;
+    if (toTime !== null && t > toTime) return false;
+    return true;
+  });
+}
+
 // ─── Primitives ─────────────────────────────────────────────
 
 function Skeleton({ className = "h-8 w-16" }) {
@@ -215,17 +232,34 @@ function SectionHeading({ title, subtitle }) {
   );
 }
 
+function WarningBanner({ children }) {
+  return (
+    <div
+      className="rounded-md border px-3 py-2.5 text-xs"
+      style={{
+        backgroundColor: C.warningSoft,
+        borderColor: C.warningBorder,
+        color: C.warning,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
 // ─── Main component ──────────────────────────────────────────
 
 function Inventory_db() {
   const [rawInventory, setRawInventory] = useState([]);
   const [rawMaterials, setRawMaterials] = useState([]);
+  const [rawPackaging, setRawPackaging] = useState([]);
   const [soldByPlatform, setSoldByPlatform] = useState({ shopee: 0, lazada: 0, tiktok: 0 });
   const [activity, setActivity] = useState([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [materialsErrorMsg, setMaterialsErrorMsg] = useState("");
+  const [packagingErrorMsg, setPackagingErrorMsg] = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
 
   // Filters (same UX as Sales dashboard)
@@ -240,6 +274,7 @@ function Inventory_db() {
   // table — background polls only ask for rows changed since these.
   const lastInventorySyncAtRef = useRef(null);
   const lastMaterialsSyncAtRef = useRef(null);
+  const lastPackagingSyncAtRef = useRef(null);
   // Last applied payloads for the small, always-full-fetched pieces, so
   // identical polls can skip the setState entirely.
   const prevSoldJsonRef = useRef("");
@@ -263,6 +298,7 @@ function Inventory_db() {
     }
     setErrorMsg("");
     setMaterialsErrorMsg("");
+    setPackagingErrorMsg("");
 
     // ── Inventory (incremental by updated_at on polls) ──────
     let invQuery = supabase
@@ -367,6 +403,35 @@ function Inventory_db() {
       }
     }
 
+    // ── Packaging materials (incremental by updated_at on polls) ─
+    let packagingQuery = supabase
+      .from("packaging_materials")
+      .select("id, item_name, category, current_stock, reorder_point, status, updated_at");
+
+    if (!fullResync && lastPackagingSyncAtRef.current) {
+      packagingQuery = packagingQuery.gt("updated_at", lastPackagingSyncAtRef.current);
+    }
+
+    const { data: packaging, error: packagingError } = await packagingQuery;
+
+    if (packagingError) {
+      console.error("Error fetching packaging materials:", packagingError);
+      setPackagingErrorMsg(packagingError.message || "Couldn't load packaging materials data.");
+      if (fullResync) setRawPackaging([]);
+    } else {
+      const freshPackaging = packaging || [];
+      if (freshPackaging.length > 0) {
+        const newestUpdatedAt = freshPackaging.reduce(
+          (max, r) => (r.updated_at && r.updated_at > max ? r.updated_at : max),
+          lastPackagingSyncAtRef.current || ""
+        );
+        lastPackagingSyncAtRef.current = newestUpdatedAt;
+        setRawPackaging((prev) => (fullResync ? freshPackaging : mergeById(prev, freshPackaging)));
+      } else if (fullResync) {
+        setRawPackaging([]);
+      }
+    }
+
     setLastUpdated(new Date());
 
     // ── Recent activity (small, always full, diffed) ─────────
@@ -461,19 +526,15 @@ function Inventory_db() {
     });
   }, [rawInventory, platformFilter, dateFrom, dateTo]);
 
-  const filteredMaterials = useMemo(() => {
-    const fromTime = localDateBoundary(dateFrom);
-    const toTime = localDateBoundary(dateTo, true);
-    if (fromTime === null && toTime === null) return rawMaterials;
+  const filteredMaterials = useMemo(
+    () => filterByUpdatedAt(rawMaterials, dateFrom, dateTo),
+    [rawMaterials, dateFrom, dateTo]
+  );
 
-    return rawMaterials.filter((m) => {
-      const t = safeDate(m.updated_at)?.getTime();
-      if (t == null) return false;
-      if (fromTime !== null && t < fromTime) return false;
-      if (toTime !== null && t > toTime) return false;
-      return true;
-    });
-  }, [rawMaterials, dateFrom, dateTo]);
+  const filteredPackaging = useMemo(
+    () => filterByUpdatedAt(rawPackaging, dateFrom, dateTo),
+    [rawPackaging, dateFrom, dateTo]
+  );
 
   // ── Derived chart data — products (from filtered inventory) ─
 
@@ -631,6 +692,53 @@ function Inventory_db() {
       .slice(0, 8);
   }, [filteredMaterials]);
 
+  // ── Derived chart data — packaging materials ───────────────
+
+  const packagingStats = useMemo(() => {
+    const total = filteredPackaging.length;
+    const pieces = filteredPackaging.reduce((sum, m) => sum + nonNegative(m.current_stock), 0);
+    const categories = new Set(filteredPackaging.map((m) => m.category || "Uncategorized")).size;
+    const lowStockCount = filteredPackaging.filter((m) => m.status === "Low Stock").length;
+    const outCount = filteredPackaging.filter((m) => m.status === "Out of Stock").length;
+    return { total, pieces, categories, lowStockCount, outOfStockCount: outCount };
+  }, [filteredPackaging]);
+
+  // Pieces on hand per category (Bottle, Cap, Box, Label, ...).
+  const packagingCategoryData = useMemo(() => {
+    const map = {};
+    filteredPackaging.forEach((m) => {
+      const name = m.category || "Uncategorized";
+      if (!map[name]) map[name] = { name, count: 0, pieces: 0 };
+      map[name].count += 1;
+      map[name].pieces += nonNegative(m.current_stock);
+    });
+    return Object.values(map)
+      .sort((a, b) => b.pieces - a.pieces)
+      .map((c) => ({ ...c, color: colorForCategory(c.name) }));
+  }, [filteredPackaging]);
+
+  const packagingStatusData = useMemo(() => {
+    const map = { "In Stock": 0, "Low Stock": 0, "Out of Stock": 0 };
+    filteredPackaging.forEach((m) => {
+      const s = m.status || "In Stock";
+      map[s] = (map[s] || 0) + 1;
+    });
+    return Object.entries(map)
+      .filter(([, count]) => count > 0)
+      .map(([status, count]) => ({ status, count, color: STATUS_COLORS[status] }));
+  }, [filteredPackaging]);
+
+  const packagingLowStock = useMemo(() => {
+    return [...filteredPackaging]
+      .filter((m) => m.status === "Low Stock" || m.status === "Out of Stock")
+      .sort((a, b) => {
+        if (a.status === b.status)
+          return nonNegative(a.current_stock) - nonNegative(b.current_stock);
+        return a.status === "Out of Stock" ? -1 : 1;
+      })
+      .slice(0, 8);
+  }, [filteredPackaging]);
+
   // ── Drill-down handlers ────────────────────────────────────
 
   function handleCategoryClick(entry) {
@@ -747,8 +855,53 @@ function Inventory_db() {
     });
   }
 
+  function handlePackagingCategoryClick(entry) {
+    const category = entry?.name;
+    if (!category) return;
+    const items = filteredPackaging
+      .filter((m) => (m.category || "Uncategorized") === category)
+      .map((m) => ({
+        name: m.item_name || "Unknown",
+        code: null,
+        qty: nonNegative(m.current_stock),
+        unit: PM_UNIT,
+        status: m.status || "In Stock",
+      }))
+      .sort((a, b) => b.qty - a.qty);
+
+    setBreakdown({
+      type: "pm-category",
+      label: category,
+      color: entry.color,
+      products: items,
+    });
+  }
+
+  function handlePackagingStatusClick(entry) {
+    const status = entry?.status;
+    if (!status) return;
+    const items = filteredPackaging
+      .filter((m) => (m.status || "In Stock") === status)
+      .map((m) => ({
+        name: m.item_name || "Unknown",
+        code: m.category || "Uncategorized",
+        qty: nonNegative(m.current_stock),
+        unit: PM_UNIT,
+        status,
+      }))
+      .sort((a, b) => a.qty - b.qty);
+
+    setBreakdown({
+      type: "pm-status",
+      label: status,
+      color: STATUS_COLORS[status],
+      products: items,
+    });
+  }
+
   const fmt = (n) => (n ?? 0).toLocaleString();
   const fmtL = (n) => `${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} L`;
+  const fmtP = (n) => `${(n ?? 0).toLocaleString()} ${PM_UNIT}`;
   const loading = initialLoading;
 
   if (errorMsg && rawInventory.length === 0 && !loading) {
@@ -817,28 +970,17 @@ function Inventory_db() {
         </Card>
 
         {errorMsg && rawInventory.length > 0 && (
-          <div
-            className="rounded-md border px-3 py-2.5 text-xs"
-            style={{
-              backgroundColor: C.warningSoft,
-              borderColor: C.warningBorder,
-              color: C.warning,
-            }}
-          >
-            Last refresh failed: {errorMsg}
-          </div>
+          <WarningBanner>Last refresh failed: {errorMsg}</WarningBanner>
         )}
         {materialsErrorMsg && (
-          <div
-            className="rounded-md border px-3 py-2.5 text-xs"
-            style={{
-              backgroundColor: C.warningSoft,
-              borderColor: C.warningBorder,
-              color: C.warning,
-            }}
-          >
+          <WarningBanner>
             Raw materials couldn&apos;t be loaded: {materialsErrorMsg}
-          </div>
+          </WarningBanner>
+        )}
+        {packagingErrorMsg && (
+          <WarningBanner>
+            Packaging materials couldn&apos;t be loaded: {packagingErrorMsg}
+          </WarningBanner>
         )}
 
         {/* ══════════════════════ PRODUCTS ══════════════════════ */}
@@ -1199,7 +1341,7 @@ function Inventory_db() {
 
         {/* ══════════════════════ RAW MATERIALS ══════════════════════ */}
         <div id="materials-section" className="scroll-mt-4">
-          <SectionHeading title="Raw materials"  />
+          <SectionHeading title="Raw materials" />
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -1455,6 +1597,268 @@ function Inventory_db() {
           )}
         </Card>
 
+        {/* ══════════════════════ PACKAGING MATERIALS ══════════════════════ */}
+        <div id="packaging-section" className="scroll-mt-4">
+          <SectionHeading title="Packaging materials" />
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Card className="p-4">
+            <p className="text-xs text-gray-500">Packaging items</p>
+            {loading ? (
+              <Skeleton />
+            ) : (
+              <p className="text-2xl font-semibold mt-1 text-gray-900">
+                {fmt(packagingStats.total)}
+              </p>
+            )}
+            <p className="text-xs mt-1 text-gray-400">
+              {fmt(packagingStats.categories)} categor
+              {packagingStats.categories !== 1 ? "ies" : "y"}
+            </p>
+          </Card>
+
+          <Card className="p-4">
+            <p className="text-xs text-gray-500">Pieces on hand</p>
+            {loading ? (
+              <Skeleton />
+            ) : (
+              <p className="text-2xl font-semibold mt-1 text-gray-900">
+                {fmt(packagingStats.pieces)}
+              </p>
+            )}
+            <p className="text-xs mt-1 text-gray-400">Across all items</p>
+          </Card>
+
+          <Card className="p-4">
+            <p className="text-xs text-gray-500">Low stock</p>
+            {loading ? (
+              <Skeleton />
+            ) : (
+              <p
+                className="text-2xl font-semibold mt-1"
+                style={{ color: packagingStats.lowStockCount > 0 ? C.warning : C.text }}
+              >
+                {fmt(packagingStats.lowStockCount)}
+              </p>
+            )}
+            <p className="text-xs mt-1 text-gray-400">At or below reorder point</p>
+          </Card>
+
+          <Card className="p-4">
+            <p className="text-xs text-gray-500">Out of stock</p>
+            {loading ? (
+              <Skeleton />
+            ) : (
+              <p
+                className="text-2xl font-semibold mt-1"
+                style={{ color: packagingStats.outOfStockCount > 0 ? C.accent : C.text }}
+              >
+                {fmt(packagingStats.outOfStockCount)}
+              </p>
+            )}
+            <p className="text-xs mt-1 text-gray-400">Items at zero</p>
+          </Card>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+          <Card className="lg:col-span-2 p-6">
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">Stock by category</h2>
+            {loading ? (
+              <Skeleton className="h-56 w-full" />
+            ) : packagingCategoryData.length === 0 ? (
+              <p className="text-xs text-gray-400">No packaging materials recorded yet.</p>
+            ) : (
+              <ResponsiveContainer
+                width="100%"
+                height={Math.max(200, packagingCategoryData.length * 52)}
+              >
+                <BarChart
+                  data={packagingCategoryData}
+                  layout="vertical"
+                  margin={{ top: 0, right: 70, left: 8, bottom: 0 }}
+                  barCategoryGap={12}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
+                  <XAxis
+                    type="number"
+                    tick={{ fontSize: 11, fill: "#6B7280" }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(v) => fmt(v)}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="name"
+                    width={110}
+                    tick={{ fontSize: 11, fill: "#374151" }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null;
+                      const d = payload[0].payload;
+                      return (
+                        <div className="bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2 text-xs">
+                          <p className="font-semibold text-gray-700 mb-1">{d.name}</p>
+                          <p className="text-gray-600">
+                            {fmtP(d.pieces)} · {fmt(d.count)} item
+                            {d.count !== 1 ? "s" : ""}
+                          </p>
+                        </div>
+                      );
+                    }}
+                  />
+                  <Bar
+                    dataKey="pieces"
+                    name="Pieces"
+                    radius={[0, 4, 4, 0]}
+                    barSize={22}
+                    onClick={handlePackagingCategoryClick}
+                    cursor="pointer"
+                  >
+                    {packagingCategoryData.map((c) => (
+                      <Cell key={c.name} fill={c.color} />
+                    ))}
+                    <LabelList
+                      dataKey="pieces"
+                      position="right"
+                      formatter={(v) => fmtP(v)}
+                      style={{ fontSize: 10, fill: "#374151", fontWeight: 600 }}
+                    />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </Card>
+
+          <Card className="lg:col-span-1 p-6">
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">Stock status</h2>
+            {loading ? (
+              <Skeleton className="h-40 w-full" />
+            ) : packagingStatusData.length === 0 ? (
+              <p className="text-xs text-gray-400">No data</p>
+            ) : (
+              <>
+                <ResponsiveContainer width="100%" height={160}>
+                  <PieChart>
+                    <Pie
+                      data={packagingStatusData}
+                      dataKey="count"
+                      nameKey="status"
+                      innerRadius={40}
+                      outerRadius={60}
+                      paddingAngle={3}
+                      onClick={handlePackagingStatusClick}
+                      cursor="pointer"
+                    >
+                      {packagingStatusData.map((s) => (
+                        <Cell key={s.status} fill={s.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      content={({ active, payload }) => {
+                        if (!active || !payload?.length) return null;
+                        const d = payload[0].payload;
+                        return (
+                          <div className="bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2 text-xs">
+                            <p className="font-semibold" style={{ color: d.color }}>
+                              {d.status}
+                            </p>
+                            <p className="text-gray-600">
+                              {fmt(d.count)} item{d.count !== 1 ? "s" : ""}
+                            </p>
+                          </div>
+                        );
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <ul className="space-y-1.5 mt-2">
+                  {packagingStatusData.map((s) => (
+                    <li key={s.status} className="flex items-center justify-between text-xs">
+                      <span className="flex items-center gap-1.5 text-gray-600">
+                        <span
+                          className="w-2 h-2 rounded-sm inline-block"
+                          style={{ background: s.color }}
+                        />
+                        {s.status}
+                      </span>
+                      <span className="font-medium text-gray-700">{fmt(s.count)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </Card>
+        </div>
+
+        <Card className="p-6">
+          <h2 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+            Packaging needing reorder
+            {!loading && (
+              <span
+                className="px-2 py-0.5 text-xs rounded-md font-medium border"
+                style={{
+                  color: C.warning,
+                  backgroundColor: C.warningSoft,
+                  borderColor: C.warningBorder,
+                }}
+              >
+                {fmt(packagingLowStock.length)}
+              </span>
+            )}
+          </h2>
+          {loading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {[1, 2, 3, 4].map((i) => (
+                <Skeleton key={i} className="h-12 w-full" />
+              ))}
+            </div>
+          ) : packagingLowStock.length === 0 ? (
+            <p className="text-xs text-gray-400">All packaging materials are sufficiently stocked.</p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {packagingLowStock.map((m) => {
+                const isOut = m.status === "Out of Stock";
+                return (
+                  <div
+                    key={m.id}
+                    className="flex items-center justify-between rounded-md border px-3 py-2"
+                    style={
+                      isOut
+                        ? {
+                            backgroundColor: C.accentSoft,
+                            borderColor: C.accentSoftBorder,
+                          }
+                        : {
+                            backgroundColor: C.warningSoft,
+                            borderColor: C.warningBorder,
+                          }
+                    }
+                  >
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-gray-700 truncate">
+                        {m.item_name}
+                      </p>
+                      <p className="text-xs text-gray-400 truncate">
+                        {m.category || "Uncategorized"}
+                      </p>
+                    </div>
+                    <span
+                      className="ml-3 shrink-0 px-1.5 py-0.5 text-xs rounded font-medium"
+                      style={{ color: isOut ? C.accent : C.warning }}
+                    >
+                      {fmt(m.current_stock)} {PM_UNIT}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+
         {/* Drill-down modal */}
         {breakdown && (
           <div
@@ -1491,9 +1895,9 @@ function Inventory_db() {
                   <p className="text-xs text-gray-400">No items found.</p>
                 ) : (
                   <div className="space-y-3">
-                    {breakdown.products.map((p) => (
+                    {breakdown.products.map((p, i) => (
                       <div
-                        key={p.code ?? p.name}
+                        key={`${p.name}-${i}`}
                         className="border-b border-gray-50 pb-2 last:border-0"
                       >
                         <div className="flex items-center justify-between">
@@ -1524,7 +1928,9 @@ function Inventory_db() {
                           </div>
                         )}
                         {(breakdown.type === "material-supplier" ||
-                          breakdown.type === "material-status") &&
+                          breakdown.type === "material-status" ||
+                          breakdown.type === "pm-category" ||
+                          breakdown.type === "pm-status") &&
                           p.status && (
                             <span
                               className="inline-block mt-1 px-1.5 py-0.5 rounded-md text-xs font-medium"
