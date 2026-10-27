@@ -73,7 +73,7 @@ async function fetchExistingOrderIds(platform, orderIds) {
   return found;
 }
 
-// Secondary signal only — nice for the message, never the thing we rely on.
+// Secondary signal only. Nice for the message, never the thing we rely on.
 async function findPriorImportByHash(platform, hash) {
   const { data, error } = await supabase
     .from("import_logs")
@@ -101,10 +101,14 @@ export default function CSVImport({ onImportComplete }) {
   const [warning, setWarning] = useState(null);
   const [importResult, setImportResult] = useState(null);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
+  // Order IDs from this file that are already in Sales.
+  // These are skipped on import so they are never rewritten.
+  const [existingOrderIds, setExistingOrderIds] = useState(new Set());
 
   const handleFile = useCallback(async (file) => {
     setError(null);
     setWarning(null);
+    setExistingOrderIds(new Set());
     if (!file) return;
 
     const ext = file.name.split(".").pop().toLowerCase();
@@ -158,8 +162,8 @@ export default function CSVImport({ onImportComplete }) {
         const skipped = result.allOrderCount || result.rowCount;
         setError(
           `No COMPLETED orders found in this file. ` +
-            `Found ${skipped} order(s) with other statuses — ` +
-            `only COMPLETED orders are imported.`,
+            `Found ${skipped} order(s) with other statuses. ` +
+            `Only COMPLETED orders are imported.`,
         );
         return;
       }
@@ -185,7 +189,7 @@ export default function CSVImport({ onImportComplete }) {
       try {
         existingIds = await fetchExistingOrderIds(result.platform, orderIds);
       } catch (e) {
-        // Fail open — a broken lookup shouldn't block a real import.
+        // Fail open. A broken lookup shouldn't block a real import.
         console.error("Duplicate check against orders failed:", e);
       }
 
@@ -201,10 +205,10 @@ export default function CSVImport({ onImportComplete }) {
               })`
             : "";
           const message =
-            `All ${orderIds.length} order(s) in this file are already in the ` +
-            `orders table${when}. Nothing new to import.`;
+            `This file was already imported. All ${orderIds.length} order(s) are ` +
+            `already in Sales${when}. Nothing new to import.`;
 
-          setError(`🚫 Duplicate file detected. ${message}`);
+          setError(`🚫 ${message}`);
 
           const { error: logErr } = await supabase.from("import_logs").insert({
             platform: result.platform,
@@ -224,12 +228,13 @@ export default function CSVImport({ onImportComplete }) {
           return;
         }
 
-        // Partial overlap → let it through, but say so. Re-importing these
-        // updates the existing rows rather than creating new ones.
+        // Partial overlap: let the file through, but the orders that are
+        // already in Sales are skipped and left exactly as they are.
+        setExistingOrderIds(existingIds);
         warnings.push(
           `${alreadyIn.length} of ${orderIds.length} order(s) in this file are ` +
-            `already in Sales and will be updated, not duplicated. ` +
-            `${orderIds.length - alreadyIn.length} order(s) are new.`,
+            `already in Sales. They will be skipped and left as they are. ` +
+            `Only ${orderIds.length - alreadyIn.length} new order(s) will be imported.`,
         );
       }
 
@@ -270,13 +275,19 @@ export default function CSVImport({ onImportComplete }) {
     setProgress({ current: 0, total: parsed.orders.length });
 
     let inserted = 0,
-      skipped = 0;
+      skipped = 0,
+      alreadyImported = 0;
     const errors = [];
     let productSummary = [];
 
     // ── Pass 1: filter in memory, no network calls ─────────────────────────
     const toImport = [];
     for (const order of parsed.orders) {
+      // Already in Sales: skip completely, leave the saved order as it is.
+      if (existingOrderIds.has(String(order.order_id))) {
+        alreadyImported++;
+        continue;
+      }
       if (order.status !== "COMPLETED") {
         skipped++;
         continue;
@@ -286,7 +297,7 @@ export default function CSVImport({ onImportComplete }) {
 
     setProgress({ current: 0, total: toImport.length || 1 });
 
-    // ── Pass 2: one batched upsert for every order, instead of one per row ──
+    // ── Pass 2: one batched upsert for every new order ──────────────────────
     let orderRows = [];
     if (toImport.length > 0) {
       const { data, error: upsertErr } = await supabase
@@ -324,7 +335,10 @@ export default function CSVImport({ onImportComplete }) {
       }
     }
 
-    setProgress({ current: Math.round(orderRows.length / 2), total: toImport.length || 1 });
+    setProgress({
+      current: Math.round(orderRows.length / 2),
+      total: toImport.length || 1,
+    });
 
     if (orderRows.length > 0) {
       const uuidByKey = {};
@@ -406,7 +420,7 @@ export default function CSVImport({ onImportComplete }) {
 
     setProgress({ current: toImport.length, total: toImport.length || 1 });
 
-    // Surface log-write failures instead of swallowing them — a silently
+    // Surface log-write failures instead of swallowing them. A silently
     // rejected insert here is what makes hash-based duplicate checks useless.
     const { error: logErr } = await supabase.from("import_logs").insert({
       platform: parsed.platform,
@@ -423,7 +437,14 @@ export default function CSVImport({ onImportComplete }) {
     });
     if (logErr) console.warn("Could not write import log:", logErr);
 
-    setImportResult({ inserted, skipped, errors, productSummary, dateRange });
+    setImportResult({
+      inserted,
+      skipped,
+      alreadyImported,
+      errors,
+      productSummary,
+      dateRange,
+    });
     setStep("done");
     if (onImportComplete) onImportComplete();
   };
@@ -436,7 +457,13 @@ export default function CSVImport({ onImportComplete }) {
     setImportResult(null);
     setError(null);
     setWarning(null);
+    setExistingOrderIds(new Set());
   };
+
+  const newOrderCount = parsed
+    ? parsed.orders.filter((o) => !existingOrderIds.has(String(o.order_id)))
+        .length
+    : 0;
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -551,44 +578,56 @@ export default function CSVImport({ onImportComplete }) {
                 </tr>
               </thead>
               <tbody>
-                {parsed.orders.map((o, i) => (
-                  <tr
-                    key={i}
-                    className="border-b border-gray-100 hover:bg-gray-50"
-                  >
-                    <td className="px-4 py-3 font-mono text-xs text-gray-600">
-                      {o.order_id}
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">
-                      {o.recipient_name || "—"}
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">
-                      {o.items.length > 0
-                        ? o.items
-                            .map(
-                              (item) =>
-                                `${item.product_name}${
-                                  item.quantity > 1 ? ` ×${item.quantity}` : ""
-                                }`,
-                            )
-                            .join(", ")
-                        : "—"}
-                    </td>
-                    <td className="px-4 py-3 font-semibold text-gray-800">
-                      {(o.total_amount / 100).toFixed(2)}
-                    </td>
-                    <td className="px-4 py-3 text-gray-400 text-xs">
-                      {
-                        (
-                          o.completed_at ||
-                          o.created_at ||
-                          o.paid_time ||
-                          "—"
-                        ).split(" ")[0]
-                      }
-                    </td>
-                  </tr>
-                ))}
+                {parsed.orders.map((o, i) => {
+                  const isExisting = existingOrderIds.has(String(o.order_id));
+                  return (
+                    <tr
+                      key={i}
+                      className={`border-b border-gray-100 hover:bg-gray-50 ${
+                        isExisting ? "opacity-50" : ""
+                      }`}
+                    >
+                      <td className="px-4 py-3 font-mono text-xs text-gray-600">
+                        {o.order_id}
+                        {isExisting && (
+                          <span className="ml-2 inline-block px-2 py-0.5 rounded bg-gray-200 text-gray-600 text-[10px] font-sans font-semibold">
+                            Already imported
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700">
+                        {o.recipient_name || "—"}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700">
+                        {o.items.length > 0
+                          ? o.items
+                              .map(
+                                (item) =>
+                                  `${item.product_name}${
+                                    item.quantity > 1
+                                      ? ` ×${item.quantity}`
+                                      : ""
+                                  }`,
+                              )
+                              .join(", ")
+                          : "—"}
+                      </td>
+                      <td className="px-4 py-3 font-semibold text-gray-800">
+                        {(o.total_amount / 100).toFixed(2)}
+                      </td>
+                      <td className="px-4 py-3 text-gray-400 text-xs">
+                        {
+                          (
+                            o.completed_at ||
+                            o.created_at ||
+                            o.paid_time ||
+                            "—"
+                          ).split(" ")[0]
+                        }
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -604,7 +643,8 @@ export default function CSVImport({ onImportComplete }) {
               onClick={importToSupabase}
               className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors cursor-pointer"
             >
-              Import {parsed.summary.total_orders} completed orders
+              Import {newOrderCount} new completed order
+              {newOrderCount === 1 ? "" : "s"}
             </button>
           </div>
         </div>
@@ -639,13 +679,18 @@ export default function CSVImport({ onImportComplete }) {
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3 mb-5">
+          <div className="grid grid-cols-3 gap-3 mb-5">
             <StatCard label="Imported">
               <span className="text-2xl font-bold text-green-600">
                 {importResult.inserted}
               </span>
             </StatCard>
-            <StatCard label="Skipped (duplicates / errors)">
+            <StatCard label="Already Imported">
+              <span className="text-2xl font-bold text-gray-500">
+                {importResult.alreadyImported || 0}
+              </span>
+            </StatCard>
+            <StatCard label="Skipped (errors)">
               <span className="text-2xl font-bold text-amber-500">
                 {importResult.skipped}
               </span>

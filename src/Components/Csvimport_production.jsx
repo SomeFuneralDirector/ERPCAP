@@ -74,7 +74,7 @@ async function fetchExistingOrderIds(platform, orderIds) {
   return found;
 }
 
-// Secondary signal only — nice for the message, never the thing we rely on.
+// Secondary signal only. Nice for the message, never the thing we rely on.
 async function findPriorImportByHash(platform, hash) {
   const { data, error } = await supabase
     .from("production_import_logs")
@@ -102,10 +102,14 @@ export default function Csvimport_production({ onImportComplete }) {
   const [warning, setWarning] = useState(null);
   const [importResult, setImportResult] = useState(null);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
+  // Order IDs from this file that are already in the prep queue.
+  // These are skipped on import so they are never rewritten or deducted twice.
+  const [existingOrderIds, setExistingOrderIds] = useState(new Set());
 
   const handleFile = useCallback(async (file) => {
     setError(null);
     setWarning(null);
+    setExistingOrderIds(new Set());
     if (!file) return;
 
     const ext = file.name.split(".").pop().toLowerCase();
@@ -157,8 +161,8 @@ export default function Csvimport_production({ onImportComplete }) {
         const skipped = result.allOrderCount || result.rowCount;
         setError(
           `No READY TO SHIP orders found in this file. ` +
-            `Found ${skipped} order(s) with other statuses — ` +
-            `only orders ready to hand off to a courier are imported here.`,
+            `Found ${skipped} order(s) with other statuses. ` +
+            `Only orders ready to hand off to a courier are imported here.`,
         );
         return;
       }
@@ -182,9 +186,11 @@ export default function Csvimport_production({ onImportComplete }) {
       try {
         existingIds = await fetchExistingOrderIds(result.platform, orderIds);
       } catch (e) {
-        // Fail open — a broken lookup shouldn't block a real import.
+        // Fail open. A broken lookup shouldn't block a real import.
         console.error("Duplicate check against production_orders failed:", e);
       }
+
+      let overlapWarning = null;
 
       if (existingIds && existingIds.size > 0) {
         const alreadyIn = orderIds.filter((id) => existingIds.has(id));
@@ -198,10 +204,10 @@ export default function Csvimport_production({ onImportComplete }) {
               })`
             : "";
           const message =
-            `All ${orderIds.length} order(s) in this file are already in the ` +
-            `prep queue${when}. Nothing new to import.`;
+            `This file was already imported. All ${orderIds.length} order(s) are ` +
+            `already in the prep queue${when}. Nothing new to import.`;
 
-          setError(`🚫 Duplicate file detected. ${message}`);
+          setError(`🚫 ${message}`);
 
           const { error: logErr } = await supabase
             .from("production_import_logs")
@@ -223,20 +229,23 @@ export default function Csvimport_production({ onImportComplete }) {
           return;
         }
 
-        // Partial overlap → let it through, but say so. Re-importing these
-        // updates the existing rows rather than creating new ones.
-        setWarning(
+        // Partial overlap: let the file through, but the orders that are
+        // already in the prep queue are skipped and left exactly as they are.
+        setExistingOrderIds(existingIds);
+        overlapWarning =
           `${alreadyIn.length} of ${orderIds.length} order(s) in this file are ` +
-            `already in the prep queue and will be updated, not duplicated. ` +
-            `${orderIds.length - alreadyIn.length} order(s) are new.`,
-        );
+          `already in the prep queue. They will be skipped and left as they are. ` +
+          `Only ${orderIds.length - alreadyIn.length} new order(s) will be imported.`;
       }
 
+      const warnings = [];
+      if (overlapWarning) warnings.push(overlapWarning);
       if (!range.dateFrom) {
-        setWarning(
+        warnings.push(
           "Could not detect order dates. Duplicate date checking is disabled for this import.",
         );
       }
+      if (warnings.length) setWarning(warnings.join(" "));
 
       setParsed({ ...result, filename: file.name });
       setStep("preview");
@@ -259,7 +268,8 @@ export default function Csvimport_production({ onImportComplete }) {
     setProgress({ current: 0, total: parsed.orders.length });
 
     let inserted = 0,
-      skipped = 0;
+      skipped = 0,
+      alreadyImported = 0;
     const errors = [];
     const unmatchedProducts = [];
     const stockBlocked = [];
@@ -288,12 +298,16 @@ export default function Csvimport_production({ onImportComplete }) {
     });
 
     // ── Pass 1: filter/validate in memory, no network calls ────────────────
-    // This is the part that used to interleave DB round trips with the
-    // validation logic. Splitting it out means the DB work below only ever
-    // touches orders that actually need writing.
     const toImport = [];
 
     for (const order of parsed.orders) {
+      // Already in the prep queue: skip completely. No rewrite, no item
+      // re-insert, no second stock deduction, no stock check.
+      if (existingOrderIds.has(String(order.order_id))) {
+        alreadyImported++;
+        continue;
+      }
+
       if (order.status !== "READY_TO_SHIP") {
         skipped++;
         continue;
@@ -302,7 +316,7 @@ export default function Csvimport_production({ onImportComplete }) {
       const platform = order.platform || parsed.platform;
       if (!platform) {
         console.error(
-          "MISSING PLATFORM — full order object:",
+          "MISSING PLATFORM, full order object:",
           JSON.stringify(order, null, 2),
         );
         console.error("parsed.platform was:", parsed.platform);
@@ -313,8 +327,8 @@ export default function Csvimport_production({ onImportComplete }) {
 
       // ── Stock availability check ────────────────────────────────────────
       // Only blocks on items we actually found in Inventory but don't have
-      // enough of. Items with no matching product at all are left alone here
-      // — that's the existing `unmatched` case, still handled after insert by
+      // enough of. Items with no matching product at all are left alone here.
+      // That is the existing `unmatched` case, still handled after insert by
       // the deduct_inventory_for_production_order RPC below.
       const shortages = (order.items || [])
         .filter(
@@ -325,7 +339,7 @@ export default function Csvimport_production({ onImportComplete }) {
         .filter((item) => availableStock[item.product_name] < item.quantity)
         .map(
           (item) =>
-            `"${item.product_name}" — ${availableStock[item.product_name]} in stock, order needs ${item.quantity}`,
+            `"${item.product_name}": ${availableStock[item.product_name]} in stock, order needs ${item.quantity}`,
         );
 
       if (shortages.length > 0) {
@@ -350,7 +364,7 @@ export default function Csvimport_production({ onImportComplete }) {
 
     setProgress({ current: 0, total: toImport.length || 1 });
 
-    // ── Pass 2: one batched upsert for every order, instead of one per row ──
+    // ── Pass 2: one batched upsert for every new order ──────────────────────
     let orderRows = [];
     if (toImport.length > 0) {
       const { data, error: upsertErr } = await supabase
@@ -388,7 +402,10 @@ export default function Csvimport_production({ onImportComplete }) {
       }
     }
 
-    setProgress({ current: Math.round(orderRows.length / 2), total: toImport.length || 1 });
+    setProgress({
+      current: Math.round(orderRows.length / 2),
+      total: toImport.length || 1,
+    });
 
     if (orderRows.length > 0) {
       const uuidByKey = {};
@@ -397,9 +414,6 @@ export default function Csvimport_production({ onImportComplete }) {
       });
 
       // ── Pass 3: one batched delete + one batched insert for all items ────
-      // Grouped by platform since delete/insert both filter on it; in
-      // practice this file is always a single platform, so it's one round
-      // trip each in the common case.
       const idsByPlatform = {};
       toImport.forEach((o) => {
         (idsByPlatform[o.platform] ||= []).push(o.order_id);
@@ -418,9 +432,6 @@ export default function Csvimport_production({ onImportComplete }) {
       }
 
       const itemsToInsert = [];
-      // Aggregated per product name: how many units total, and across how
-      // many orders — only counting orders that actually made it into this
-      // batch (i.e. have a uuid), so this matches what was really imported.
       const productTotals = {};
       toImport.forEach((order) => {
         const uuid = uuidByKey[`${order.platform}:${order.order_id}`];
@@ -472,10 +483,7 @@ export default function Csvimport_production({ onImportComplete }) {
       }
 
       // ── Pass 4: inventory deduction RPC, fired in parallel ────────────────
-      // No batch RPC exists for this on the DB side, so it's still one call
-      // per order — but running them concurrently instead of awaiting each
-      // one inside the old loop turns N sequential round trips into roughly
-      // one round-trip's worth of wall-clock time.
+      // Only new orders reach this point, so stock is never deducted twice.
       const deductResults = await Promise.all(
         orderRows.map(async (row) => {
           try {
@@ -493,7 +501,7 @@ export default function Csvimport_production({ onImportComplete }) {
       deductResults.forEach(({ row, deductResult, deductErr }) => {
         if (deductErr) {
           errors.push(
-            `${row.order_id}: inventory deduction failed — ${deductErr.message}`,
+            `${row.order_id}: inventory deduction failed: ${deductErr.message}`,
           );
         } else if (deductResult?.unmatched?.length) {
           unmatchedProducts.push(
@@ -507,7 +515,7 @@ export default function Csvimport_production({ onImportComplete }) {
 
     setProgress({ current: toImport.length, total: toImport.length || 1 });
 
-    // Surface log-write failures instead of swallowing them — a silently
+    // Surface log-write failures instead of swallowing them. A silently
     // rejected insert here is what makes hash-based duplicate checks useless.
     const { error: logErr } = await supabase
       .from("production_import_logs")
@@ -529,6 +537,7 @@ export default function Csvimport_production({ onImportComplete }) {
     setImportResult({
       inserted,
       skipped,
+      alreadyImported,
       errors,
       unmatchedProducts,
       stockBlocked,
@@ -547,7 +556,13 @@ export default function Csvimport_production({ onImportComplete }) {
     setImportResult(null);
     setError(null);
     setWarning(null);
+    setExistingOrderIds(new Set());
   };
+
+  const newOrderCount = parsed
+    ? parsed.orders.filter((o) => !existingOrderIds.has(String(o.order_id)))
+        .length
+    : 0;
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -641,11 +656,6 @@ export default function Csvimport_production({ onImportComplete }) {
             </StatCard>
           </div>
 
-          <p className="text-xs text-gray-400 mb-3">
-            Stock availability is checked when you click import below — any
-            order whose product is out of stock in Inventory will be skipped and
-            listed afterward.
-          </p>
 
           <div className="overflow-x-auto rounded-lg border border-gray-200 mb-5">
             <table className="w-full text-sm">
@@ -668,37 +678,49 @@ export default function Csvimport_production({ onImportComplete }) {
                 </tr>
               </thead>
               <tbody>
-                {parsed.orders.map((o, i) => (
-                  <tr
-                    key={i}
-                    className="border-b border-gray-100 hover:bg-gray-50"
-                  >
-                    <td className="px-4 py-3 font-mono text-xs text-gray-600">
-                      {o.order_id}
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">
-                      {o.recipient_name || "—"}
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">
-                      {o.items.length > 0
-                        ? o.items
-                            .map(
-                              (item) =>
-                                `${item.product_name}${
-                                  item.quantity > 1 ? ` ×${item.quantity}` : ""
-                                }`,
-                            )
-                            .join(", ")
-                        : "—"}
-                    </td>
-                    <td className="px-4 py-3 font-semibold text-gray-800">
-                      {(o.total_amount / 100).toFixed(2)}
-                    </td>
-                    <td className="px-4 py-3 text-gray-400 text-xs">
-                      {(o.created_at || o.paid_time || "—").split(" ")[0]}
-                    </td>
-                  </tr>
-                ))}
+                {parsed.orders.map((o, i) => {
+                  const isExisting = existingOrderIds.has(String(o.order_id));
+                  return (
+                    <tr
+                      key={i}
+                      className={`border-b border-gray-100 hover:bg-gray-50 ${
+                        isExisting ? "opacity-50" : ""
+                      }`}
+                    >
+                      <td className="px-4 py-3 font-mono text-xs text-gray-600">
+                        {o.order_id}
+                        {isExisting && (
+                          <span className="ml-2 inline-block px-2 py-0.5 rounded bg-gray-200 text-gray-600 text-[10px] font-sans font-semibold">
+                            Already imported
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700">
+                        {o.recipient_name || "—"}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700">
+                        {o.items.length > 0
+                          ? o.items
+                              .map(
+                                (item) =>
+                                  `${item.product_name}${
+                                    item.quantity > 1
+                                      ? ` ×${item.quantity}`
+                                      : ""
+                                  }`,
+                              )
+                              .join(", ")
+                          : "—"}
+                      </td>
+                      <td className="px-4 py-3 font-semibold text-gray-800">
+                        {(o.total_amount / 100).toFixed(2)}
+                      </td>
+                      <td className="px-4 py-3 text-gray-400 text-xs">
+                        {(o.created_at || o.paid_time || "—").split(" ")[0]}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -714,7 +736,8 @@ export default function Csvimport_production({ onImportComplete }) {
               onClick={importToSupabase}
               className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors cursor-pointer"
             >
-              Import {parsed.summary.total_orders} orders to prepare
+              Import {newOrderCount} new order{newOrderCount === 1 ? "" : "s"}{" "}
+              to prepare
             </button>
           </div>
         </div>
@@ -749,13 +772,18 @@ export default function Csvimport_production({ onImportComplete }) {
             )}
           </div>
 
-          <div className="grid grid-cols-3 gap-3 mb-5">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
             <StatCard label="Imported">
               <span className="text-2xl font-bold text-green-600">
                 {importResult.inserted}
               </span>
             </StatCard>
-            <StatCard label="Blocked — Out of Stock">
+            <StatCard label="Already Imported">
+              <span className="text-2xl font-bold text-gray-500">
+                {importResult.alreadyImported || 0}
+              </span>
+            </StatCard>
+            <StatCard label="Blocked: Out of Stock">
               <span className="text-2xl font-bold text-red-600">
                 {importResult.stockBlocked?.length || 0}
               </span>
@@ -798,13 +826,13 @@ export default function Csvimport_production({ onImportComplete }) {
           {importResult.stockBlocked?.length > 0 && (
             <div className="p-4 bg-red-50 border border-red-200 rounded-lg mb-4">
               <p className="font-semibold text-red-700 text-sm mb-2">
-                Blocked — product out of stock in Inventory (
-                {importResult.stockBlocked.length})
+                Blocked: product out of stock ({importResult.stockBlocked.length}
+                )
               </p>
               <p className="text-xs text-red-500 mb-2">
                 These orders were not imported. Restock the product in
-                Inventory, then re-import this file — already-imported orders
-                won't be duplicated.
+                Inventory, then import this file again. Orders that were already
+                imported will not be added twice.
               </p>
               {importResult.stockBlocked.map((s, i) => (
                 <p key={i} className="text-xs text-red-600 mt-1">

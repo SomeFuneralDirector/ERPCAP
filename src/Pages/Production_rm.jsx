@@ -379,7 +379,6 @@ function AddMaterialModal({ onClose, onSaved, suppliers, editItem = null }) {
   );
 }
 
-// Out of stock first, then low stock, then everything else.
 const STOCK_PRIORITY = { "Out of Stock": 0, "Low Stock": 1 };
 const priorityOf = (m) => STOCK_PRIORITY[m.status] ?? 2;
 
@@ -390,7 +389,6 @@ const optionLabel = (m) =>
       ? `${m.material_name} (low, ${m.current_stock} ${UNIT} left)`
       : m.material_name;
 
-/* ── Receive delivery (stock-in when a supplier delivers) ──────────────── */
 
 const emptyLine = () => ({
   key: Math.random().toString(36).slice(2),

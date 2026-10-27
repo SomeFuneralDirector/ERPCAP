@@ -586,8 +586,7 @@ function Inventory() {
     fetchPendingRequests();
   }, [fetchInventory, fetchPendingRequests]);
 
-  // Live-refresh the moment Production files a new request, instead of
-  // waiting for a manual "Refresh" click.
+ 
   useEffect(() => {
     const channel = supabase
       .channel("inventory_allocation_requests")

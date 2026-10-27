@@ -423,15 +423,14 @@ function Production() {
 
   const readyToShipValue = readyToShip.reduce((sum, o) => sum + (o.total_amount || 0), 0) / 100;
 
-  // Ready to Ship chart: filtered by platform + the header date range
+  // Ready to Ship chart: filtered by platform only.
+  // Orders waiting for the courier are a current-state list, so the header
+  // date range (which is based on the ORDER date) must not hide them. This
+  // keeps the chart in sync with the "Ready to ship" card above, and every
+  // new import shows up right away.
   const filteredReadyToShip = useMemo(() => {
-    return readyToShip.filter((o) => {
-      if (rtsPlatform !== "all" && o.platform !== rtsPlatform) return false;
-      if (!rangeStartDate && !rangeEndDate) return true;
-      if (!o.created_at) return false;
-      return withinRange(o.created_at, rangeStartDate, rangeEndDate);
-    });
-  }, [readyToShip, rtsPlatform, rangeStartDate, rangeEndDate]);
+    return readyToShip.filter((o) => rtsPlatform === "all" || o.platform === rtsPlatform);
+  }, [readyToShip, rtsPlatform]);
 
   const filteredReadyValue = filteredReadyToShip.reduce((sum, o) => sum + (o.total_amount || 0), 0) / 100;
 
