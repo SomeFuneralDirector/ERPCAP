@@ -104,6 +104,7 @@ const navItems = [
       { id: "production-workorders", label: "Work Orders", icon: ClipboardList, path: "/production_wo" },
       { id: "production-finished", label: "Finished Goods", icon: PackageCheck, path: "/production_fg" },
       { id: "production-usage", label: "Raw Materials Overview", icon: Gauge, path: "/RawMaterialOverview" },
+      { id: "production-package", label: "Packaging Material Overview", icon: Blocks, path: "/PackagingMaterialOverview" },
     ],
   },
 ];
@@ -173,7 +174,7 @@ function Sidebar({
         {onToggleCollapsed && (
           <button
             onClick={onToggleCollapsed}
-            className="hidden lg:flex transition-colors"
+            className="hidden lg:flex transition-colors cursor-pointer"
             style={{ color: C.textMuted }}
             onMouseEnter={(e) => {
               e.currentTarget.style.color = C.accent;

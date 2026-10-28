@@ -224,7 +224,7 @@ function Production_fg() {
             <Warehouse className="mx-auto mb-2" size={32} />
             <p className="font-medium text-gray-500">
               {activeTab === "ready"
-                ? "Nothing waiting — complete a work order to see it here"
+                ? "Nothing waiting, complete a work order to see it here"
                 : activeTab === "pending"
                 ? "No requests awaiting approval"
                 : "Nothing allocated yet"}

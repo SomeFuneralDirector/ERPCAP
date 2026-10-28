@@ -1302,41 +1302,6 @@ function Inventory_db() {
             )}
           </Card>
 
-          <Card className="p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">Items needing attention</h2>
-            {loading ? (
-              <div className="space-y-3">
-                {[1, 2, 3].map((i) => (
-                  <Skeleton key={i} className="h-8 w-full" />
-                ))}
-              </div>
-            ) : slowMovers.length === 0 ? (
-              <p className="text-xs text-gray-400">All items are recently updated.</p>
-            ) : (
-              <div className="divide-y divide-gray-100">
-                {slowMovers.map((m) => (
-                  <div key={m.name} className="flex items-center justify-between py-2.5">
-                    <div>
-                      <p className="text-xs font-medium text-gray-700">{m.name}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        Low stock for {fmt(m.days)} day{m.days !== 1 ? "s" : ""}
-                      </p>
-                    </div>
-                    <span
-                      className="px-2 py-0.5 text-xs rounded-md font-medium border"
-                      style={{
-                        color: C.warning,
-                        backgroundColor: C.warningSoft,
-                        borderColor: C.warningBorder,
-                      }}
-                    >
-                      {fmt(m.days)}d
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
         </div>
 
         {/* ══════════════════════ RAW MATERIALS ══════════════════════ */}
