@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff, AlertCircle } from 'lucide-react';
 import LOGINBG1 from '../assets/LOGINBG1.jpg';
-import IFLOGO from '../assets/IFLOGO.jpeg';
-import logotry from '../assets/logo.jpg'
+import logotry from '../assets/logo.jpg';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../api/supabase';
 
@@ -72,7 +71,6 @@ function ErrorModal({ title, message, onClose }) {
 }
 
 function Login() {
-
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -116,7 +114,7 @@ function Login() {
     ]);
 
     if (logError) {
-      // Logging should never break the login flow itself, but we do want to see why it failed
+      // Logging should never break the login flow itself
       console.error('Failed to record login log:', logError.message);
     }
   };
@@ -124,8 +122,7 @@ function Login() {
   const checkLockout = async () => {
     const { data, error } = await supabase.rpc('get_login_lockout', { p_email: email });
     if (error) {
-      // If the lockout check itself fails, don't block login over it,
-      // fail open rather than locking everyone out on an infra hiccup.
+      // Fail open rather than locking everyone out on an infra hiccup
       console.error('Lockout check failed:', error.message);
       return null;
     }
@@ -135,73 +132,90 @@ function Login() {
   const handleLogin = async (e) => {
     e.preventDefault();
 
-    // Re-check with the server before every attempt, not just trust
-    // local state, since local state resets on refresh.
-    const currentLock = await checkLockout();
-    if (currentLock && currentLock.getTime() > Date.now()) {
-      setLockedUntil(currentLock);
-      return;
-    }
+    if (submitting || remainingSeconds > 0) return;
 
     setSubmitting(true);
+    closeError();
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    })
-
-    if (error) {
-      await logLogin('failed');
-
-      // This failure may have just pushed them over the threshold,
-      // check again so the countdown appears immediately.
-      const newLock = await checkLockout();
-      if (newLock && newLock.getTime() > Date.now()) {
-        setLockedUntil(newLock);
-      } else {
-        showError('Login failed', friendlyAuthError(error.message));
+    try {
+      // Server-side lockout check
+      const currentLock = await checkLockout();
+      if (currentLock && currentLock.getTime() > Date.now()) {
+        setLockedUntil(currentLock);
+        return;
       }
 
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+
+      if (error) {
+        await logLogin('failed');
+
+        const newLock = await checkLockout();
+        if (newLock && newLock.getTime() > Date.now()) {
+          setLockedUntil(newLock);
+        } else {
+          showError('Login failed', friendlyAuthError(error.message));
+        }
+        setPassword('');
+        return;
+      }
+
+      const user = data.user;
+
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('role, active')
+        .eq('id', user.id)
+        .single();
+
+      if (profileError || !profile) {
+        await logLogin('failed');
+        await supabase.auth.signOut();
+        showError(
+          'No access',
+          'No role is assigned to this account. Please contact your admin.'
+        );
+        return;
+      }
+
+      if (profile.active === false) {
+        await logLogin('failed');
+        await supabase.auth.signOut();
+        showError(
+          'Account deactivated',
+          'This account has been deactivated. Please contact your admin.'
+        );
+        return;
+      }
+
+      await logLogin('success');
+
+      // Give AuthContext a moment to pick up the new session + profile
+      // before we navigate (avoids the bounce-back-to-login race).
+      await new Promise((r) => setTimeout(r, 150));
+
+      const roleRoutes = {
+        admin: '/admin',
+        marketing: '/marketing',
+        sales: '/sales',
+        inventory: '/inventory',
+        production: '/production',
+      };
+
+      navigate(roleRoutes[profile.role] || '/', { replace: true });
+    } catch (err) {
+      console.error('Unexpected login error:', err);
+      showError(
+        'Something went wrong',
+        friendlyAuthError(err?.message || 'Please try again.')
+      );
       setPassword('');
+    } finally {
       setSubmitting(false);
-      return
     }
-
-    const user = data.user;
-
-    const {data: profile, error: profileError} = await supabase
-      .from('profiles')
-      .select('role, active')
-      .eq('id', user.id)
-      .single();
-
-    if (profileError || !profile){
-      await logLogin('failed');
-      await supabase.auth.signOut();
-      showError('No access', 'No role is assigned to this account. Please contact your admin.');
-      setSubmitting(false);
-      return;
-    }
-
-    if (profile.active === false) {
-      await logLogin('failed');
-      await supabase.auth.signOut();
-      showError('Account deactivated', 'This account has been deactivated. Please contact your admin.');
-      setSubmitting(false);
-      return;
-    }
-
-    await logLogin('success');
-
-    const roleRoutes = {
-      admin: '/admin',
-      marketing: '/marketing',
-      sales: '/sales',
-      inventory: '/inventory',
-      production: '/production'
-    };
-
-    navigate(roleRoutes[profile.role] || '/')
   };
 
   const isLocked = remainingSeconds > 0;
@@ -217,11 +231,9 @@ function Login() {
         backgroundPosition: 'center',
         backgroundRepeat: 'no-repeat',
       }}
-    > 
+    >
       <div className="w-full max-w-md relative z-10">
-        
         <div className="bg-white/20 backdrop-blur-md rounded-2xl shadow-2xl p-6 sm:p-8 border border-white/30">
-
           <div className="text-center">
             <img
               src={logotry}
@@ -231,31 +243,25 @@ function Login() {
             <h2 className="mt-4 text-2xl sm:text-3xl font-semibold text-red-700">
               Welcome Back
             </h2>
-            <p className="text-sm text-red-700 mt-1">
-              Log in to continue
-            </p>
+            <p className="text-sm text-red-700 mt-1">Log in to continue</p>
           </div>
 
           <form onSubmit={handleLogin} className="mt-6 space-y-5">
             <div>
-              <label className="text-sm font-medium text-red-700">
-                Email
-              </label>
+              <label className="text-sm font-medium text-red-700">Email</label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 disabled={isLocked || submitting}
-                className="mt-1 w-full px-4 py-3 rounded-lg bg-white/10 backdrop-blur-sm border border-red-500 text-gray/500 placeholder-gray focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition disabled:opacity-60"
+                className="mt-1 w-full px-4 py-3 rounded-lg bg-white/10 backdrop-blur-sm border border-red-500 text-gray-700 placeholder-gray-500 focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition disabled:opacity-60"
                 placeholder="Enter your email"
               />
             </div>
 
             <div>
-              <label className="text-sm font-medium text-red-700">
-                Password
-              </label>
+              <label className="text-sm font-medium text-red-700">Password</label>
               <div className="relative mt-1">
                 <input
                   type={showPassword ? 'text' : 'password'}
@@ -263,7 +269,7 @@ function Login() {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   disabled={isLocked || submitting}
-                  className="w-full pl-4 pr-12 py-3 rounded-lg bg-white/10 backdrop-blur-sm border border-red-500 text-gray/500 placeholder-gray focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition disabled:opacity-60"
+                  className="w-full pl-4 pr-12 py-3 rounded-lg bg-white/10 backdrop-blur-sm border border-red-500 text-gray-700 placeholder-gray-500 focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition disabled:opacity-60"
                   placeholder="Enter your password"
                 />
                 <button
@@ -280,7 +286,8 @@ function Login() {
 
             {isLocked && (
               <p className="text-sm font-medium text-red-700 bg-white/40 rounded-lg px-3 py-2 text-center">
-                Too many failed attempts. Try again in {minutes}:{String(seconds).padStart(2, '0')}.
+                Too many failed attempts. Try again in {minutes}:
+                {String(seconds).padStart(2, '0')}.
               </p>
             )}
 
@@ -292,7 +299,6 @@ function Login() {
               {isLocked ? 'Locked' : submitting ? 'Logging in...' : 'Log In'}
             </button>
           </form>
-
         </div>
       </div>
 
