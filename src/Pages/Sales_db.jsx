@@ -264,7 +264,6 @@ function Sales_db({ onGoToImport }) {
   const [orders, setOrders] = useState([]);
   const [orderItems, setOrderItems] = useState([]);
   const [initialLoading, setInitialLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [itemsWarning, setItemsWarning] = useState("");
   const [trendMode, setTrendMode] = useState("weekly");
@@ -280,8 +279,8 @@ function Sales_db({ onGoToImport }) {
   const lastOrderSyncAtRef = useRef(null);
 
   /**
-   * mode: "initial" | "manual" | "poll"
-   * - "initial" and "manual" always do a full resync.
+   * mode: "initial" | "poll"
+   * - "initial" always does a full resync.
    * - "poll" (the background interval) only asks for orders newer than the
    *   last sync point, and skips setState entirely when nothing's new.
    */
@@ -291,8 +290,6 @@ function Sales_db({ onGoToImport }) {
 
     if (isInitial) {
       setInitialLoading(true);
-    } else if (mode === "manual") {
-      setRefreshing(true);
     }
     setErrorMsg("");
     setItemsWarning("");
@@ -313,7 +310,6 @@ function Sales_db({ onGoToImport }) {
     if (ordersError) {
       setErrorMsg(ordersError.message || "Couldn't load orders.");
       setInitialLoading(false);
-      setRefreshing(false);
       return;
     }
 
@@ -378,7 +374,6 @@ function Sales_db({ onGoToImport }) {
 
     setLastSynced(new Date());
     setInitialLoading(false);
-    setRefreshing(false);
   }, []);
 
   // Polling: refetches on an interval, but only while the tab is visible —
@@ -557,10 +552,6 @@ function Sales_db({ onGoToImport }) {
                 className="border border-gray-300 rounded-md px-3 py-2 text-base text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
               />
             </div>
-
-            <PrimaryButton onClick={() => fetchAll("manual")} disabled={loading || refreshing}>
-              {loading || refreshing ? "Loading..." : "Refresh"}
-            </PrimaryButton>
           </div>
         </Card>
 
