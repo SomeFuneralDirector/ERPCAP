@@ -68,7 +68,7 @@ const navItems = [
       { id: "inventory-dashboard", label: "Dashboard", icon: LayoutDashboard, path: "/inventory_db" },
       { id: "inventory-products", label: "Products", icon: Box, path: "/inventory" },
       { id: "production-rawmaterials", label: "Raw Materials", icon: Amphora, path: "/production_rm" },
-       { id: "packaging-materials", label: "Packaging Material", icon: Blocks, path: "/inventory_pm" },
+      { id: "packaging-materials", label: "Packaging Material", icon: Blocks, path: "/inventory_pm" },
     ],
   },
   {
@@ -362,7 +362,7 @@ function Sidebar({
 function Nav() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, role: userRole, loading: authLoading } = useAuth();
+  const { user, role: userRole, fullName, loading: authLoading } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [active, setActive] = useState(() => childIdForPath(location.pathname));
@@ -393,6 +393,9 @@ function Nav() {
     try {
       const { supabase } = await import("../api/supabase");
       await supabase.auth.signOut();
+      Object.keys(sessionStorage)
+        .filter((key) => key.startsWith("greeting_dismissed_"))
+        .forEach((key) => sessionStorage.removeItem(key));
       navigate("/");
       setMobileOpen(false);
     } catch (error) {
@@ -409,15 +412,18 @@ function Nav() {
 
   const getUserDisplay = () => {
     if (!user) return { initials: "US", name: "User", roleDisplay: "User" };
+
     const email = user.email || "";
-    const initials = email ? email.substring(0, 2).toUpperCase() : "US";
-    let name = "User";
-    let roleDisplay = userRole?.replace("_", " ") || "User";
-    if (userRole === "admin") name = "Admin User";
-    else if (userRole === "sales") name = "Sales User";
-    else if (userRole === "marketing") name = "Marketing User";
-    else if (userRole === "inventory") name = "Inventory User";
-    else if (userRole === "production") name = "Production User";
+    const name = fullName || email.split("@")[0] || "User";
+
+    const words = name.split(" ").filter(Boolean);
+    const initials =
+      words.length > 1
+        ? words.slice(0, 2).map((w) => w[0].toUpperCase()).join("")
+        : name.substring(0, 2).toUpperCase();
+
+    const roleDisplay = userRole?.replace("_", " ") || "User";
+
     return { initials, name, roleDisplay };
   };
 

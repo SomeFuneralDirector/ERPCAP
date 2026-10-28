@@ -25,6 +25,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { supabase } from "../api/supabase";
+import Greetings from "../Components/Greetings";
 
 /* ── Design tokens ─ */
 const C = {
@@ -726,6 +727,7 @@ function Admin() {
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#F6F6F7" }}>
       <div className="p-6 space-y-4">
+        <Greetings/>
         <Card className="px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
             <h1 className="text-3xl font-semibold text-gray-900">Dashboard</h1>
