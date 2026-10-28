@@ -248,21 +248,6 @@ function CurrencyTooltip({ active, payload, label }) {
   );
 }
 
-function ChangeBadge({ current, previous }) {
-  if (previous === null || previous === undefined || previous === 0) return null;
-  const pct = ((current - previous) / previous) * 100;
-  const isUp = pct >= 0;
-  return (
-    <span
-      className={`inline-flex items-center gap-0.5 text-sm font-medium px-1.5 py-0.5 rounded ${
-        isUp ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
-      }`}
-    >
-      {isUp ? "▲" : "▼"} {Math.abs(pct).toFixed(0)}%
-    </span>
-  );
-}
-
 function EmptyState({ onImport }) {
   return (
     <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -512,31 +497,8 @@ function Sales_db({ onGoToImport }) {
 
   const trendPoints = useMemo(() => bucketSales(filteredOrders, trendMode), [filteredOrders, trendMode]);
 
-  const trendChange = useMemo(() => {
-    if (trendPoints.length < 2) return null;
-    const current = trendPoints[trendPoints.length - 1].value;
-    const previous = trendPoints[trendPoints.length - 2].value;
-    return { current, previous };
-  }, [trendPoints]);
-
-  const periodComparison = useMemo(() => {
-    if (trendPoints.length < 2) return { totalPrev: null, avgPrev: null };
-    // Compare equal-sized adjacent periods whenever possible. This avoids
-    // comparing two buckets against one bucket when the trend has an odd length.
-    const periodLength = Math.max(1, Math.floor(trendPoints.length / 2));
-    const prevBuckets = trendPoints.slice(-periodLength * 2, -periodLength);
-    const currBuckets = trendPoints.slice(-periodLength);
-    const prevTotal = prevBuckets.reduce((s, b) => s + b.value, 0);
-    const prevOrders = prevBuckets.reduce((s, b) => s + b.orders, 0);
-    const currTotal = currBuckets.reduce((s, b) => s + b.value, 0);
-    const currOrders = currBuckets.reduce((s, b) => s + b.orders, 0);
-    return {
-      totalPrev: prevTotal,
-      totalCurr: currTotal,
-      avgPrev: prevOrders > 0 ? prevTotal / prevOrders : null,
-      avgCurr: currOrders > 0 ? currTotal / currOrders : null,
-    };
-  }, [trendPoints]);
+  const latestPeriodValue = trendPoints.length > 0 ? trendPoints[trendPoints.length - 1].value : null;
+  const periodUnit = { weekly: "week", monthly: "month", yearly: "year" }[trendMode];
 
   const loading = initialLoading;
 
@@ -627,16 +589,10 @@ function Sales_db({ onGoToImport }) {
             sub={`${filteredOrders.length.toLocaleString()} completed orders`}
           >
             <p className="text-3xl font-semibold text-gray-900">{fmtPHP(animatedTotalSales)}</p>
-            {periodComparison.totalPrev != null && (
-              <ChangeBadge current={periodComparison.totalCurr} previous={periodComparison.totalPrev} />
-            )}
           </KpiCard>
 
           <KpiCard label="Avg order value" loading={loading} sub="per completed order">
             <p className="text-3xl font-semibold text-gray-900">{fmtPHP(animatedAvgOrder)}</p>
-            {periodComparison.avgPrev != null && (
-              <ChangeBadge current={periodComparison.avgCurr} previous={periodComparison.avgPrev} />
-            )}
           </KpiCard>
 
           <KpiCard label="Items sold" loading={loading} sub="units across all orders">
@@ -645,15 +601,10 @@ function Sales_db({ onGoToImport }) {
             </p>
           </KpiCard>
 
-          <KpiCard
-            label="Latest period"
-            loading={loading}
-            sub={`vs previous ${trendMode.slice(0, -2) || trendMode}`}
-          >
+          <KpiCard label="Latest period" loading={loading} sub={`sales in the latest ${periodUnit}`}>
             <p className="text-3xl font-semibold text-gray-900">
-              {trendChange ? fmtPHP(trendChange.current) : "-"}
+              {latestPeriodValue != null ? fmtPHP(latestPeriodValue) : "-"}
             </p>
-            {trendChange && <ChangeBadge current={trendChange.current} previous={trendChange.previous} />}
           </KpiCard>
         </div>
 
