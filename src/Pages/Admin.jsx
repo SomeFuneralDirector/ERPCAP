@@ -72,6 +72,24 @@ const WO_HEX = { Pending: "#D97706", "In Progress": "#2563EB", Completed: "#0596
 const SUPPLIER_COLORS = ["#0E7490", "#92400E", "#166534", "#9F1239", "#1E3A8A", "#57534E"];
 
 const PAGE_SIZE = 5;
+const FETCH_CHUNK = 1000; // Supabase returns at most 1000 rows per request
+
+/* Fetch every row of a query, paging past the 1000-row cap.
+   buildQuery must return a fresh query (with a stable order) on each call. */
+async function fetchAllPages(buildQuery) {
+  let all = [];
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await buildQuery().range(from, from + FETCH_CHUNK - 1);
+    if (error) return { data: null, error };
+    all = all.concat(data || []);
+    if (!data || data.length < FETCH_CHUNK) break;
+    from += FETCH_CHUNK;
+  }
+
+  return { data: all, error: null };
+}
 
 function localDateKey(d = new Date()) {
   const yyyy = d.getFullYear();
@@ -422,12 +440,16 @@ function Admin() {
         workOrdersRes,
         balancesRes,
       ] = await Promise.all([
-        supabase
-          .from("ledger_entries")
-          .select("date, type, amount, ledger_categories(name, classification)")
-          .gte("date", dateFrom)
-          .lte("date", dateTo)
-          .eq("archived", false),
+        // Paged: ledger entries can pass 1000 rows in a wide date range
+        fetchAllPages(() =>
+          supabase
+            .from("ledger_entries")
+            .select("date, type, amount, ledger_categories(name, classification)")
+            .gte("date", dateFrom)
+            .lte("date", dateTo)
+            .eq("archived", false)
+            .order("id", { ascending: true }) // stable order across pages
+        ),
         supabase
           .from("inventory")
           .select("id, product_name, category, shopee_stock, lazada_stock, tiktok_stock, stock")
@@ -438,15 +460,23 @@ function Admin() {
         supabase
           .from("campaigns")
           .select("id, name, platform, discount_type, discount_value, start_date, end_date, status"),
-        supabase
-          .from("orders")
-          .select("id, platform, total_amount, completed_at, created_at, paid_time, status")
-          .eq("status", "COMPLETED"),
-        supabase
-          .from("work_orders")
-          .select(
-            "id, wo_number, product_name, quantity, platform, status, due_date, completed_at, created_at"
-          ),
+        // Paged: this was the bug. A plain query stops at 1000 rows.
+        fetchAllPages(() =>
+          supabase
+            .from("orders")
+            .select("id, platform, total_amount, completed_at, created_at, paid_time, status")
+            .eq("status", "COMPLETED")
+            .order("id", { ascending: true }) // stable order across pages
+        ),
+        // Paged: work orders have no filter, so they grow forever
+        fetchAllPages(() =>
+          supabase
+            .from("work_orders")
+            .select(
+              "id, wo_number, product_name, quantity, platform, status, due_date, completed_at, created_at"
+            )
+            .order("id", { ascending: true }) // stable order across pages
+        ),
         supabase.rpc("account_balances", { p_from: dateFrom, p_to: dateTo }),
       ]);
 

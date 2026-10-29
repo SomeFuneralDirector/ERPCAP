@@ -8,92 +8,80 @@ export const AuthProvider = ({ children }) => {
   const [role, setRole] = useState(null);
   const [fullName, setFullName] = useState(null);
   const [loading, setLoading] = useState(true);
-  const profileUserId = useRef(null);
+  const inFlight = useRef(null); // { userId, promise }
 
   const clearAuth = () => {
-    profileUserId.current = null;
+    inFlight.current = null;
     setUser(null);
     setRole(null);
     setFullName(null);
   };
 
   const loadProfile = async (userId) => {
-    try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("role, active, full_name")
-        .eq("id", userId)
-        .single();
-
-      if (error) {
-        console.error("Failed to load profile:", error.message);
-        return null;
-      }
-      return data;
-    } catch (err) {
-      console.error("Failed to load profile:", err);
-      return null;
-    }
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("role, active, full_name")
+      .eq("id", userId)
+      .maybeSingle(); // returns null (no error) when no row exists
+    return { data, error };
   };
 
-  const applySession = async (session) => {
+  const applySession = (session) => {
     if (!session?.user) {
       clearAuth();
       setLoading(false);
-      return;
+      return Promise.resolve();
     }
 
-    // Already loaded this user → just make sure loading is off
-    if (profileUserId.current === session.user.id) {
+    const userId = session.user.id;
+
+    // Same user already loading/loaded -> wait for that SAME work
+    if (inFlight.current?.userId === userId) {
+      return inFlight.current.promise;
+    }
+
+    const promise = (async () => {
+      const { data: profile, error } = await loadProfile(userId);
+
+      // Transient error (network, etc.): keep the session, allow retry later
+      if (error) {
+        console.error("Failed to load profile:", error.message);
+        inFlight.current = null;
+        setUser(session.user);
+        setLoading(false);
+        return;
+      }
+
+      // Profile truly missing or deactivated -> sign out
+      if (!profile || profile.active === false) {
+        await supabase.auth.signOut();
+        clearAuth();
+        setLoading(false);
+        return;
+      }
+
+      setUser(session.user);
+      setRole(profile.role || null);
+      setFullName(profile.full_name || null);
       setLoading(false);
-      return;
-    }
+    })();
 
-    profileUserId.current = session.user.id;
-
-    const profile = await loadProfile(session.user.id);
-
-    // Account deactivated → force sign out
-    if (profile?.active === false) {
-      await supabase.auth.signOut();
-      clearAuth();
-      setLoading(false);
-      return;
-    }
-
-    // Profile missing → treat as not authenticated (don't leave half-logged-in state)
-    if (!profile) {
-      console.warn("No profile found for user, signing out");
-      profileUserId.current = null;
-      await supabase.auth.signOut();
-      clearAuth();
-      setLoading(false);
-      return;
-    }
-
-    setUser(session.user);
-    setRole(profile.role || null);
-    setFullName(profile.full_name || null);
-    setLoading(false);
+    inFlight.current = { userId, promise };
+    return promise;
   };
 
   useEffect(() => {
     let mounted = true;
 
-    // 1. Restore session on first load / refresh
     supabase.auth.getSession().then(({ data }) => {
       if (mounted) applySession(data.session);
     });
 
-    // 2. Listen for future auth changes
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        // Defer so we never run async Supabase work directly inside the callback
-        setTimeout(() => {
-          if (mounted) applySession(session);
-        }, 0);
-      }
-    );
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setTimeout(() => {
+        if (mounted) applySession(session);
+      }, 0);
+    });
 
     return () => {
       mounted = false;
