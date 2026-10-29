@@ -43,8 +43,16 @@ const PLATFORM_COLORS = {
 };
 
 const MATERIAL_PALETTE = [
-  "#0E7490", "#92400E", "#4B5563", "#166534", "#9F1239",
-  "#1E3A8A", "#854D0E", "#0F766E", "#57534E", "#334155",
+  "#0E7490",
+  "#92400E",
+  "#4B5563",
+  "#166534",
+  "#9F1239",
+  "#1E3A8A",
+  "#854D0E",
+  "#0F766E",
+  "#57534E",
+  "#334155",
 ];
 
 const STATUS_COLORS = {
@@ -61,7 +69,9 @@ const PM_UNIT = "pcs";
 const SEGMENT_WRAP = "flex gap-0.5 bg-gray-100 rounded-md p-0.5";
 const SEGMENT_BTN = (active) =>
   `px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer ${
-    active ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
+    active
+      ? "bg-white text-gray-900 shadow-sm"
+      : "text-gray-500 hover:text-gray-700"
   }`;
 
 const POLL_INTERVAL_MS = 5000;
@@ -115,7 +125,7 @@ function localDateBoundary(value, endOfDay = false) {
     endOfDay ? 23 : 0,
     endOfDay ? 59 : 0,
     endOfDay ? 59 : 0,
-    endOfDay ? 999 : 0
+    endOfDay ? 999 : 0,
   );
   return date.getTime();
 }
@@ -139,13 +149,17 @@ function formatLogTime(iso) {
 
   if (diffMin < 1) return "Just now";
   if (diffMin < 60) return `${diffMin}m ago`;
-  if (diffH < 24) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (diffH < 24)
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   if (diffD === 1) return "Yesterday";
   return d.toLocaleDateString();
 }
 
 function colorForCategory(name) {
-  const hash = [...String(name || "")].reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  const hash = [...String(name || "")].reduce(
+    (sum, char) => sum + char.charCodeAt(0),
+    0,
+  );
   return MATERIAL_PALETTE[hash % MATERIAL_PALETTE.length];
 }
 
@@ -183,12 +197,16 @@ function filterByUpdatedAt(rows, dateFrom, dateTo) {
 // ─── Primitives ─────────────────────────────────────────────
 
 function Skeleton({ className = "h-8 w-16" }) {
-  return <div className={`${className} bg-gray-100 rounded animate-pulse mt-1`} />;
+  return (
+    <div className={`${className} bg-gray-100 rounded animate-pulse mt-1`} />
+  );
 }
 
 function Card({ children, className = "" }) {
   return (
-    <div className={`bg-white rounded-lg border border-gray-200 shadow-sm ${className}`}>
+    <div
+      className={`bg-white rounded-lg border border-gray-200 shadow-sm ${className}`}
+    >
       {children}
     </div>
   );
@@ -200,7 +218,9 @@ function PrimaryButton({ children, className = "", ...props }) {
       {...props}
       className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium text-white transition-colors disabled:opacity-50 cursor-pointer ${className}`}
       style={{ backgroundColor: C.accent }}
-      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = C.accentHover)}
+      onMouseEnter={(e) =>
+        (e.currentTarget.style.backgroundColor = C.accentHover)
+      }
       onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = C.accent)}
     >
       {children}
@@ -225,9 +245,15 @@ function UnitsTooltip({ active, payload, label }) {
 function SectionHeading({ title, subtitle }) {
   return (
     <div className="flex items-center gap-3 pt-2">
-      <h2 className="text-sm font-semibold text-gray-700 whitespace-nowrap">{title}</h2>
+      <h2 className="text-sm font-semibold text-gray-700 whitespace-nowrap">
+        {title}
+      </h2>
       <div className="h-px bg-gray-200 flex-1" />
-      {subtitle && <span className="text-xs text-gray-400 whitespace-nowrap">{subtitle}</span>}
+      {subtitle && (
+        <span className="text-xs text-gray-400 whitespace-nowrap">
+          {subtitle}
+        </span>
+      )}
     </div>
   );
 }
@@ -253,7 +279,11 @@ function Inventory_db() {
   const [rawInventory, setRawInventory] = useState([]);
   const [rawMaterials, setRawMaterials] = useState([]);
   const [rawPackaging, setRawPackaging] = useState([]);
-  const [soldByPlatform, setSoldByPlatform] = useState({ shopee: 0, lazada: 0, tiktok: 0 });
+  const [soldByPlatform, setSoldByPlatform] = useState({
+    shopee: 0,
+    lazada: 0,
+    tiktok: 0,
+  });
   const [activity, setActivity] = useState([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -305,7 +335,7 @@ function Inventory_db() {
       .from("inventory")
       .select(
         "id, stock, shopee_stock, lazada_stock, tiktok_stock, " +
-          "category, product_name, product_code, reorder_point, updated_at"
+          "category, product_name, product_code, reorder_point, updated_at",
       );
 
     if (!fullResync && lastInventorySyncAtRef.current) {
@@ -325,10 +355,12 @@ function Inventory_db() {
     if (freshInv.length > 0) {
       const newestUpdatedAt = freshInv.reduce(
         (max, r) => (r.updated_at && r.updated_at > max ? r.updated_at : max),
-        lastInventorySyncAtRef.current || ""
+        lastInventorySyncAtRef.current || "",
       );
       lastInventorySyncAtRef.current = newestUpdatedAt;
-      setRawInventory((prev) => (fullResync ? freshInv : mergeById(prev, freshInv)));
+      setRawInventory((prev) =>
+        fullResync ? freshInv : mergeById(prev, freshInv),
+      );
     } else if (fullResync) {
       setRawInventory([]);
     }
@@ -344,7 +376,9 @@ function Inventory_db() {
     if (ordersError) {
       console.error("Error fetching orders for platform chart:", ordersError);
     } else {
-      const orderIds = (completedOrders || []).map((o) => o.order_id).filter(Boolean);
+      const orderIds = (completedOrders || [])
+        .map((o) => o.order_id)
+        .filter(Boolean);
       const soldTotals = { shopee: 0, lazada: 0, tiktok: 0 };
 
       if (orderIds.length > 0) {
@@ -354,7 +388,10 @@ function Inventory_db() {
           .in("order_id", orderIds);
 
         if (itemsError) {
-          console.error("Error fetching order items for platform chart:", itemsError);
+          console.error(
+            "Error fetching order items for platform chart:",
+            itemsError,
+          );
         } else {
           (items || []).forEach((r) => {
             const key = r.platform?.toLowerCase();
@@ -376,28 +413,35 @@ function Inventory_db() {
     let materialsQuery = supabase
       .from("raw_materials")
       .select(
-        "id, material_name, category, current_stock, reorder_point, status, updated_at, supplier_id, suppliers(name)"
+        "id, material_name, category, current_stock, reorder_point, status, updated_at, supplier_id, suppliers(name)",
       );
 
     if (!fullResync && lastMaterialsSyncAtRef.current) {
-      materialsQuery = materialsQuery.gt("updated_at", lastMaterialsSyncAtRef.current);
+      materialsQuery = materialsQuery.gt(
+        "updated_at",
+        lastMaterialsSyncAtRef.current,
+      );
     }
 
     const { data: materials, error: materialsError } = await materialsQuery;
 
     if (materialsError) {
       console.error("Error fetching raw materials:", materialsError);
-      setMaterialsErrorMsg(materialsError.message || "Couldn't load raw materials data.");
+      setMaterialsErrorMsg(
+        materialsError.message || "Couldn't load raw materials data.",
+      );
       if (fullResync) setRawMaterials([]);
     } else {
       const freshMaterials = materials || [];
       if (freshMaterials.length > 0) {
         const newestUpdatedAt = freshMaterials.reduce(
           (max, r) => (r.updated_at && r.updated_at > max ? r.updated_at : max),
-          lastMaterialsSyncAtRef.current || ""
+          lastMaterialsSyncAtRef.current || "",
         );
         lastMaterialsSyncAtRef.current = newestUpdatedAt;
-        setRawMaterials((prev) => (fullResync ? freshMaterials : mergeById(prev, freshMaterials)));
+        setRawMaterials((prev) =>
+          fullResync ? freshMaterials : mergeById(prev, freshMaterials),
+        );
       } else if (fullResync) {
         setRawMaterials([]);
       }
@@ -406,27 +450,36 @@ function Inventory_db() {
     // ── Packaging materials (incremental by updated_at on polls) ─
     let packagingQuery = supabase
       .from("packaging_materials")
-      .select("id, item_name, category, current_stock, reorder_point, status, updated_at");
+      .select(
+        "id, item_name, category, current_stock, reorder_point, status, updated_at",
+      );
 
     if (!fullResync && lastPackagingSyncAtRef.current) {
-      packagingQuery = packagingQuery.gt("updated_at", lastPackagingSyncAtRef.current);
+      packagingQuery = packagingQuery.gt(
+        "updated_at",
+        lastPackagingSyncAtRef.current,
+      );
     }
 
     const { data: packaging, error: packagingError } = await packagingQuery;
 
     if (packagingError) {
       console.error("Error fetching packaging materials:", packagingError);
-      setPackagingErrorMsg(packagingError.message || "Couldn't load packaging materials data.");
+      setPackagingErrorMsg(
+        packagingError.message || "Couldn't load packaging materials data.",
+      );
       if (fullResync) setRawPackaging([]);
     } else {
       const freshPackaging = packaging || [];
       if (freshPackaging.length > 0) {
         const newestUpdatedAt = freshPackaging.reduce(
           (max, r) => (r.updated_at && r.updated_at > max ? r.updated_at : max),
-          lastPackagingSyncAtRef.current || ""
+          lastPackagingSyncAtRef.current || "",
         );
         lastPackagingSyncAtRef.current = newestUpdatedAt;
-        setRawPackaging((prev) => (fullResync ? freshPackaging : mergeById(prev, freshPackaging)));
+        setRawPackaging((prev) =>
+          fullResync ? freshPackaging : mergeById(prev, freshPackaging),
+        );
       } else if (fullResync) {
         setRawPackaging([]);
       }
@@ -444,14 +497,16 @@ function Inventory_db() {
     if (logsError) {
       console.error("Error fetching logs:", logsError);
     } else if (logs) {
-      const activityKey = logs.map((l) => `${l.created_at}|${l.detail}`).join(",");
+      const activityKey = logs
+        .map((l) => `${l.created_at}|${l.detail}`)
+        .join(",");
       if (activityKey !== prevActivityKeyRef.current) {
         prevActivityKeyRef.current = activityKey;
         setActivity(
           logs.map((l) => ({
             text: l.detail || "Activity recorded",
             time: formatLogTime(l.created_at),
-          }))
+          })),
         );
       }
     }
@@ -510,9 +565,12 @@ function Inventory_db() {
 
     return rawInventory.filter((r) => {
       // Platform: product has stock on that shop
-      if (platformFilter === "Shopee" && nonNegative(r.shopee_stock) <= 0) return false;
-      if (platformFilter === "Lazada" && nonNegative(r.lazada_stock) <= 0) return false;
-      if (platformFilter === "TikTok" && nonNegative(r.tiktok_stock) <= 0) return false;
+      if (platformFilter === "Shopee" && nonNegative(r.shopee_stock) <= 0)
+        return false;
+      if (platformFilter === "Lazada" && nonNegative(r.lazada_stock) <= 0)
+        return false;
+      if (platformFilter === "TikTok" && nonNegative(r.tiktok_stock) <= 0)
+        return false;
 
       // Date range on updated_at
       if (fromTime !== null || toTime !== null) {
@@ -528,12 +586,12 @@ function Inventory_db() {
 
   const filteredMaterials = useMemo(
     () => filterByUpdatedAt(rawMaterials, dateFrom, dateTo),
-    [rawMaterials, dateFrom, dateTo]
+    [rawMaterials, dateFrom, dateTo],
   );
 
   const filteredPackaging = useMemo(
     () => filterByUpdatedAt(rawPackaging, dateFrom, dateTo),
-    [rawPackaging, dateFrom, dateTo]
+    [rawPackaging, dateFrom, dateTo],
   );
 
   // ── Derived chart data — products (from filtered inventory) ─
@@ -545,7 +603,7 @@ function Inventory_db() {
         lazada: acc.lazada + nonNegative(r.lazada_stock),
         tiktok: acc.tiktok + nonNegative(r.tiktok_stock),
       }),
-      { shopee: 0, lazada: 0, tiktok: 0 }
+      { shopee: 0, lazada: 0, tiktok: 0 },
     );
     data.total = data.shopee + data.lazada + data.tiktok;
     return data;
@@ -566,7 +624,7 @@ function Inventory_db() {
 
   const outOfStockCount = useMemo(
     () => filteredInventory.filter((r) => totalStock(r) === 0).length,
-    [filteredInventory]
+    [filteredInventory],
   );
 
   const lowStock = useMemo(() => {
@@ -604,14 +662,16 @@ function Inventory_db() {
       .sort(
         (a, b) =>
           (safeDate(a.updated_at)?.getTime() ?? Infinity) -
-          (safeDate(b.updated_at)?.getTime() ?? Infinity)
+          (safeDate(b.updated_at)?.getTime() ?? Infinity),
       )
       .slice(0, 5)
       .map((r) => ({
         name: r.product_name || "Unknown",
         days: Math.max(
           0,
-          Math.floor((now - (safeDate(r.updated_at)?.getTime() ?? now)) / 86_400_000)
+          Math.floor(
+            (now - (safeDate(r.updated_at)?.getTime() ?? now)) / 86_400_000,
+          ),
         ),
       }))
       .filter((r) => r.days > 0);
@@ -651,9 +711,19 @@ function Inventory_db() {
         .reduce((sum, m) => sum + nonNegative(m.current_stock), 0);
     const oilLitres = litresOf("Oil");
     const alcoholLitres = litresOf("Alcohol");
-    const lowStockCount = filteredMaterials.filter((m) => m.status === "Low Stock").length;
-    const outCount = filteredMaterials.filter((m) => m.status === "Out of Stock").length;
-    return { total, oilLitres, alcoholLitres, lowStockCount, outOfStockCount: outCount };
+    const lowStockCount = filteredMaterials.filter(
+      (m) => m.status === "Low Stock",
+    ).length;
+    const outCount = filteredMaterials.filter(
+      (m) => m.status === "Out of Stock",
+    ).length;
+    return {
+      total,
+      oilLitres,
+      alcoholLitres,
+      lowStockCount,
+      outOfStockCount: outCount,
+    };
   }, [filteredMaterials]);
 
   // Stock volume (litres) per supplier: Belstar, IFF, MG, Sozio.
@@ -678,7 +748,11 @@ function Inventory_db() {
     });
     return Object.entries(map)
       .filter(([, count]) => count > 0)
-      .map(([status, count]) => ({ status, count, color: STATUS_COLORS[status] }));
+      .map(([status, count]) => ({
+        status,
+        count,
+        color: STATUS_COLORS[status],
+      }));
   }, [filteredMaterials]);
 
   const materialLowStock = useMemo(() => {
@@ -696,11 +770,26 @@ function Inventory_db() {
 
   const packagingStats = useMemo(() => {
     const total = filteredPackaging.length;
-    const pieces = filteredPackaging.reduce((sum, m) => sum + nonNegative(m.current_stock), 0);
-    const categories = new Set(filteredPackaging.map((m) => m.category || "Uncategorized")).size;
-    const lowStockCount = filteredPackaging.filter((m) => m.status === "Low Stock").length;
-    const outCount = filteredPackaging.filter((m) => m.status === "Out of Stock").length;
-    return { total, pieces, categories, lowStockCount, outOfStockCount: outCount };
+    const pieces = filteredPackaging.reduce(
+      (sum, m) => sum + nonNegative(m.current_stock),
+      0,
+    );
+    const categories = new Set(
+      filteredPackaging.map((m) => m.category || "Uncategorized"),
+    ).size;
+    const lowStockCount = filteredPackaging.filter(
+      (m) => m.status === "Low Stock",
+    ).length;
+    const outCount = filteredPackaging.filter(
+      (m) => m.status === "Out of Stock",
+    ).length;
+    return {
+      total,
+      pieces,
+      categories,
+      lowStockCount,
+      outOfStockCount: outCount,
+    };
   }, [filteredPackaging]);
 
   // Pieces on hand per category (Bottle, Cap, Box, Label, ...).
@@ -725,7 +814,11 @@ function Inventory_db() {
     });
     return Object.entries(map)
       .filter(([, count]) => count > 0)
-      .map(([status, count]) => ({ status, count, color: STATUS_COLORS[status] }));
+      .map(([status, count]) => ({
+        status,
+        count,
+        color: STATUS_COLORS[status],
+      }));
   }, [filteredPackaging]);
 
   const packagingLowStock = useMemo(() => {
@@ -791,7 +884,9 @@ function Inventory_db() {
   function handleTopMoverClick(entry) {
     const name = entry?.name;
     if (!name) return;
-    const row = filteredInventory.find((r) => (r.product_name || "Unknown") === name);
+    const row = filteredInventory.find(
+      (r) => (r.product_name || "Unknown") === name,
+    );
     if (!row) return;
 
     setBreakdown({
@@ -900,19 +995,27 @@ function Inventory_db() {
   }
 
   const fmt = (n) => (n ?? 0).toLocaleString();
-  const fmtL = (n) => `${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} L`;
+  const fmtL = (n) =>
+    `${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} L`;
   const fmtP = (n) => `${(n ?? 0).toLocaleString()} ${PM_UNIT}`;
   const loading = initialLoading;
 
   if (errorMsg && rawInventory.length === 0 && !loading) {
     return (
       <div className="min-h-screen p-6" style={{ backgroundColor: "#F6F6F7" }}>
-        <Card className="p-6 max-w-[1400px] mx-auto" style={{ borderColor: C.accentSoftBorder }}>
-          <h1 className="text-2xl font-semibold text-gray-900 mb-2">Inventory - Dashboard</h1>
+        <Card
+          className="p-6 max-w-[1400px] mx-auto"
+          style={{ borderColor: C.accentSoftBorder }}
+        >
+          <h1 className="text-2xl font-semibold text-gray-900 mb-2">
+            Inventory - Dashboard
+          </h1>
           <p className="text-sm mb-4" style={{ color: C.accent }}>
             {errorMsg}
           </p>
-          <PrimaryButton onClick={() => fetchAll("initial")}>Retry</PrimaryButton>
+          <PrimaryButton onClick={() => fetchAll("initial")}>
+            Retry
+          </PrimaryButton>
         </Card>
       </div>
     );
@@ -924,7 +1027,9 @@ function Inventory_db() {
         {/* Header + filters */}
         <Card className="px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold text-gray-900">Inventory - Dashboard</h1>
+            <h1 className="text-2xl font-semibold text-gray-900">
+              Inventory - Dashboard
+            </h1>
             {lastUpdated && !loading && (
               <p className="text-xs text-gray-400 mt-0.5">
                 Updated {formatLogTime(lastUpdated.toISOString())}
@@ -991,7 +1096,9 @@ function Inventory_db() {
             {loading ? (
               <Skeleton />
             ) : (
-              <p className="text-2xl font-semibold mt-1 text-gray-900">{fmt(totals.total)}</p>
+              <p className="text-2xl font-semibold mt-1 text-gray-900">
+                {fmt(totals.total)}
+              </p>
             )}
             <p className="text-xs mt-1 text-gray-400">Units on hand</p>
           </Card>
@@ -1025,7 +1132,10 @@ function Inventory_db() {
             {loading ? (
               <Skeleton />
             ) : (
-              <p className="text-2xl font-semibold mt-1" style={{ color: C.accent }}>
+              <p
+                className="text-2xl font-semibold mt-1"
+                style={{ color: C.accent }}
+              >
                 {fmt(outOfStockCount)}
               </p>
             )}
@@ -1035,11 +1145,15 @@ function Inventory_db() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           <Card className="lg:col-span-2 p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">Stock by platform</h2>
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">
+              Stock by platform
+            </h2>
             {loading ? (
               <Skeleton className="h-56 w-full" />
             ) : platformData.every((p) => p.qty === 0) ? (
-              <p className="text-xs text-gray-400">No data for current filters.</p>
+              <p className="text-xs text-gray-400">
+                No data for current filters.
+              </p>
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-center">
                 <ResponsiveContainer width="100%" height={260}>
@@ -1065,13 +1179,18 @@ function Inventory_db() {
                 <div>
                   <ul className="space-y-3">
                     {platformData.map((p) => (
-                      <li key={p.platform} className="flex items-center justify-between">
+                      <li
+                        key={p.platform}
+                        className="flex items-center justify-between"
+                      >
                         <div className="flex items-center gap-2">
                           <span
                             className="w-2.5 h-2.5 rounded-sm inline-block"
                             style={{ backgroundColor: p.color }}
                           />
-                          <span className="text-sm font-medium text-gray-700">{p.platform}</span>
+                          <span className="text-sm font-medium text-gray-700">
+                            {p.platform}
+                          </span>
                         </div>
                         <div className="text-right">
                           <p className="text-sm font-semibold text-gray-700">
@@ -1084,14 +1203,21 @@ function Inventory_db() {
                               %)
                             </span>
                           </p>
-                          <p className="text-xs text-gray-400">{fmt(p.sold)} sold</p>
+                          <p className="text-xs text-gray-400">
+                            {fmt(p.sold)} sold
+                          </p>
                         </div>
                       </li>
                     ))}
                   </ul>
                   <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between">
-                    <span className="text-sm font-medium text-gray-500">Total stock</span>
-                    <span className="text-sm font-semibold" style={{ color: C.accent }}>
+                    <span className="text-sm font-medium text-gray-500">
+                      Total stock
+                    </span>
+                    <span
+                      className="text-sm font-semibold"
+                      style={{ color: C.accent }}
+                    >
                       {fmt(totals.total)} units
                     </span>
                   </div>
@@ -1101,7 +1227,9 @@ function Inventory_db() {
           </Card>
 
           <Card className="lg:col-span-1 p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">Stock by category</h2>
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">
+              Stock by category
+            </h2>
             {loading ? (
               <Skeleton className="h-40 w-full" />
             ) : cats.length === 0 ? (
@@ -1129,7 +1257,10 @@ function Inventory_db() {
                 </ResponsiveContainer>
                 <ul className="space-y-1.5 mt-2">
                   {cats.map((c) => (
-                    <li key={c.name} className="flex items-center justify-between text-xs">
+                    <li
+                      key={c.name}
+                      className="flex items-center justify-between text-xs"
+                    >
                       <span className="flex items-center gap-1.5 text-gray-600">
                         <span
                           className="w-2 h-2 rounded-sm inline-block"
@@ -1137,7 +1268,9 @@ function Inventory_db() {
                         />
                         {c.name}
                       </span>
-                      <span className="font-medium text-gray-700">{fmt(c.qty)}</span>
+                      <span className="font-medium text-gray-700">
+                        {fmt(c.qty)}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -1148,20 +1281,29 @@ function Inventory_db() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           <Card className="lg:col-span-2 p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">Top stocked items</h2>
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">
+              Top stocked items
+            </h2>
             {loading ? (
               <Skeleton className="h-56 w-full" />
             ) : topMovers.length === 0 ? (
               <p className="text-xs text-gray-400">No stock data available.</p>
             ) : (
-              <ResponsiveContainer width="100%" height={Math.max(220, topMovers.length * 44)}>
+              <ResponsiveContainer
+                width="100%"
+                height={Math.max(220, topMovers.length * 44)}
+              >
                 <BarChart
                   data={topMovers}
                   layout="vertical"
                   margin={{ top: 0, right: 40, left: 8, bottom: 0 }}
                   barCategoryGap={12}
                 >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="#f3f4f6"
+                    horizontal={false}
+                  />
                   <XAxis
                     type="number"
                     tick={{ fontSize: 11, fill: "#6B7280" }}
@@ -1187,7 +1329,10 @@ function Inventory_db() {
                     cursor="pointer"
                   >
                     {topMovers.map((m) => (
-                      <Cell key={m.name} fill={PLATFORM_COLORS[m.platform] ?? C.accent} />
+                      <Cell
+                        key={m.name}
+                        fill={PLATFORM_COLORS[m.platform] ?? C.accent}
+                      />
                     ))}
                     <LabelList
                       dataKey="qty"
@@ -1224,7 +1369,9 @@ function Inventory_db() {
                 ))}
               </div>
             ) : lowStock.length === 0 ? (
-              <p className="text-xs text-gray-400">All items are sufficiently stocked.</p>
+              <p className="text-xs text-gray-400">
+                All items are sufficiently stocked.
+              </p>
             ) : (
               <div className="space-y-3">
                 {lowStock.map((p) => {
@@ -1234,8 +1381,12 @@ function Inventory_db() {
                     <div key={p.code}>
                       <div className="flex items-center justify-between mb-1">
                         <div>
-                          <p className="text-xs font-medium text-gray-700">{p.name}</p>
-                          <p className="text-xs font-mono text-gray-400">{p.code}</p>
+                          <p className="text-xs font-medium text-gray-700">
+                            {p.name}
+                          </p>
+                          <p className="text-xs font-mono text-gray-400">
+                            {p.code}
+                          </p>
                         </div>
                         <span
                           className="px-1.5 py-0.5 text-xs rounded font-medium shrink-0 border"
@@ -1273,9 +1424,11 @@ function Inventory_db() {
           </Card>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3">
           <Card className="p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">Recent activity</h2>
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">
+              Recent activity
+            </h2>
             {loading ? (
               <div className="space-y-3">
                 {[1, 2, 3].map((i) => (
@@ -1285,15 +1438,20 @@ function Inventory_db() {
             ) : activity.length === 0 ? (
               <p className="text-xs text-gray-400">No recent activity.</p>
             ) : (
-              <div className="divide-y divide-gray-100">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
                 {activity.map((a, i) => (
-                  <div key={i} className="flex items-start gap-3 py-2">
+                  <div
+                    key={i}
+                    className="flex items-start gap-3 py-2 border-b border-gray-100"
+                  >
                     <span
                       className="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0"
                       style={{ backgroundColor: C.accent }}
                     />
                     <div>
-                      <p className="text-xs text-gray-700 leading-snug">{a.text}</p>
+                      <p className="text-xs text-gray-700 leading-snug">
+                        {a.text}
+                      </p>
                       <p className="text-xs text-gray-400 mt-0.5">{a.time}</p>
                     </div>
                   </div>
@@ -1301,7 +1459,6 @@ function Inventory_db() {
               </div>
             )}
           </Card>
-
         </div>
 
         {/* ══════════════════════ RAW MATERIALS ══════════════════════ */}
@@ -1351,25 +1508,33 @@ function Inventory_db() {
               <p
                 className="text-2xl font-semibold mt-1"
                 style={{
-                  color: materialStats.outOfStockCount > 0 ? C.accent : C.warning,
+                  color:
+                    materialStats.outOfStockCount > 0 ? C.accent : C.warning,
                 }}
               >
-                {fmt(materialStats.lowStockCount + materialStats.outOfStockCount)}
+                {fmt(
+                  materialStats.lowStockCount + materialStats.outOfStockCount,
+                )}
               </p>
             )}
             <p className="text-xs mt-1 text-gray-400">
-              {fmt(materialStats.lowStockCount)} low · {fmt(materialStats.outOfStockCount)} out
+              {fmt(materialStats.lowStockCount)} low ·{" "}
+              {fmt(materialStats.outOfStockCount)} out
             </p>
           </Card>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           <Card className="lg:col-span-2 p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">Stock volume by supplier</h2>
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">
+              Stock volume by supplier
+            </h2>
             {loading ? (
               <Skeleton className="h-56 w-full" />
             ) : materialSupplierData.length === 0 ? (
-              <p className="text-xs text-gray-400">No raw materials recorded yet.</p>
+              <p className="text-xs text-gray-400">
+                No raw materials recorded yet.
+              </p>
             ) : (
               <ResponsiveContainer
                 width="100%"
@@ -1381,7 +1546,11 @@ function Inventory_db() {
                   margin={{ top: 0, right: 60, left: 8, bottom: 0 }}
                   barCategoryGap={12}
                 >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="#f3f4f6"
+                    horizontal={false}
+                  />
                   <XAxis
                     type="number"
                     tick={{ fontSize: 11, fill: "#6B7280" }}
@@ -1403,7 +1572,9 @@ function Inventory_db() {
                       const d = payload[0].payload;
                       return (
                         <div className="bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2 text-xs">
-                          <p className="font-semibold text-gray-700 mb-1">{d.name}</p>
+                          <p className="font-semibold text-gray-700 mb-1">
+                            {d.name}
+                          </p>
                           <p className="text-gray-600">
                             {fmtL(d.litres)} · {fmt(d.count)} material
                             {d.count !== 1 ? "s" : ""}
@@ -1436,7 +1607,9 @@ function Inventory_db() {
           </Card>
 
           <Card className="lg:col-span-1 p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">Stock status</h2>
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">
+              Stock status
+            </h2>
             {loading ? (
               <Skeleton className="h-40 w-full" />
             ) : materialStatusData.length === 0 ? (
@@ -1465,7 +1638,10 @@ function Inventory_db() {
                         const d = payload[0].payload;
                         return (
                           <div className="bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2 text-xs">
-                            <p className="font-semibold" style={{ color: d.color }}>
+                            <p
+                              className="font-semibold"
+                              style={{ color: d.color }}
+                            >
                               {d.status}
                             </p>
                             <p className="text-gray-600">
@@ -1479,7 +1655,10 @@ function Inventory_db() {
                 </ResponsiveContainer>
                 <ul className="space-y-1.5 mt-2">
                   {materialStatusData.map((s) => (
-                    <li key={s.status} className="flex items-center justify-between text-xs">
+                    <li
+                      key={s.status}
+                      className="flex items-center justify-between text-xs"
+                    >
                       <span className="flex items-center gap-1.5 text-gray-600">
                         <span
                           className="w-2 h-2 rounded-sm inline-block"
@@ -1487,7 +1666,9 @@ function Inventory_db() {
                         />
                         {s.status}
                       </span>
-                      <span className="font-medium text-gray-700">{fmt(s.count)}</span>
+                      <span className="font-medium text-gray-700">
+                        {fmt(s.count)}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -1519,7 +1700,9 @@ function Inventory_db() {
               ))}
             </div>
           ) : materialLowStock.length === 0 ? (
-            <p className="text-xs text-gray-400">All raw materials are sufficiently stocked.</p>
+            <p className="text-xs text-gray-400">
+              All raw materials are sufficiently stocked.
+            </p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {materialLowStock.map((m) => {
@@ -1602,12 +1785,16 @@ function Inventory_db() {
             ) : (
               <p
                 className="text-2xl font-semibold mt-1"
-                style={{ color: packagingStats.lowStockCount > 0 ? C.warning : C.text }}
+                style={{
+                  color: packagingStats.lowStockCount > 0 ? C.warning : C.text,
+                }}
               >
                 {fmt(packagingStats.lowStockCount)}
               </p>
             )}
-            <p className="text-xs mt-1 text-gray-400">At or below reorder point</p>
+            <p className="text-xs mt-1 text-gray-400">
+              At or below reorder point
+            </p>
           </Card>
 
           <Card className="p-4">
@@ -1617,7 +1804,9 @@ function Inventory_db() {
             ) : (
               <p
                 className="text-2xl font-semibold mt-1"
-                style={{ color: packagingStats.outOfStockCount > 0 ? C.accent : C.text }}
+                style={{
+                  color: packagingStats.outOfStockCount > 0 ? C.accent : C.text,
+                }}
               >
                 {fmt(packagingStats.outOfStockCount)}
               </p>
@@ -1628,11 +1817,15 @@ function Inventory_db() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           <Card className="lg:col-span-2 p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">Stock by category</h2>
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">
+              Stock by category
+            </h2>
             {loading ? (
               <Skeleton className="h-56 w-full" />
             ) : packagingCategoryData.length === 0 ? (
-              <p className="text-xs text-gray-400">No packaging materials recorded yet.</p>
+              <p className="text-xs text-gray-400">
+                No packaging materials recorded yet.
+              </p>
             ) : (
               <ResponsiveContainer
                 width="100%"
@@ -1644,7 +1837,11 @@ function Inventory_db() {
                   margin={{ top: 0, right: 70, left: 8, bottom: 0 }}
                   barCategoryGap={12}
                 >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="#f3f4f6"
+                    horizontal={false}
+                  />
                   <XAxis
                     type="number"
                     tick={{ fontSize: 11, fill: "#6B7280" }}
@@ -1666,7 +1863,9 @@ function Inventory_db() {
                       const d = payload[0].payload;
                       return (
                         <div className="bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2 text-xs">
-                          <p className="font-semibold text-gray-700 mb-1">{d.name}</p>
+                          <p className="font-semibold text-gray-700 mb-1">
+                            {d.name}
+                          </p>
                           <p className="text-gray-600">
                             {fmtP(d.pieces)} · {fmt(d.count)} item
                             {d.count !== 1 ? "s" : ""}
@@ -1699,7 +1898,9 @@ function Inventory_db() {
           </Card>
 
           <Card className="lg:col-span-1 p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">Stock status</h2>
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">
+              Stock status
+            </h2>
             {loading ? (
               <Skeleton className="h-40 w-full" />
             ) : packagingStatusData.length === 0 ? (
@@ -1728,7 +1929,10 @@ function Inventory_db() {
                         const d = payload[0].payload;
                         return (
                           <div className="bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2 text-xs">
-                            <p className="font-semibold" style={{ color: d.color }}>
+                            <p
+                              className="font-semibold"
+                              style={{ color: d.color }}
+                            >
                               {d.status}
                             </p>
                             <p className="text-gray-600">
@@ -1742,7 +1946,10 @@ function Inventory_db() {
                 </ResponsiveContainer>
                 <ul className="space-y-1.5 mt-2">
                   {packagingStatusData.map((s) => (
-                    <li key={s.status} className="flex items-center justify-between text-xs">
+                    <li
+                      key={s.status}
+                      className="flex items-center justify-between text-xs"
+                    >
                       <span className="flex items-center gap-1.5 text-gray-600">
                         <span
                           className="w-2 h-2 rounded-sm inline-block"
@@ -1750,7 +1957,9 @@ function Inventory_db() {
                         />
                         {s.status}
                       </span>
-                      <span className="font-medium text-gray-700">{fmt(s.count)}</span>
+                      <span className="font-medium text-gray-700">
+                        {fmt(s.count)}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -1782,7 +1991,9 @@ function Inventory_db() {
               ))}
             </div>
           ) : packagingLowStock.length === 0 ? (
-            <p className="text-xs text-gray-400">All packaging materials are sufficiently stocked.</p>
+            <p className="text-xs text-gray-400">
+              All packaging materials are sufficiently stocked.
+            </p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {packagingLowStock.map((m) => {
@@ -1840,11 +2051,14 @@ function Inventory_db() {
                     className="w-2.5 h-2.5 rounded-sm"
                     style={{ background: breakdown.color }}
                   />
-                  <h2 className="text-sm font-semibold text-gray-900">{breakdown.label}</h2>
+                  <h2 className="text-sm font-semibold text-gray-900">
+                    {breakdown.label}
+                  </h2>
                   <span className="text-xs text-gray-400">
                     ({fmt(breakdown.products.length)} item
                     {breakdown.products.length !== 1 ? "s" : ""})
-                    {breakdown.type === "platform" && `, ${fmt(breakdown.sold)} sold total`}
+                    {breakdown.type === "platform" &&
+                      `, ${fmt(breakdown.sold)} sold total`}
                   </span>
                 </div>
                 <button
@@ -1867,9 +2081,13 @@ function Inventory_db() {
                       >
                         <div className="flex items-center justify-between">
                           <div>
-                            <p className="text-xs font-medium text-gray-700">{p.name}</p>
+                            <p className="text-xs font-medium text-gray-700">
+                              {p.name}
+                            </p>
                             {p.code && (
-                              <p className="text-xs font-mono text-gray-400">{p.code}</p>
+                              <p className="text-xs font-mono text-gray-400">
+                                {p.code}
+                              </p>
                             )}
                           </div>
                           <span
@@ -1879,15 +2097,25 @@ function Inventory_db() {
                             {fmt(p.qty)} {p.unit || "units"}
                           </span>
                         </div>
-                        {(breakdown.type === "category" || breakdown.type === "product") && (
+                        {(breakdown.type === "category" ||
+                          breakdown.type === "product") && (
                           <div className="flex gap-3 mt-1">
-                            <span className="text-xs" style={{ color: PLATFORM_COLORS.Shopee }}>
+                            <span
+                              className="text-xs"
+                              style={{ color: PLATFORM_COLORS.Shopee }}
+                            >
                               Shopee: {fmt(p.shopee)}
                             </span>
-                            <span className="text-xs" style={{ color: PLATFORM_COLORS.Lazada }}>
+                            <span
+                              className="text-xs"
+                              style={{ color: PLATFORM_COLORS.Lazada }}
+                            >
                               Lazada: {fmt(p.lazada)}
                             </span>
-                            <span className="text-xs" style={{ color: PLATFORM_COLORS.TikTok }}>
+                            <span
+                              className="text-xs"
+                              style={{ color: PLATFORM_COLORS.TikTok }}
+                            >
                               TikTok: {fmt(p.tiktok)}
                             </span>
                           </div>

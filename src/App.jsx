@@ -27,6 +27,7 @@ import Sales_db from "./Pages/Sales_db.jsx";
 import Inventory from "./Pages/Inventory.jsx";
 import Inventory_db from "./Pages/Inventory_db.jsx";
 import Inventory_pm from "./Pages/Inventory_pm.jsx";
+import InventoryArchive from "./Pages/InventoryArchive.jsx";
 import Production from "./Pages/Production.jsx";
 import Production_wo from "./Pages/Production_wo.jsx";
 import Production_rm from "./Pages/Production_rm.jsx";
@@ -55,6 +56,7 @@ const PAGE_TITLES = {
   "/inventory": "Products",
   "/production_rm": "Raw Materials",
   "/inventory_pm": "Packaging Material",
+  "/inventory_archive": "Archive",
   "/marketing": "Marketing Dashboard",
   "/marketing_camp": "Campaigns",
   "/marketing_io": "Inventory Overview",
@@ -119,6 +121,7 @@ const DashboardLayout = () => {
           <Route path="/inventory" element={<Inventory />} />
           <Route path="/inventory_db" element={<Inventory_db />} />
           <Route path="/inventory_pm" element={<Inventory_pm />} />
+          <Route path="/Inventory_archive" element={<InventoryArchive />} />
           <Route path="/production" element={<Production />} />
           <Route path="/production_transaction" element={<Production_transaction />} />
           <Route path="/production_wo" element={<Production_wo />} />

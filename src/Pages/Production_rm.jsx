@@ -6,7 +6,7 @@ import {
   X,
   Eye,
   Pencil,
-  Trash2,
+  Archive,
   PackagePlus,
   Boxes,
 } from "lucide-react";
@@ -389,7 +389,6 @@ const optionLabel = (m) =>
       ? `${m.material_name} (low, ${m.current_stock} ${UNIT} left)`
       : m.material_name;
 
-
 const emptyLine = () => ({
   key: Math.random().toString(36).slice(2),
   material_id: "",
@@ -734,9 +733,9 @@ function Production_rm() {
   const [showViewModal, setShowViewModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
   const [editItem, setEditItem] = useState(null);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [itemToDelete, setItemToDelete] = useState(null);
-  const [deleteError, setDeleteError] = useState("");
+  const [showArchiveModal, setShowArchiveModal] = useState(false);
+  const [itemToArchive, setItemToArchive] = useState(null);
+  const [archiveError, setArchiveError] = useState("");
 
   const fetchSuppliers = useCallback(async () => {
     const { data, error } = await supabase
@@ -752,6 +751,7 @@ function Production_rm() {
     const { data, error } = await supabase
       .from("raw_materials")
       .select("*, suppliers(id, name, notes)")
+      .eq("archived", false) // archived items live in Inventory - Archive
       .order("category", { ascending: true })
       .order("material_name", { ascending: true });
     if (!error && data) setMaterials(data);
@@ -806,30 +806,26 @@ function Production_rm() {
     setEditItem(item);
     setShowAddModal(true);
   };
-  const handleDeleteClick = (item) => {
-    setItemToDelete(item);
-    setDeleteError("");
-    setShowDeleteModal(true);
+  const handleArchiveClick = (item) => {
+    setItemToArchive(item);
+    setArchiveError("");
+    setShowArchiveModal(true);
   };
 
-  const confirmDelete = async () => {
-    if (!itemToDelete) return;
+  const confirmArchive = async () => {
+    if (!itemToArchive) return;
     setSaving(true);
-    setDeleteError("");
+    setArchiveError("");
     const { error } = await supabase
       .from("raw_materials")
-      .delete()
-      .eq("id", itemToDelete.id);
+      .update({ archived: true, archived_at: new Date().toISOString() })
+      .eq("id", itemToArchive.id);
     if (error) {
-      setDeleteError(
-        error.code === "23503"
-          ? "This material has delivery or usage history, so it can't be deleted. Set its stock to 0 instead."
-          : error.message,
-      );
+      setArchiveError(error.message);
     } else {
-      setMaterials((prev) => prev.filter((i) => i.id !== itemToDelete.id));
-      setShowDeleteModal(false);
-      setItemToDelete(null);
+      setMaterials((prev) => prev.filter((i) => i.id !== itemToArchive.id));
+      setShowArchiveModal(false);
+      setItemToArchive(null);
     }
     setSaving(false);
   };
@@ -1092,7 +1088,7 @@ function Production_rm() {
                         STATUS
                       </th>
                       <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
-                        VIEW · EDIT · DELETE
+                        VIEW · EDIT · ARCHIVE
                       </th>
                     </tr>
                   </thead>
@@ -1232,11 +1228,11 @@ function Production_rm() {
                                   <Pencil size={16} className="text-gray-500" />
                                 </button>
                                 <button
-                                  onClick={() => handleDeleteClick(item)}
-                                  title="Delete"
+                                  onClick={() => handleArchiveClick(item)}
+                                  title="Archive"
                                   className="p-1.5 rounded-md hover:bg-red-200 transition-colors cursor-pointer"
                                 >
-                                  <Trash2
+                                  <Archive
                                     size={16}
                                     style={{ color: C.accent }}
                                   />
@@ -1361,38 +1357,38 @@ function Production_rm() {
           />
         )}
 
-        {showDeleteModal && itemToDelete && (
+        {showArchiveModal && itemToArchive && (
           <ModalShell
-            title="Delete material"
+            title="Archive material"
             onClose={() => {
-              setShowDeleteModal(false);
-              setItemToDelete(null);
+              setShowArchiveModal(false);
+              setItemToArchive(null);
             }}
             footer={
               <>
                 <SecondaryButton
                   onClick={() => {
-                    setShowDeleteModal(false);
-                    setItemToDelete(null);
+                    setShowArchiveModal(false);
+                    setItemToArchive(null);
                   }}
                 >
                   Cancel
                 </SecondaryButton>
-                <PrimaryButton onClick={confirmDelete} disabled={saving}>
-                  {saving ? "Deleting…" : "Delete"}
+                <PrimaryButton onClick={confirmArchive} disabled={saving}>
+                  {saving ? "Archiving…" : "Archive"}
                 </PrimaryButton>
               </>
             }
           >
             <p className="text-sm text-gray-600">
-              Delete{" "}
+              Archive{" "}
               <span className="font-medium text-gray-800">
-                {itemToDelete.material_name}
+                {itemToArchive.material_name}
               </span>
-              ? This can't be undone. Materials that already have delivery
-              history can't be deleted.
+              ? It will be hidden from this list and can be restored from
+              Inventory - Archive.
             </p>
-            <ErrorBox error={deleteError} />
+            <ErrorBox error={archiveError} />
           </ModalShell>
         )}
       </div>

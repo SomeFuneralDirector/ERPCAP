@@ -35,7 +35,6 @@ function emptyForm() {
     wo_number: "",
     product_id: null,
     product_name: "",
-    assigned_to_id: "",
     due_date: "",
     notes: "",
   };
@@ -331,7 +330,6 @@ function PlatformRowsTable({ rows, setRows }) {
 function Production_wo() {
   const [workOrders, setWorkOrders] = useState([]);
   const [products, setProducts] = useState([]);
-  const [productionUsers, setProductionUsers] = useState([]);
   const [me, setMe] = useState(null); // { id, role, full_name }
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
@@ -354,7 +352,6 @@ function Production_wo() {
     const profile = await loadMe();
     fetchWorkOrders(profile);
     fetchProducts();
-    fetchProductionUsers();
   }
 
   async function loadMe() {
@@ -371,18 +368,6 @@ function Production_wo() {
 
     setMe(data || null);
     return data || null;
-  }
-
-  // Only active production accounts can be picked as the assignee.
-  async function fetchProductionUsers() {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("id, full_name")
-      .eq("role", "production")
-      .neq("active", false)
-      .neq("status", "invited")
-      .order("full_name", { ascending: true });
-    if (!error) setProductionUsers(data || []);
   }
 
   async function fetchWorkOrders(profile = me) {
@@ -491,14 +476,6 @@ function Production_wo() {
       return;
     }
 
-    const assignee = productionUsers.find(
-      (u) => u.id === formData.assigned_to_id,
-    );
-    if (!assignee) {
-      setErrorMsg("Please pick a production user to assign this work order to.");
-      return;
-    }
-
     setSaving(true);
 
     const total = breakdown.reduce((sum, b) => sum + b.quantity, 0);
@@ -515,30 +492,16 @@ function Production_wo() {
       p_quantity: total,
       p_platform: platform,
       p_platform_breakdown: breakdown,
-      p_assigned_to: assignee.full_name,
+      p_assigned_to: "", // work orders are no longer assigned at creation
       p_due_date: formData.due_date || null,
       p_notes: formData.notes || null,
     });
 
-    if (error) {
-      setSaving(false);
-      setErrorMsg(formatMaterialsError(error.message));
-      return;
-    }
-
-    // Link the work order to the chosen user's account. This is what makes
-    // it show up only for them (and for the creator / admins).
-    const { error: assignError } = await supabase
-      .from("work_orders")
-      .update({ assigned_to_id: assignee.id, assigned_to: assignee.full_name })
-      .eq("wo_number", formData.wo_number);
-
     setSaving(false);
 
-    if (assignError) {
-      setErrorMsg(
-        `Work order created, but assigning it failed: ${assignError.message}`,
-      );
+    if (error) {
+      setErrorMsg(formatMaterialsError(error.message));
+      return;
     }
 
     closeForm();
@@ -602,7 +565,8 @@ function Production_wo() {
     HISTORY_STATUSES.includes(wo.status),
   );
 
-  const displayedOrders = activeTab === "active" ? activeOrders : historyOrders;
+  const isHistory = activeTab === "history";
+  const displayedOrders = isHistory ? historyOrders : activeOrders;
 
   return (
     <div className="p-6">
@@ -653,8 +617,7 @@ function Production_wo() {
           <p className="text-gray-500 text-sm">Loading work orders...</p>
         ) : displayedOrders.length === 0 ? (
           <p className="text-gray-400 text-sm italic">
-            No {activeTab === "active" ? "active" : "completed/cancelled"} work
-            orders yet.
+            No {isHistory ? "completed/cancelled" : "active"} work orders yet.
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -665,7 +628,7 @@ function Production_wo() {
                   <th className="py-2 pr-4">Product</th>
                   <th className="py-2 pr-4">Qty</th>
                   <th className="py-2 pr-4">Platform</th>
-                  <th className="py-2 pr-4">Assigned To</th>
+                  {!isHistory && <th className="py-2 pr-4">Assigned To</th>}
                   <th className="py-2 pr-4">Due Date</th>
                   <th className="py-2 pr-4">Status</th>
                   <th className="py-2 pr-4">Actions</th>
@@ -685,14 +648,16 @@ function Production_wo() {
                     <td className="py-2 pr-4">
                       <PlatformBadges platform={wo.platform} breakdown={wo.platform_breakdown} />
                     </td>
-                    <td className="py-2 pr-4">
-                      {wo.assigned_to || "—"}
-                      {me && wo.assigned_to_id === me.id && (
-                        <span className="ml-2 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
-                          You
-                        </span>
-                      )}
-                    </td>
+                    {!isHistory && (
+                      <td className="py-2 pr-4">
+                        {wo.assigned_to || "—"}
+                        {me && wo.assigned_to_id === me.id && (
+                          <span className="ml-2 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                            You
+                          </span>
+                        )}
+                      </td>
+                    )}
                     <td className="py-2 pr-4">
                       {wo.due_date
                         ? new Date(wo.due_date).toLocaleDateString()
@@ -783,43 +748,17 @@ function Production_wo() {
 
               <PlatformRowsTable rows={platformRows} setRows={setPlatformRows} />
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 mb-1">
-                    Assign To
-                  </label>
-                  <select
-                    name="assigned_to_id"
-                    value={formData.assigned_to_id}
-                    onChange={handleFormChange}
-                    required
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-red-400 cursor-pointer"
-                  >
-                    <option value="">Select production user…</option>
-                    {productionUsers.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.full_name}
-                      </option>
-                    ))}
-                  </select>
-                  {productionUsers.length === 0 && (
-                    <p className="text-[11px] text-gray-400 mt-1">
-                      No active production accounts found.
-                    </p>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 mb-1">
-                    Due Date
-                  </label>
-                  <input
-                    type="date"
-                    name="due_date"
-                    value={formData.due_date}
-                    onChange={handleFormChange}
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-red-400 cursor-pointer"
-                  />
-                </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1">
+                  Due Date
+                </label>
+                <input
+                  type="date"
+                  name="due_date"
+                  value={formData.due_date}
+                  onChange={handleFormChange}
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-red-400 cursor-pointer"
+                />
               </div>
 
               <div>

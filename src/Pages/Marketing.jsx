@@ -5,10 +5,16 @@ import {
   Bar,
   AreaChart,
   Area,
+  LineChart,
+  Line,
+  PieChart,
+  Pie,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
+  Legend,
+  LabelList,
   Cell,
 } from "recharts";
 import { supabase } from "../api/supabase";
@@ -35,9 +41,19 @@ const PLATFORM_COLORS = {
   TikTok: "#101113",
 };
 
-const LOW_PERFORMER_THRESHOLD = 5;
+const CATEGORY_COLORS = {
+  Men: "#1D4E89",
+  Women: "#8b2976",
+  Unisex: "#475569",
+};
+
+const LINE_COLORS = [C.accent, "#1D4E89", "#0E7490"];
+const STOCK_BAR_COLOR = "#9CA3AF";
+
 const CAMPAIGN_ENDING_SOON_DAYS = 7;
 const TOP_N_IN_TOOLTIP = 3;
+const TOP_PRODUCTS_SHOWN = 8;
+const LOW_PRODUCTS_SHOWN = 8;
 const POLL_INTERVAL_MS = 5000;
 
 const TREND_LINE_COLOR = C.accent;
@@ -139,6 +155,18 @@ const monthLabel = (key) => {
   return d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
 };
 
+// Short month name for chart axes ("Jan", or "Jan 25" when data spans years).
+const shortMonth = (key, withYear) => {
+  const [year, month] = key.split("-");
+  const d = new Date(Number(year), Number(month) - 1, 1);
+  return d.toLocaleDateString(undefined, {
+    month: "short",
+    ...(withYear ? { year: "2-digit" } : {}),
+  });
+};
+
+const shortName = (name) => (name.length > 24 ? `${name.slice(0, 23)}…` : name);
+
 function deriveCampaignStatus(c) {
   if (c.status === "Cancelled") return "Cancelled";
   const today = new Date();
@@ -177,6 +205,18 @@ function PrimaryButton({ children, className = "", ...props }) {
     >
       {children}
     </button>
+  );
+}
+
+function ChartTitle({ title, subtitle, badge }) {
+  return (
+    <div className="mb-3">
+      <h2 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+        {title}
+        {badge}
+      </h2>
+      {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
+    </div>
   );
 }
 
@@ -259,10 +299,83 @@ function TrendTooltip({ active, payload, label }) {
   );
 }
 
+// Tooltip for the "units sold" product bar charts.
+function ProductBarTooltip({ active, payload }) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2 text-xs">
+      <p className="font-semibold text-gray-700 mb-1">{d.name}</p>
+      <p className="text-gray-600">{fmt(d.qty)} units sold</p>
+      {d.orders != null && (
+        <p className="text-gray-500">
+          {fmt(d.orders)} {d.orders === 1 ? "order" : "orders"}
+        </p>
+      )}
+      {d.sales != null && <p className="text-gray-500">{fmtCurrency(d.sales)} in sales</p>}
+    </div>
+  );
+}
+
+// Tooltip for the low performing chart (sold vs left in stock).
+function LowPerformerTooltip({ active, payload }) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2 text-xs">
+      <p className="font-semibold text-gray-700 mb-1">{d.name}</p>
+      <p style={{ color: C.warning }}>{fmt(d.sold)} units sold</p>
+      <p className="text-gray-500">{fmt(d.stock)} left in stock</p>
+    </div>
+  );
+}
+
+// Horizontal bars of units sold per product (used for Top products charts).
+function ProductBars({ data, color = C.accent }) {
+  return (
+    <ResponsiveContainer width="100%" height={Math.max(220, data.length * 44)}>
+      <BarChart
+        data={data}
+        layout="vertical"
+        margin={{ top: 0, right: 48, left: 8, bottom: 0 }}
+        barCategoryGap={12}
+      >
+        <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
+        <XAxis
+          type="number"
+          tick={{ fontSize: 11, fill: "#6B7280" }}
+          axisLine={false}
+          tickLine={false}
+          tickFormatter={(v) => fmt(v)}
+        />
+        <YAxis
+          type="category"
+          dataKey="name"
+          width={160}
+          tick={{ fontSize: 11, fill: "#374151" }}
+          axisLine={false}
+          tickLine={false}
+          tickFormatter={shortName}
+        />
+        <Tooltip content={<ProductBarTooltip />} cursor={{ fill: "#f9fafb" }} />
+        <Bar dataKey="qty" name="Units sold" radius={[0, 4, 4, 0]} barSize={20} fill={color}>
+          <LabelList
+            dataKey="qty"
+            position="right"
+            formatter={(v) => fmt(v)}
+            style={{ fontSize: 11, fill: "#374151", fontWeight: 600 }}
+          />
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
 function Marketing() {
   const [orders, setOrders] = useState([]);
   const [orderItems, setOrderItems] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
+  const [inventory, setInventory] = useState([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -276,9 +389,10 @@ function Marketing() {
   // Newest order `created_at` we've already pulled — background polls only
   // ask for rows newer than this instead of re-fetching the whole table.
   const lastOrderSyncAtRef = useRef(null);
-  // Last campaigns payload actually applied to state, so identical polls
-  // can skip the setState (and the re-renders/memos it would trigger).
+  // Last campaigns / inventory payloads actually applied to state, so
+  // identical polls can skip the setState (and the re-renders it would cause).
   const prevCampaignsJsonRef = useRef("");
+  const prevInventoryJsonRef = useRef("");
 
   /**
    * mode: "initial" | "manual" | "poll"
@@ -353,7 +467,7 @@ function Marketing() {
           fetchAllRows(() =>
             supabase
               .from("order_items")
-              .select("id, order_uuid, order_id, platform, product_name, quantity, unit_price")
+              .select("id, order_uuid, order_id, platform, product_name, sku, quantity, unit_price")
               .in("order_uuid", chunk)
               .order("id")
           )
@@ -390,6 +504,26 @@ function Marketing() {
       if (freshJson !== prevCampaignsJsonRef.current) {
         prevCampaignsJsonRef.current = freshJson;
         setCampaigns(fresh);
+      }
+    }
+
+    // Inventory (also small, so also pulled in full and diffed). Used to find
+    // products with low sales, including ones that have not sold at all.
+    // Archived products are left out.
+    const inventoryRes = await supabase
+      .from("inventory")
+      .select("product_code, product_name, category, shopee_stock, lazada_stock, tiktok_stock")
+      .eq("archived", false);
+
+    if (inventoryRes.error) {
+      console.error("Error fetching inventory:", inventoryRes.error);
+      if (fullResync) setInventory([]);
+    } else {
+      const freshInv = inventoryRes.data || [];
+      const freshInvJson = JSON.stringify(freshInv);
+      if (freshInvJson !== prevInventoryJsonRef.current) {
+        prevInventoryJsonRef.current = freshInvJson;
+        setInventory(freshInv);
       }
     }
 
@@ -498,9 +632,43 @@ function Marketing() {
 
   const topPlatform = platformSales[0] || null;
 
+  // Only products that exist in the main Inventory are counted in the product
+  // charts. A sold item is matched to Inventory by its SKU (TikTok SKUs start
+  // with "TT", so that is removed), then by name. It is then renamed to the
+  // Inventory product name, so the same product sold on different platforms
+  // (with different listing names) is counted as one product.
+  const inventoryLookup = useMemo(() => {
+    const byCode = new Map();
+    const byName = new Map();
+    inventory.forEach((item) => {
+      if (item.product_code) {
+        byCode.set(String(item.product_code).trim().toUpperCase(), item);
+      }
+      if (item.product_name) {
+        byName.set(item.product_name.trim().toLowerCase(), item);
+      }
+    });
+    return { byCode, byName };
+  }, [inventory]);
+
+  const inventoryItems = useMemo(() => {
+    const { byCode, byName } = inventoryLookup;
+    const matched = [];
+    filteredOrderItems.forEach((row) => {
+      const code = String(row.sku || "").trim().toUpperCase();
+      const inv =
+        byCode.get(code) ||
+        byCode.get(code.replace(/^TT/, "")) ||
+        byName.get(String(row.product_name || "").trim().toLowerCase());
+      if (!inv) return;
+      matched.push({ ...row, product_name: inv.product_name, category: inv.category });
+    });
+    return matched;
+  }, [filteredOrderItems, inventoryLookup]);
+
   const products = useMemo(() => {
     const map = {};
-    filteredOrderItems.forEach((row) => {
+    inventoryItems.forEach((row) => {
       const name = row.product_name || "Unnamed Product";
       if (!map[name]) map[name] = { name, qty: 0, sales: 0, orderSet: new Set() };
       const qty = Math.max(0, toNumber(row.quantity));
@@ -513,12 +681,98 @@ function Marketing() {
     return Object.values(map)
       .map(({ orderSet, ...p }) => ({ ...p, orders: orderSet.size }))
       .sort((a, b) => b.qty - a.qty || b.sales - a.sales || a.name.localeCompare(b.name));
-  }, [filteredOrderItems]);
+  }, [inventoryItems]);
+
+  // ── Inventory-based product performance (same idea as the
+  //    "Low Performing" filter on Marketing - Inventory Overview) ─────────
+
+  const inventoryByName = useMemo(() => {
+    const map = {};
+    inventory.forEach((item) => {
+      map[item.product_name] = {
+        category: item.category || "—",
+        stock:
+          toNumber(item.shopee_stock) +
+          toNumber(item.lazada_stock) +
+          toNumber(item.tiktok_stock),
+      };
+    });
+    return map;
+  }, [inventory]);
+
+  // Every inventory product (even with zero sales) plus any sold product.
+  const performance = useMemo(() => {
+    const map = {};
+    inventory.forEach((item) => {
+      const name = item.product_name;
+      if (!name || map[name]) return;
+      map[name] = {
+        name,
+        category: inventoryByName[name]?.category ?? "—",
+        stock: inventoryByName[name]?.stock ?? null,
+        qty: 0,
+        sales: 0,
+        orders: 0,
+      };
+    });
+    products.forEach((p) => {
+      if (!map[p.name]) return; // only products in the main Inventory
+      map[p.name].qty = p.qty;
+      map[p.name].sales = p.sales;
+      map[p.name].orders = p.orders;
+    });
+    return Object.values(map);
+  }, [inventory, products, inventoryByName]);
+
+  // Average units sold per product. Below this = low performing.
+  const avgSold = useMemo(() => {
+    if (performance.length === 0) return 0;
+    return performance.reduce((sum, p) => sum + p.qty, 0) / performance.length;
+  }, [performance]);
 
   const lowPerformers = useMemo(
-    () => products.filter((p) => p.qty <= LOW_PERFORMER_THRESHOLD),
-    [products]
+    () =>
+      performance
+        .filter((p) => p.qty < avgSold)
+        .sort(
+          (a, b) =>
+            a.qty - b.qty ||
+            (b.stock ?? 0) - (a.stock ?? 0) ||
+            a.name.localeCompare(b.name)
+        ),
+    [performance, avgSold]
   );
+
+  const lowPerformerChart = useMemo(
+    () =>
+      lowPerformers.slice(0, LOW_PRODUCTS_SHOWN).map((p) => ({
+        name: p.name,
+        sold: p.qty,
+        stock: p.stock ?? 0,
+      })),
+    [lowPerformers]
+  );
+
+  // Sales (pesos) per category: Men / Women / ...
+  const categorySales = useMemo(() => {
+    const map = {};
+    inventoryItems.forEach((row) => {
+      const cat = row.category || "Other";
+      map[cat] =
+        (map[cat] || 0) +
+        Math.max(0, toNumber(row.quantity)) * centsToPesos(row.unit_price);
+    });
+    return Object.entries(map)
+      .map(([name, amount]) => ({
+        name,
+        amount,
+        color: CATEGORY_COLORS[name] ?? "#6b7280",
+      }))
+      .filter((d) => d.amount > 0)
+      .sort((a, b) => b.amount - a.amount);
+  }, [inventoryItems]);
+
+  const categoryTotal = categorySales.reduce((sum, c) => sum + c.amount, 0);
 
   const orderDateById = useMemo(() => {
     const map = {};
@@ -531,7 +785,7 @@ function Marketing() {
 
   const monthlyProductTotals = useMemo(() => {
     const months = {};
-    filteredOrderItems.forEach((row) => {
+    inventoryItems.forEach((row) => {
       const date = orderDateById[row.order_uuid];
       if (!date) return;
       const key = monthKey(date);
@@ -545,7 +799,7 @@ function Marketing() {
       months[key][name] = cell;
     });
     return months;
-  }, [filteredOrderItems, orderDateById]);
+  }, [inventoryItems, orderDateById]);
 
   const availableMonths = useMemo(
     () => Object.keys(monthlyProductTotals).sort((a, b) => (a < b ? 1 : -1)),
@@ -568,8 +822,39 @@ function Marketing() {
     return Object.entries(monthlyProductTotals[key])
       .map(([name, c]) => ({ name, qty: c.qty, orders: c.orderSet.size }))
       .sort((a, b) => b.qty - a.qty || a.name.localeCompare(b.name))
-      .slice(0, 5);
+      .slice(0, TOP_PRODUCTS_SHOWN);
   }, [selectedMonth, availableMonths, monthlyProductTotals]);
+
+  // The 3 best sellers overall, followed month by month.
+  const topThree = useMemo(() => products.slice(0, 3), [products]);
+
+  const topThreeTrend = useMemo(() => {
+    const keys = [...availableMonths].reverse();
+    const withYear = new Set(keys.map((k) => k.split("-")[0])).size > 1;
+    return keys.map((key) => {
+      const row = { month: shortMonth(key, withYear) };
+      topThree.forEach((p, i) => {
+        row[`p${i}`] = monthlyProductTotals[key]?.[p.name]?.qty || 0;
+      });
+      return row;
+    });
+  }, [availableMonths, monthlyProductTotals, topThree]);
+
+  // Sales (pesos) each month, split by platform.
+  const monthlyPlatformSales = useMemo(() => {
+    const months = {};
+    filteredOrders.forEach((o) => {
+      const key = monthKey(orderDate(o));
+      if (!key) return;
+      const p = normalizePlatform(o.platform);
+      if (!PLATFORM_COLORS[p]) return;
+      if (!months[key]) months[key] = { Shopee: 0, Lazada: 0, TikTok: 0 };
+      months[key][p] += centsToPesos(o.total_amount);
+    });
+    const keys = Object.keys(months).sort();
+    const withYear = new Set(keys.map((k) => k.split("-")[0])).size > 1;
+    return keys.map((key) => ({ month: shortMonth(key, withYear), ...months[key] }));
+  }, [filteredOrders]);
 
   const campaignsWithStatus = useMemo(
     () => campaigns.map((c) => ({ ...c, derivedStatus: deriveCampaignStatus(c) })),
@@ -673,6 +958,8 @@ function Marketing() {
       </div>
     );
   }
+
+  const topProductsChart = products.slice(0, TOP_PRODUCTS_SHOWN);
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#F6F6F7" }}>
@@ -787,20 +1074,20 @@ function Marketing() {
                 {fmt(lowPerformers.length)}
               </p>
             )}
-            <p className="text-xs mt-1 text-gray-400">≤ {LOW_PERFORMER_THRESHOLD} units sold</p>
+            <p className="text-xs mt-1 text-gray-400">sold less than average</p>
           </Card>
         </div>
 
+        {/* Sales by platform + Sales by category */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {/* Sales by platform */}
           <Card className="p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">Sales by platform</h2>
+            <ChartTitle title="Sales by platform" subtitle="How much each platform sold, in pesos." />
             {loading ? (
               <Skeleton className="h-48 w-full" />
             ) : platformSales.length === 0 ? (
               <p className="text-xs text-gray-400">No sales data yet.</p>
             ) : (
-              <ResponsiveContainer width="100%" height={200}>
+              <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={platformSales} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
                   <XAxis
@@ -815,7 +1102,7 @@ function Marketing() {
                     tickLine={false}
                     tickFormatter={(v) => fmt(v)}
                   />
-                  <Tooltip formatter={(v) => fmtCurrency(v)} />
+                  <Tooltip formatter={(v) => fmtCurrency(v)} cursor={{ fill: "#f9fafb" }} />
                   <Bar dataKey="amount" name="Sales" radius={[6, 6, 0, 0]}>
                     {platformSales.map((p) => (
                       <Cell key={p.platform} fill={p.color} />
@@ -826,43 +1113,62 @@ function Marketing() {
             )}
           </Card>
 
-          {/* Top products */}
           <Card className="p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-1">Top products</h2>
+            <ChartTitle title="Sales by category" subtitle="Men and Women share of all sales." />
             {loading ? (
-              <div className="space-y-2">
-                {[1, 2, 3].map((i) => (
-                  <Skeleton key={i} className="h-8 w-full" />
-                ))}
-              </div>
-            ) : products.length === 0 ? (
+              <Skeleton className="h-48 w-full" />
+            ) : categorySales.length === 0 ? (
               <p className="text-xs text-gray-400">No sales data yet.</p>
             ) : (
-              <ul className="divide-y divide-gray-100">
-                {products.slice(0, 5).map((p, idx) => (
-                  <li key={p.name} className="flex items-center justify-between py-2 first:pt-0">
-                    <span className="flex items-center gap-2 text-sm text-gray-700 truncate">
-                      <span
-                        className="w-5 h-5 shrink-0 flex items-center justify-center rounded-full text-white text-xs font-bold"
-                        style={{ backgroundColor: C.accent }}
-                      >
-                        {idx + 1}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
+                <ResponsiveContainer width="100%" height={200}>
+                  <PieChart>
+                    <Pie
+                      data={categorySales}
+                      dataKey="amount"
+                      nameKey="name"
+                      innerRadius={50}
+                      outerRadius={80}
+                      paddingAngle={3}
+                    >
+                      {categorySales.map((c) => (
+                        <Cell key={c.name} fill={c.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(v) => fmtCurrency(v)} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <ul className="space-y-2">
+                  {categorySales.map((c) => (
+                    <li key={c.name} className="flex items-center justify-between text-xs">
+                      <span className="flex items-center gap-1.5 text-gray-600">
+                        <span
+                          className="w-2.5 h-2.5 rounded-sm inline-block"
+                          style={{ backgroundColor: c.color }}
+                        />
+                        {c.name}
                       </span>
-                      <span className="truncate">{p.name}</span>
-                    </span>
-                    <span className="text-gray-500 text-xs shrink-0 ml-2">
-                      {fmt(p.qty)} units · {fmt(p.orders)} {p.orders === 1 ? "order" : "orders"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+                      <span className="text-right">
+                        <span className="font-semibold text-gray-700">{fmtCurrency(c.amount)}</span>
+                        <span className="text-gray-400">
+                          {" "}
+                          ({categoryTotal > 0 ? ((c.amount / categoryTotal) * 100).toFixed(0) : 0}%)
+                        </span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
           </Card>
         </div>
 
         {/* Seasonal trend */}
         <Card className="p-6">
-          <h2 className="text-sm font-semibold text-gray-700 mb-3">Trend</h2>
+          <ChartTitle
+            title="Trend"
+            subtitle="Units sold each month. Hover a point to see the best sellers and campaigns."
+          />
           {loading ? (
             <Skeleton className="h-64 w-full" />
           ) : monthlyTrend.length === 0 ? (
@@ -904,10 +1210,72 @@ function Marketing() {
           )}
         </Card>
 
-        {/* Top products for a specific month */}
+        {/* Sales each month, by platform */}
         <Card className="p-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
-            <h2 className="text-sm font-semibold text-gray-700">Top products by month</h2>
+          <ChartTitle
+            title="Sales each month by platform"
+            subtitle="Each bar is one month. The colors show how much each platform sold."
+          />
+          {loading ? (
+            <Skeleton className="h-64 w-full" />
+          ) : monthlyPlatformSales.length === 0 ? (
+            <p className="text-xs text-gray-400">No sales data yet.</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart
+                data={monthlyPlatformSales}
+                margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+                <XAxis
+                  dataKey="month"
+                  tick={{ fontSize: 11, fill: "#6B7280" }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: "#6B7280" }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={(v) => fmt(v)}
+                />
+                <Tooltip formatter={(v) => fmtCurrency(v)} cursor={{ fill: "#f9fafb" }} />
+                <Legend iconType="square" wrapperStyle={{ fontSize: 12 }} />
+                <Bar dataKey="Shopee" stackId="sales" fill={PLATFORM_COLORS.Shopee} />
+                <Bar dataKey="Lazada" stackId="sales" fill={PLATFORM_COLORS.Lazada} />
+                <Bar
+                  dataKey="TikTok"
+                  stackId="sales"
+                  fill={PLATFORM_COLORS.TikTok}
+                  radius={[4, 4, 0, 0]}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </Card>
+
+        {/* Top products chart */}
+        <Card className="p-6">
+          <ChartTitle
+            title="Top products"
+            subtitle={`The ${TOP_PRODUCTS_SHOWN} products that sold the most units.`}
+          />
+          {loading ? (
+            <Skeleton className="h-56 w-full" />
+          ) : topProductsChart.length === 0 ? (
+            <p className="text-xs text-gray-400">No sales data yet.</p>
+          ) : (
+            <ProductBars data={topProductsChart} color={C.accent} />
+          )}
+        </Card>
+
+        {/* Top products by month */}
+        <Card className="p-6">
+          <div className="flex flex-col md:flex-row md:items-start justify-between gap-3 mb-4">
+            <ChartTitle
+              title="Top products by month"
+              subtitle="Pick a month to see its best sellers."
+            />
             {!loading && availableMonths.length > 0 && (
               <div className="flex gap-2 flex-wrap">
                 {availableMonths.map((key) => (
@@ -932,11 +1300,7 @@ function Marketing() {
             )}
           </div>
           {loading ? (
-            <div className="space-y-2">
-              {[1, 2, 3].map((i) => (
-                <Skeleton key={i} className="h-8 w-full" />
-              ))}
-            </div>
+            <Skeleton className="h-56 w-full" />
           ) : availableMonths.length === 0 ? (
             <p className="text-xs text-gray-400">No sales data yet.</p>
           ) : selectedMonthProducts.length === 0 ? (
@@ -944,24 +1308,150 @@ function Marketing() {
               No sales recorded for {monthLabel(selectedMonth || availableMonths[0])}.
             </p>
           ) : (
-            <ul className="divide-y divide-gray-100">
-              {selectedMonthProducts.map((p, idx) => (
-                <li key={p.name} className="flex items-center justify-between py-2 first:pt-0">
-                  <span className="flex items-center gap-2 text-sm text-gray-700 truncate">
-                    <span
-                      className="w-5 h-5 shrink-0 flex items-center justify-center rounded-full text-white text-xs font-bold"
-                      style={{ backgroundColor: C.accent }}
-                    >
-                      {idx + 1}
-                    </span>
-                    <span className="truncate">{p.name}</span>
-                  </span>
-                  <span className="text-gray-500 text-xs shrink-0 ml-2">
-                    {fmt(p.qty)} units · {fmt(p.orders)} {p.orders === 1 ? "order" : "orders"}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <ProductBars data={selectedMonthProducts} color="#1D4E89" />
+          )}
+        </Card>
+
+        {/* Top 3 products, month by month */}
+        <Card className="p-6">
+          <ChartTitle
+            title="Top 3 products month by month"
+            subtitle="Follow the 3 best sellers to see when they go up or down."
+          />
+          {loading ? (
+            <Skeleton className="h-64 w-full" />
+          ) : topThree.length === 0 ? (
+            <p className="text-xs text-gray-400">No sales data yet.</p>
+          ) : topThreeTrend.length < 2 ? (
+            <p className="text-xs text-gray-400">
+              This chart needs sales from at least 2 months.
+            </p>
+          ) : (
+            <ResponsiveContainer width="100%" height={280}>
+              <LineChart data={topThreeTrend} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+                <XAxis
+                  dataKey="month"
+                  tick={{ fontSize: 11, fill: "#6B7280" }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: "#6B7280" }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={(v) => fmt(v)}
+                />
+                <Tooltip formatter={(v) => `${fmt(v)} units`} />
+                <Legend iconType="line" wrapperStyle={{ fontSize: 12 }} />
+                {topThree.map((p, i) => (
+                  <Line
+                    key={p.name}
+                    type="monotone"
+                    dataKey={`p${i}`}
+                    name={shortName(p.name)}
+                    stroke={LINE_COLORS[i]}
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                    activeDot={{ r: 5 }}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </Card>
+
+        {/* Low performing products (based on Inventory Overview) */}
+        <Card className="p-6">
+          <ChartTitle
+            title="Low performing products"
+            badge={
+              !loading && (
+                <span
+                  className="px-2 py-0.5 text-xs rounded-md font-medium border"
+                  style={{
+                    color: C.warning,
+                    backgroundColor: C.warningSoft,
+                    borderColor: C.warningBorder,
+                  }}
+                >
+                  {fmt(lowPerformers.length)}
+                </span>
+              )
+            }
+          />
+          {loading ? (
+            <Skeleton className="h-56 w-full" />
+          ) : performance.length === 0 ? (
+            <p className="text-xs text-gray-400">No product data yet.</p>
+          ) : lowPerformerChart.length === 0 ? (
+            <p className="text-xs text-gray-400">
+              All products sold at or above the average. Good job!
+            </p>
+          ) : (
+            <>
+              <ResponsiveContainer
+                width="100%"
+                height={Math.max(240, lowPerformerChart.length * 56)}
+              >
+                <BarChart
+                  data={lowPerformerChart}
+                  layout="vertical"
+                  margin={{ top: 0, right: 48, left: 8, bottom: 0 }}
+                  barCategoryGap={14}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
+                  <XAxis
+                    type="number"
+                    tick={{ fontSize: 11, fill: "#6B7280" }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(v) => fmt(v)}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="name"
+                    width={160}
+                    tick={{ fontSize: 11, fill: "#374151" }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={shortName}
+                  />
+                  <Tooltip content={<LowPerformerTooltip />} cursor={{ fill: "#f9fafb" }} />
+                  <Legend iconType="square" wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="sold" name="Units sold" fill={C.warning} radius={[0, 4, 4, 0]} barSize={14}>
+                    <LabelList
+                      dataKey="sold"
+                      position="right"
+                      formatter={(v) => fmt(v)}
+                      style={{ fontSize: 11, fill: "#374151", fontWeight: 600 }}
+                    />
+                  </Bar>
+                  <Bar
+                    dataKey="stock"
+                    name="Left in stock"
+                    fill={STOCK_BAR_COLOR}
+                    radius={[0, 4, 4, 0]}
+                    barSize={14}
+                  >
+                    <LabelList
+                      dataKey="stock"
+                      position="right"
+                      formatter={(v) => fmt(v)}
+                      style={{ fontSize: 11, fill: "#6B7280" }}
+                    />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              {lowPerformers.length > lowPerformerChart.length && (
+                <p className="text-xs text-gray-400 mt-2">
+                  Showing the {lowPerformerChart.length} lowest. {fmt(
+                    lowPerformers.length - lowPerformerChart.length
+                  )}{" "}
+                  more are on Marketing - Inventory Overview (Low Performing).
+                </p>
+              )}
+            </>
           )}
         </Card>
 

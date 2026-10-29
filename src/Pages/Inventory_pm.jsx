@@ -6,7 +6,7 @@ import {
   X,
   Eye,
   Pencil,
-  Trash2,
+  Archive,
   PackagePlus,
 } from "lucide-react";
 import LowStockNotice from "../Components/Lowstocknotice";
@@ -607,15 +607,16 @@ function Inventory_pm() {
   const [showViewModal, setShowViewModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
   const [editItem, setEditItem] = useState(null);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [itemToDelete, setItemToDelete] = useState(null);
-  const [deleteError, setDeleteError] = useState("");
+  const [showArchiveModal, setShowArchiveModal] = useState(false);
+  const [itemToArchive, setItemToArchive] = useState(null);
+  const [archiveError, setArchiveError] = useState("");
 
   const fetchMaterials = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from("packaging_materials")
       .select("*")
+      .eq("archived", false) // archived items live in Inventory - Archive
       .order("category", { ascending: true })
       .order("item_name", { ascending: true });
     if (!error && data) {
@@ -655,30 +656,27 @@ function Inventory_pm() {
     setEditItem(item);
     setShowAddModal(true);
   };
-  const handleDeleteClick = (item) => {
-    setItemToDelete(item);
-    setDeleteError("");
-    setShowDeleteModal(true);
+  const handleArchiveClick = (item) => {
+    setItemToArchive(item);
+    setArchiveError("");
+    setShowArchiveModal(true);
   };
 
-  const confirmDelete = async () => {
-    if (!itemToDelete) return;
+  const confirmArchive = async () => {
+    if (!itemToArchive) return;
     setSaving(true);
-    setDeleteError("");
+    setArchiveError("");
+    const now = new Date().toISOString();
     const { error } = await supabase
       .from("packaging_materials")
-      .delete()
-      .eq("id", itemToDelete.id);
+      .update({ archived: true, archived_at: now, updated_at: now })
+      .eq("id", itemToArchive.id);
     if (error) {
-      setDeleteError(
-        error.code === "23503"
-          ? "This item has delivery history, so it can't be deleted. Set its stock to 0 instead."
-          : error.message,
-      );
+      setArchiveError(error.message);
     } else {
-      setMaterials((prev) => prev.filter((i) => i.id !== itemToDelete.id));
-      setShowDeleteModal(false);
-      setItemToDelete(null);
+      setMaterials((prev) => prev.filter((i) => i.id !== itemToArchive.id));
+      setShowArchiveModal(false);
+      setItemToArchive(null);
     }
     setSaving(false);
   };
@@ -783,324 +781,313 @@ function Inventory_pm() {
           </div>
         )}
 
-        <>
-            {/* Summary strip */}
-            <div className="bg-white rounded-lg border border-gray-200 shadow-sm flex flex-wrap divide-x divide-gray-300">
-              <SummaryStat label="Items" value={filtered.length} />
-              <SummaryStat
-                label="In stock"
-                value={inStockCount}
-                color={C.success}
-              />
-              <SummaryStat
-                label="Low stock"
-                value={lowStockCount}
-                color={lowStockCount > 0 ? C.warning : C.text}
-              />
-              <SummaryStat
-                label="Out of stock"
-                value={outStockCount}
-                color={outStockCount > 0 ? C.accent : C.text}
-              />
-            </div>
+        {/* Summary strip */}
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm flex flex-wrap divide-x divide-gray-300">
+          <SummaryStat label="Items" value={filtered.length} />
+          <SummaryStat label="In stock" value={inStockCount} color={C.success} />
+          <SummaryStat
+            label="Low stock"
+            value={lowStockCount}
+            color={lowStockCount > 0 ? C.warning : C.text}
+          />
+          <SummaryStat
+            label="Out of stock"
+            value={outStockCount}
+            color={outStockCount > 0 ? C.accent : C.text}
+          />
+        </div>
 
-            {/* Alert: items running low */}
-            {lowTotal > 0 && (
-              <LowStockNotice
-                title={`${lowTotal} packaging item${lowTotal !== 1 ? "s are" : " is"} running low`}
-                items={lowMaterials.map((m) => ({
-                  id: m.id,
-                  name: m.item_name,
-                  qty: `${fmt(m.current_stock)} ${UNIT}`,
-                  out: m.status === "Out of Stock",
-                }))}
-                moreCount={lowTotal - lowMaterials.length}
-              />
+        {/* Alert: items running low */}
+        {lowTotal > 0 && (
+          <LowStockNotice
+            title={`${lowTotal} packaging item${lowTotal !== 1 ? "s are" : " is"} running low`}
+            items={lowMaterials.map((m) => ({
+              id: m.id,
+              name: m.item_name,
+              qty: `${fmt(m.current_stock)} ${UNIT}`,
+              out: m.status === "Out of Stock",
+            }))}
+            moreCount={lowTotal - lowMaterials.length}
+          />
+        )}
+
+        {/* Filters */}
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm px-4 py-3 space-y-3">
+          <div className="relative w-full">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+              <Search size={16} />
+            </span>
+            <input
+              type="text"
+              placeholder="Search item…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-9 pr-8 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2"
+              onFocus={focusOn}
+              onBlur={focusOff}
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none cursor-pointer"
+              >
+                ×
+              </button>
             )}
+          </div>
 
-            {/* Filters */}
-            <div className="bg-white rounded-lg border border-gray-200 shadow-sm px-4 py-3 space-y-3">
-              <div className="relative w-full">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-                  <Search size={16} />
-                </span>
-                <input
-                  type="text"
-                  placeholder="Search item…"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full pl-9 pr-8 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2"
-                  onFocus={focusOn}
-                  onBlur={focusOff}
-                />
-                {search && (
-                  <button
-                    onClick={() => setSearch("")}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none cursor-pointer"
-                  >
-                    ×
-                  </button>
-                )}
-              </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-medium text-gray-500 w-16 shrink-0">
+              Category
+            </span>
+            {["All", ...categories].map((cat) => (
+              <FilterChip
+                key={cat}
+                active={filterCategory === cat}
+                onClick={() => setFilterCategory(cat)}
+              >
+                {cat}
+              </FilterChip>
+            ))}
+          </div>
+        </div>
 
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-medium text-gray-500 w-16 shrink-0">
-                  Category
-                </span>
-                {["All", ...categories].map((cat) => (
-                  <FilterChip
-                    key={cat}
-                    active={filterCategory === cat}
-                    onClick={() => setFilterCategory(cat)}
-                  >
-                    {cat}
-                  </FilterChip>
-                ))}
-              </div>
-            </div>
+        {/* Table */}
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="bg-red-900 text-white">
+                  <th className="px-2 py-2.5 w-8" />
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide min-w-[200px]">
+                    ITEM
+                  </th>
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide">
+                    CATEGORY
+                  </th>
+                  <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
+                    STOCK
+                  </th>
+                  <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
+                    REORDER AT
+                  </th>
+                  <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
+                    STATUS
+                  </th>
+                  <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
+                    VIEW · EDIT · ARCHIVE
+                  </th>
+                </tr>
+              </thead>
 
-            {/* Table */}
-            <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm border-collapse">
-                  <thead>
-                    <tr className="bg-red-900 text-white">
-                      <th className="px-2 py-2.5 w-8" />
-                      <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide min-w-[200px]">
-                        ITEM
-                      </th>
-                      <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide">
-                        CATEGORY
-                      </th>
-                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
-                        STOCK
-                      </th>
-                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
-                        REORDER AT
-                      </th>
-                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
-                        STATUS
-                      </th>
-                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
-                        VIEW · EDIT · DELETE
-                      </th>
+              <tbody>
+                {loading ? (
+                  [...Array(8)].map((_, i) => (
+                    <tr key={i} className="border-b border-gray-100">
+                      {[...Array(TOTAL_COLS)].map((_, j) => (
+                        <td key={j} className="px-3 py-2.5">
+                          <div className="h-4 bg-gray-100 rounded animate-pulse" />
+                        </td>
+                      ))}
                     </tr>
-                  </thead>
+                  ))
+                ) : filtered.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={TOTAL_COLS}
+                      className="px-4 py-14 text-center text-gray-400"
+                    >
+                      <p className="text-sm font-medium text-gray-500">
+                        No packaging items found
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        Try a different search term or category.
+                      </p>
+                    </td>
+                  </tr>
+                ) : (
+                  filtered.map((item, idx) => {
+                    const status = item.status || "In Stock";
+                    const low =
+                      status === "Low Stock" || status === "Out of Stock";
+                    const rowBg = low
+                      ? {}
+                      : (idx + 1) % 2 === 0
+                        ? { backgroundColor: "#FAFAFA" }
+                        : {};
 
-                  <tbody>
-                    {loading ? (
-                      [...Array(8)].map((_, i) => (
-                        <tr key={i} className="border-b border-gray-100">
-                          {[...Array(TOTAL_COLS)].map((_, j) => (
-                            <td key={j} className="px-3 py-2.5">
-                              <div className="h-4 bg-gray-100 rounded animate-pulse" />
-                            </td>
-                          ))}
-                        </tr>
-                      ))
-                    ) : filtered.length === 0 ? (
-                      <tr>
-                        <td
-                          colSpan={TOTAL_COLS}
-                          className="px-4 py-14 text-center text-gray-400"
-                        >
-                          <p className="text-sm font-medium text-gray-500">
-                            No packaging items found
-                          </p>
-                          <p className="text-xs text-gray-400 mt-1">
-                            Try a different search term or category.
-                          </p>
-                        </td>
-                      </tr>
-                    ) : (
-                      filtered.map((item, idx) => {
-                        const status = item.status || "In Stock";
-                        const low =
-                          status === "Low Stock" || status === "Out of Stock";
-                        const rowBg = low
-                          ? {}
-                          : (idx + 1) % 2 === 0
-                            ? { backgroundColor: "#FAFAFA" }
-                            : {};
-
-                        return (
-                          <tr
-                            key={item.id}
-                            className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
-                            style={
-                              low ? { backgroundColor: C.accentSoft } : rowBg
-                            }
-                          >
-                            <td className="px-2 py-2 text-center text-xs text-gray-400 w-8">
-                              {idx + 1}
-                            </td>
-
-                            <td className="px-3 py-2 text-xs text-gray-800">
-                              <div className="flex items-center gap-2">
-                                {item.item_name}
-                                {status !== "In Stock" && (
-                                  <span
-                                    className="px-1.5 py-0.5 text-[11px] rounded font-medium shrink-0 border"
-                                    style={STATUS_STYLE[status]}
-                                  >
-                                    {status === "Low Stock" ? "Low" : "Out"}
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-
-                            <td className="px-3 py-2 text-xs text-gray-500">
-                              {item.category || (
-                                <span className="text-gray-300">—</span>
-                              )}
-                            </td>
-
-                            <td className="px-3 py-2 text-center">
-                              {editingStock?.id === item.id ? (
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="1"
-                                  value={editingStock.value}
-                                  onChange={(e) =>
-                                    setEditingStock({
-                                      ...editingStock,
-                                      value: e.target.value,
-                                    })
-                                  }
-                                  onBlur={() => {
-                                    saveStock(item.id, editingStock.value);
-                                    setEditingStock(null);
-                                  }}
-                                  onKeyDown={(e) => handleKeyDown(e, item.id)}
-                                  autoFocus
-                                  className="w-24 text-center text-xs border rounded px-1 py-0.5 focus:outline-none focus:ring-2"
-                                  style={{
-                                    borderColor: C.accent,
-                                    boxShadow: `0 0 0 2px ${C.accent}22`,
-                                  }}
-                                />
-                              ) : (
-                                <button
-                                  onClick={() => handleStockEdit(item)}
-                                  title="Click to correct the count"
-                                  className="text-xs font-medium px-2 py-0.5 rounded cursor-pointer hover:bg-gray-100 transition-colors"
-                                >
-                                  {fmt(item.current_stock)} {UNIT}
-                                </button>
-                              )}
-                            </td>
-
-                            <td className="px-3 py-2 text-center text-xs text-gray-500">
-                              {fmt(item.reorder_point ?? 100)} {UNIT}
-                            </td>
-
-                            <td className="px-2 py-2 text-center">
-                              <span
-                                className="inline-block px-2 py-1 rounded-full text-xs font-semibold border"
-                                style={STATUS_STYLE[status]}
-                                title="Computed automatically from stock vs. reorder point"
-                              >
-                                {status}
-                              </span>
-                            </td>
-
-                            <td className="px-1.5 py-1.5 text-center">
-                              <div className="flex items-center justify-center gap-1">
-                                <button
-                                  onClick={() => handleView(item)}
-                                  title="View"
-                                  className="p-1.5 rounded-md hover:bg-red-200 transition-colors cursor-pointer"
-                                >
-                                  <Eye size={16} className="text-gray-500" />
-                                </button>
-                                <button
-                                  onClick={() => handleEdit(item)}
-                                  title="Edit"
-                                  className="p-1.5 rounded-md hover:bg-red-200 transition-colors cursor-pointer"
-                                >
-                                  <Pencil size={16} className="text-gray-500" />
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteClick(item)}
-                                  title="Delete"
-                                  className="p-1.5 rounded-md hover:bg-red-200 transition-colors cursor-pointer"
-                                >
-                                  <Trash2
-                                    size={16}
-                                    style={{ color: C.accent }}
-                                  />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-
-                    {!loading && filtered.length > 0 && (
+                    return (
                       <tr
-                        className="border-t-2 font-semibold"
-                        style={{
-                          borderTopColor: C.accent,
-                          backgroundColor: "#FAFAFA",
-                        }}
+                        key={item.id}
+                        className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
+                        style={low ? { backgroundColor: C.accentSoft } : rowBg}
                       >
-                        <td className="px-2 py-2.5 text-center text-xs text-gray-400">
-                          —
+                        <td className="px-2 py-2 text-center text-xs text-gray-400 w-8">
+                          {idx + 1}
                         </td>
-                        <td
-                          colSpan={2}
-                          className="px-3 py-2.5 text-xs text-gray-700"
-                        >
-                          TOTAL ({filtered.length} items)
+
+                        <td className="px-3 py-2 text-xs text-gray-800">
+                          <div className="flex items-center gap-2">
+                            {item.item_name}
+                            {status !== "In Stock" && (
+                              <span
+                                className="px-1.5 py-0.5 text-[11px] rounded font-medium shrink-0 border"
+                                style={STATUS_STYLE[status]}
+                              >
+                                {status === "Low Stock" ? "Low" : "Out"}
+                              </span>
+                            )}
+                          </div>
                         </td>
-                        <td className="px-3 py-2.5 text-center text-xs text-gray-700">
-                          {fmt(
-                            filtered.reduce(
-                              (s, m) => s + (Number(m.current_stock) || 0),
-                              0,
-                            ),
-                          )}{" "}
-                          {UNIT}
-                        </td>
-                        <td className="px-3 py-2.5 text-center text-xs text-gray-400">
-                          —
-                        </td>
-                        <td className="px-3 py-2.5 text-center text-xs">
-                          {lowStockCount + outStockCount > 0 && (
-                            <span
-                              className="px-1.5 py-0.5 rounded text-[11px] font-medium border"
-                              style={STATUS_STYLE["Low Stock"]}
-                            >
-                              {lowStockCount + outStockCount} need attention
-                            </span>
+
+                        <td className="px-3 py-2 text-xs text-gray-500">
+                          {item.category || (
+                            <span className="text-gray-300">—</span>
                           )}
                         </td>
-                        <td className="px-3 py-2.5 text-center text-xs text-gray-400">
-                          —
+
+                        <td className="px-3 py-2 text-center">
+                          {editingStock?.id === item.id ? (
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={editingStock.value}
+                              onChange={(e) =>
+                                setEditingStock({
+                                  ...editingStock,
+                                  value: e.target.value,
+                                })
+                              }
+                              onBlur={() => {
+                                saveStock(item.id, editingStock.value);
+                                setEditingStock(null);
+                              }}
+                              onKeyDown={(e) => handleKeyDown(e, item.id)}
+                              autoFocus
+                              className="w-24 text-center text-xs border rounded px-1 py-0.5 focus:outline-none focus:ring-2"
+                              style={{
+                                borderColor: C.accent,
+                                boxShadow: `0 0 0 2px ${C.accent}22`,
+                              }}
+                            />
+                          ) : (
+                            <button
+                              onClick={() => handleStockEdit(item)}
+                              title="Click to correct the count"
+                              className="text-xs font-medium px-2 py-0.5 rounded cursor-pointer hover:bg-gray-100 transition-colors"
+                            >
+                              {fmt(item.current_stock)} {UNIT}
+                            </button>
+                          )}
+                        </td>
+
+                        <td className="px-3 py-2 text-center text-xs text-gray-500">
+                          {fmt(item.reorder_point ?? 100)} {UNIT}
+                        </td>
+
+                        <td className="px-2 py-2 text-center">
+                          <span
+                            className="inline-block px-2 py-1 rounded-full text-xs font-semibold border"
+                            style={STATUS_STYLE[status]}
+                            title="Computed automatically from stock vs. reorder point"
+                          >
+                            {status}
+                          </span>
+                        </td>
+
+                        <td className="px-1.5 py-1.5 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              onClick={() => handleView(item)}
+                              title="View"
+                              className="p-1.5 rounded-md hover:bg-red-200 transition-colors cursor-pointer"
+                            >
+                              <Eye size={16} className="text-gray-500" />
+                            </button>
+                            <button
+                              onClick={() => handleEdit(item)}
+                              title="Edit"
+                              className="p-1.5 rounded-md hover:bg-red-200 transition-colors cursor-pointer"
+                            >
+                              <Pencil size={16} className="text-gray-500" />
+                            </button>
+                            <button
+                              onClick={() => handleArchiveClick(item)}
+                              title="Archive"
+                              className="p-1.5 rounded-md hover:bg-red-200 transition-colors cursor-pointer"
+                            >
+                              <Archive size={16} style={{ color: C.accent }} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                    );
+                  })
+                )}
 
-            {/* Legend */}
-            <div className="flex gap-4 flex-wrap text-xs text-gray-500 pb-2">
-              <span className="flex items-center gap-1.5">
-                <span
-                  className="w-3 h-3 rounded-sm inline-block border"
-                  style={{
-                    backgroundColor: C.accentSoft,
-                    borderColor: C.accentSoftBorder,
-                  }}
-                />
-                Low or out of stock (at/below reorder point)
-              </span>
-            </div>
-        </>
+                {!loading && filtered.length > 0 && (
+                  <tr
+                    className="border-t-2 font-semibold"
+                    style={{
+                      borderTopColor: C.accent,
+                      backgroundColor: "#FAFAFA",
+                    }}
+                  >
+                    <td className="px-2 py-2.5 text-center text-xs text-gray-400">
+                      —
+                    </td>
+                    <td
+                      colSpan={2}
+                      className="px-3 py-2.5 text-xs text-gray-700"
+                    >
+                      TOTAL ({filtered.length} items)
+                    </td>
+                    <td className="px-3 py-2.5 text-center text-xs text-gray-700">
+                      {fmt(
+                        filtered.reduce(
+                          (s, m) => s + (Number(m.current_stock) || 0),
+                          0,
+                        ),
+                      )}{" "}
+                      {UNIT}
+                    </td>
+                    <td className="px-3 py-2.5 text-center text-xs text-gray-400">
+                      —
+                    </td>
+                    <td className="px-3 py-2.5 text-center text-xs">
+                      {lowStockCount + outStockCount > 0 && (
+                        <span
+                          className="px-1.5 py-0.5 rounded text-[11px] font-medium border"
+                          style={STATUS_STYLE["Low Stock"]}
+                        >
+                          {lowStockCount + outStockCount} need attention
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-center text-xs text-gray-400">
+                      —
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Legend */}
+        <div className="flex gap-4 flex-wrap text-xs text-gray-500 pb-2">
+          <span className="flex items-center gap-1.5">
+            <span
+              className="w-3 h-3 rounded-sm inline-block border"
+              style={{
+                backgroundColor: C.accentSoft,
+                borderColor: C.accentSoftBorder,
+              }}
+            />
+            Low or out of stock (at/below reorder point)
+          </span>
+        </div>
 
         {/* Modals */}
         {showAddModal && (
@@ -1132,38 +1119,38 @@ function Inventory_pm() {
           />
         )}
 
-        {showDeleteModal && itemToDelete && (
+        {showArchiveModal && itemToArchive && (
           <ModalShell
-            title="Delete packaging item"
+            title="Archive packaging item"
             onClose={() => {
-              setShowDeleteModal(false);
-              setItemToDelete(null);
+              setShowArchiveModal(false);
+              setItemToArchive(null);
             }}
             footer={
               <>
                 <SecondaryButton
                   onClick={() => {
-                    setShowDeleteModal(false);
-                    setItemToDelete(null);
+                    setShowArchiveModal(false);
+                    setItemToArchive(null);
                   }}
                 >
                   Cancel
                 </SecondaryButton>
-                <PrimaryButton onClick={confirmDelete} disabled={saving}>
-                  {saving ? "Deleting…" : "Delete"}
+                <PrimaryButton onClick={confirmArchive} disabled={saving}>
+                  {saving ? "Archiving…" : "Archive"}
                 </PrimaryButton>
               </>
             }
           >
             <p className="text-sm text-gray-600">
-              Delete{" "}
+              Archive{" "}
               <span className="font-medium text-gray-800">
-                {itemToDelete.item_name}
+                {itemToArchive.item_name}
               </span>
-              ? This can't be undone. Items that already have delivery history
-              can't be deleted.
+              ? It will be hidden from this list and can be restored from
+              Inventory - Archive.
             </p>
-            <ErrorBox error={deleteError} />
+            <ErrorBox error={archiveError} />
           </ModalShell>
         )}
       </div>
