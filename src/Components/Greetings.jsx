@@ -29,7 +29,7 @@ const SUBLINES = [
   "Oras na naman para mag banat ng buto.",
   "Glad you're here.",
   "Take your time.",
-  "Trabaho na naman? umay!",
+  "Trabaho na naman? kapagod yan",
   "Hope everything is going well.",
   "Wishing you a calm and productive day.",
   "Happy to have you back.",

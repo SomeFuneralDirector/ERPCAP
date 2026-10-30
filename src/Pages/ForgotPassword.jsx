@@ -16,15 +16,21 @@ function ForgotPassword() {
     setSubmitting(true)
 
     try {
-      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+      // Uses the variable names already defined in .env
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+      const anonKey = import.meta.env.VITE_SUPABASE_KEY
 
-      if (!anonKey) {
+      if (!supabaseUrl || !anonKey) {
+        console.error('Missing env vars:', {
+          VITE_SUPABASE_URL: !!supabaseUrl,
+          VITE_SUPABASE_KEY: !!anonKey,
+        })
         setError('Missing configuration. Please contact support.')
         return
       }
 
       const response = await fetch(
-        'https://ddwkxtffyajfdwveoann.supabase.co/functions/v1/forgot-password',
+        `${supabaseUrl}/functions/v1/forgot-password`,
         {
           method: 'POST',
           headers: {
