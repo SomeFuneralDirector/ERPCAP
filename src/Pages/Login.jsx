@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff, AlertCircle } from 'lucide-react';
 import LOGINBG1 from '../assets/LOGINBG1.jpg';
 import logotry from '../assets/logo.jpg';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../api/supabase';
 
 const LOCKOUT_MINUTES = 5;
@@ -24,7 +24,6 @@ const friendlyAuthError = (message = '') => {
 };
 
 function ErrorModal({ title, message, onClose }) {
-  // Close with the Escape key
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === 'Escape') onClose();
@@ -74,17 +73,15 @@ function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [lockedUntil, setLockedUntil] = useState(null); // Date | null
+  const [lockedUntil, setLockedUntil] = useState(null);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [submitting, setSubmitting] = useState(false);
-  const [errorModal, setErrorModal] = useState(null); // { title, message } | null
+  const [errorModal, setErrorModal] = useState(null);
   const navigate = useNavigate();
 
   const showError = (title, message) => setErrorModal({ title, message });
   const closeError = () => setErrorModal(null);
 
-  // Countdown ticker: recalculates remaining lockout time every second
-  // and clears the lock once it expires.
   useEffect(() => {
     if (!lockedUntil) {
       setRemainingSeconds(0);
@@ -108,13 +105,12 @@ function Login() {
     const { error: logError } = await supabase.from('login_logs').insert([
       {
         user_email: email,
-        status, // 'success' | 'failed'
+        status,
         user_agent: navigator.userAgent,
       },
     ]);
 
     if (logError) {
-      // Logging should never break the login flow itself
       console.error('Failed to record login log:', logError.message);
     }
   };
@@ -122,7 +118,6 @@ function Login() {
   const checkLockout = async () => {
     const { data, error } = await supabase.rpc('get_login_lockout', { p_email: email });
     if (error) {
-      // Fail open rather than locking everyone out on an infra hiccup
       console.error('Lockout check failed:', error.message);
       return null;
     }
@@ -138,7 +133,6 @@ function Login() {
     closeError();
 
     try {
-      // Server-side lockout check
       const currentLock = await checkLockout();
       if (currentLock && currentLock.getTime() > Date.now()) {
         setLockedUntil(currentLock);
@@ -193,8 +187,6 @@ function Login() {
 
       await logLogin('success');
 
-      // Give AuthContext a moment to pick up the new session + profile
-      // before we navigate (avoids the bounce-back-to-login race).
       await new Promise((r) => setTimeout(r, 150));
 
       const roleRoutes = {
@@ -281,6 +273,16 @@ function Login() {
                 >
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
+              </div>
+
+              {/* Forgot password under the password field */}
+              <div className="mt-2 text-right">
+                <Link
+                  to="/forgot-password"
+                  className="text-xs font-medium text-red-700 hover:text-red-900 underline"
+                >
+                  Forgot password?
+                </Link>
               </div>
             </div>
 

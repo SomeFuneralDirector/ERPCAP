@@ -12,6 +12,7 @@ import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
 import Admin from "./Pages/Admin.jsx";
 import Activity_logs from "./Pages/Activity_logs.jsx";
 import Finance from "./Pages/Finance.jsx";
+import ForgotPassword from "./Pages/ForgotPassword.jsx";
 import ExpenseForm from "./Pages/ExpenseForm.jsx";
 import Ledger from "./Pages/Ledger.jsx";
 import User_Management from "./Pages/User_Management.jsx";
@@ -33,7 +34,7 @@ import Production_wo from "./Pages/Production_wo.jsx";
 import Production_rm from "./Pages/Production_rm.jsx";
 import Production_fg from "./Pages/Production_fg.jsx";
 import RawMaterialOverview from "./Pages/RawMaterialOverview.jsx";
-import PackagingMaterialOverview from "./Pages/PackagingMaterialOverview.jsx"
+import PackagingMaterialOverview from "./Pages/PackagingMaterialOverview.jsx";
 import Production_bom from "./Pages/Production_bom.jsx";
 import Production_transaction from "./Pages/Production_transaction.jsx";
 import ProtectedRoute from "./Routes/ProtectedRoutes.jsx";
@@ -44,6 +45,7 @@ const SITE = "Isonfam";
 
 const PAGE_TITLES = {
   "/set-password": "Set Password",
+  "/forgot-password": "Forgot Password",
   "/admin": "Admin Dashboard",
   "/finance": "Finance",
   "/ledger": "Cash Book",
@@ -127,7 +129,7 @@ const DashboardLayout = () => {
           <Route path="/production_wo" element={<Production_wo />} />
           <Route path="/production_rm" element={<Production_rm />} />
           <Route path="/production_fg" element={<Production_fg />} />
-          <Route path="/RawMaterialOverview" element={<RawMaterialOverview/>} />
+          <Route path="/RawMaterialOverview" element={<RawMaterialOverview />} />
           <Route path="/PackagingMaterialOverview" element={<PackagingMaterialOverview />} />
           <Route path="/production_bom" element={<Production_bom />} />
           <Route path="/setttings" element={<Settings />} />
@@ -146,12 +148,7 @@ function App() {
         <Routes>
           {/* Public routes */}
           <Route path="/" element={<Login />} />
-
-          {/* Invite-link landing page. Public in the sense that it
-              doesn't go through ProtectedRoute's app-level checks or
-              render the dashboard shell, the user's only "auth" at this
-              point is the magic-link session Supabase created when they
-              clicked the invite, they haven't set a password yet. */}
+          <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/set-password" element={<SetPassword />} />
 
           {/* Protected routes with layout */}
