@@ -13,6 +13,7 @@ import {
   LabelList,
 } from "recharts";
 import { supabase } from "../api/supabase";
+import Greetings from "../Components/Greetings";
 
 /* ── Design tokens — shared with the Products / Raw Materials pages ─────── */
 const C = {
@@ -74,7 +75,14 @@ const SEGMENT_BTN = (active) =>
       : "text-gray-500 hover:text-gray-700"
   }`;
 
-const POLL_INTERVAL_MS = 5000;
+// Background refresh interval, and how often the (heavier) sold-by-platform
+// totals are recalculated during background refreshes.
+const POLL_INTERVAL_MS = 30000;
+const SOLD_REFRESH_MS = 60000;
+
+// PostgREST returns at most 1000 rows per request.
+const PAGE_SIZE = 1000;
+const ORDER_ID_CHUNK_SIZE = 150;
 
 function localDateKey(d = new Date()) {
   const yyyy = d.getFullYear();
@@ -194,6 +202,86 @@ function filterByUpdatedAt(rows, dateFrom, dateTo) {
   });
 }
 
+// ─── Data fetching helpers ──────────────────────────────────
+
+/** Fetch every row of a query, paging past the 1000-row cap. */
+async function fetchAllRows(buildQuery) {
+  const rows = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await buildQuery().range(from, from + PAGE_SIZE - 1);
+    if (error) return { data: [], error };
+    rows.push(...(data || []));
+    if (!data || data.length < PAGE_SIZE) break;
+  }
+  return { data: rows, error: null };
+}
+
+/**
+ * Units sold per platform across all COMPLETED orders.
+ * Tries ONE paged query (order_items joined to their completed orders).
+ * If that relationship isn't available, falls back to fetching the completed
+ * order ids and then their items in parallel chunks.
+ * Returns { totals, error }.
+ */
+async function fetchSoldByPlatform() {
+  const totals = { shopee: 0, lazada: 0, tiktok: 0 };
+  const addItems = (items) =>
+    items.forEach((r) => {
+      const key = r.platform?.toLowerCase();
+      if (key && totals[key] !== undefined) {
+        totals[key] += nonNegative(r.quantity);
+      }
+    });
+
+  const nested = await fetchAllRows(() =>
+    supabase
+      .from("order_items")
+      .select("id, platform, quantity, orders!inner(status)")
+      .eq("orders.status", "COMPLETED")
+      .order("id"),
+  );
+
+  if (!nested.error) {
+    addItems(nested.data);
+    return { totals, error: null };
+  }
+
+  console.warn("Nested order_items/orders query failed, using fallback:", nested.error);
+
+  const completed = await fetchAllRows(() =>
+    supabase
+      .from("orders")
+      .select("id, order_id")
+      .eq("status", "COMPLETED")
+      .order("id"),
+  );
+  if (completed.error) return { totals, error: completed.error };
+
+  const orderIds = completed.data.map((o) => o.order_id).filter(Boolean);
+  const chunks = [];
+  for (let i = 0; i < orderIds.length; i += ORDER_ID_CHUNK_SIZE) {
+    chunks.push(orderIds.slice(i, i + ORDER_ID_CHUNK_SIZE));
+  }
+
+  const results = await Promise.all(
+    chunks.map((chunk) =>
+      fetchAllRows(() =>
+        supabase
+          .from("order_items")
+          .select("id, platform, quantity")
+          .in("order_id", chunk)
+          .order("id"),
+      ),
+    ),
+  );
+
+  const firstError = results.find((r) => r.error)?.error || null;
+  if (firstError) return { totals, error: firstError };
+
+  results.forEach((r) => addItems(r.data));
+  return { totals, error: null };
+}
+
 // ─── Primitives ─────────────────────────────────────────────
 
 function Skeleton({ className = "h-8 w-16" }) {
@@ -309,17 +397,25 @@ function Inventory_db() {
   // identical polls can skip the setState entirely.
   const prevSoldJsonRef = useRef("");
   const prevActivityKeyRef = useRef("");
+  // When the sold-by-platform totals were last calculated (ms timestamp).
+  const lastSoldFetchAtRef = useRef(0);
+  // True while a fetch is running, so background polls never overlap.
+  const inFlightRef = useRef(false);
 
   /**
    * mode: "initial" | "manual" | "poll"
    * - "initial" and "manual" always do a full resync of inventory/materials.
    * - "poll" (the background interval) only asks for inventory/materials
-   *   rows changed since the last sync point, and skips setState entirely
-   *   when nothing's new.
+   *   rows changed since the last sync point, skips if another fetch is
+   *   still running, and skips setState entirely when nothing's new.
+   * All requests run at the same time instead of one after another.
    */
   const fetchAll = useCallback(async (mode = "poll") => {
     const isInitial = mode === "initial";
     const fullResync = mode !== "poll";
+
+    if (!fullResync && inFlightRef.current) return;
+    inFlightRef.current = true;
 
     if (isInitial) {
       setInitialLoading(true);
@@ -330,189 +426,170 @@ function Inventory_db() {
     setMaterialsErrorMsg("");
     setPackagingErrorMsg("");
 
-    // ── Inventory (incremental by updated_at on polls) ──────
-    let invQuery = supabase
-      .from("inventory")
-      .select(
-        "id, stock, shopee_stock, lazada_stock, tiktok_stock, " +
-          "category, product_name, product_code, reorder_point, updated_at",
-      );
+    try {
+      const startedAt = Date.now();
+      // The sold totals scan every completed order, so on background polls
+      // they are only recalculated once per SOLD_REFRESH_MS.
+      const refreshSold =
+        fullResync || startedAt - lastSoldFetchAtRef.current >= SOLD_REFRESH_MS;
 
-    if (!fullResync && lastInventorySyncAtRef.current) {
-      invQuery = invQuery.gt("updated_at", lastInventorySyncAtRef.current);
-    }
+      // Inventory (incremental by updated_at on polls)
+      let invQuery = supabase
+        .from("inventory")
+        .select(
+          "id, stock, shopee_stock, lazada_stock, tiktok_stock, " +
+            "category, product_name, product_code, reorder_point, updated_at",
+        );
+      if (!fullResync && lastInventorySyncAtRef.current) {
+        invQuery = invQuery.gt("updated_at", lastInventorySyncAtRef.current);
+      }
 
-    const { data: inv, error: invError } = await invQuery;
+      // Raw materials (incremental by updated_at on polls)
+      let materialsQuery = supabase
+        .from("raw_materials")
+        .select(
+          "id, material_name, category, current_stock, reorder_point, status, updated_at, supplier_id, suppliers(name)",
+        );
+      if (!fullResync && lastMaterialsSyncAtRef.current) {
+        materialsQuery = materialsQuery.gt(
+          "updated_at",
+          lastMaterialsSyncAtRef.current,
+        );
+      }
 
-    if (invError) {
-      setErrorMsg(invError.message || "Couldn't load inventory data.");
-      setInitialLoading(false);
-      setRefreshing(false);
-      return;
-    }
+      // Packaging materials (incremental by updated_at on polls)
+      let packagingQuery = supabase
+        .from("packaging_materials")
+        .select(
+          "id, item_name, category, current_stock, reorder_point, status, updated_at",
+        );
+      if (!fullResync && lastPackagingSyncAtRef.current) {
+        packagingQuery = packagingQuery.gt(
+          "updated_at",
+          lastPackagingSyncAtRef.current,
+        );
+      }
 
-    const freshInv = inv || [];
-    if (freshInv.length > 0) {
-      const newestUpdatedAt = freshInv.reduce(
-        (max, r) => (r.updated_at && r.updated_at > max ? r.updated_at : max),
-        lastInventorySyncAtRef.current || "",
-      );
-      lastInventorySyncAtRef.current = newestUpdatedAt;
-      setRawInventory((prev) =>
-        fullResync ? freshInv : mergeById(prev, freshInv),
-      );
-    } else if (fullResync) {
-      setRawInventory([]);
-    }
-    // On a poll with nothing new, rawInventory is left untouched — no
-    // re-render for this slice.
+      const [invRes, soldRes, materialsRes, packagingRes, logsRes] =
+        await Promise.all([
+          invQuery,
+          refreshSold ? fetchSoldByPlatform() : Promise.resolve(null),
+          materialsQuery,
+          packagingQuery,
+          supabase
+            .from("inventory_logs")
+            .select("detail, created_at")
+            .order("created_at", { ascending: false })
+            .limit(8),
+        ]);
 
-    // ── Sold-by-platform totals (small, always full, diffed) ─
-    const { data: completedOrders, error: ordersError } = await supabase
-      .from("orders")
-      .select("order_id")
-      .eq("status", "COMPLETED");
+      // ── Inventory ───────────────────────────────────────────
+      if (invRes.error) {
+        setErrorMsg(invRes.error.message || "Couldn't load inventory data.");
+        return;
+      }
 
-    if (ordersError) {
-      console.error("Error fetching orders for platform chart:", ordersError);
-    } else {
-      const orderIds = (completedOrders || [])
-        .map((o) => o.order_id)
-        .filter(Boolean);
-      const soldTotals = { shopee: 0, lazada: 0, tiktok: 0 };
+      const freshInv = invRes.data || [];
+      if (freshInv.length > 0) {
+        const newestUpdatedAt = freshInv.reduce(
+          (max, r) => (r.updated_at && r.updated_at > max ? r.updated_at : max),
+          lastInventorySyncAtRef.current || "",
+        );
+        lastInventorySyncAtRef.current = newestUpdatedAt;
+        setRawInventory((prev) =>
+          fullResync ? freshInv : mergeById(prev, freshInv),
+        );
+      } else if (fullResync) {
+        setRawInventory([]);
+      }
+      // On a poll with nothing new, rawInventory is left untouched — no
+      // re-render for this slice.
 
-      if (orderIds.length > 0) {
-        const { data: items, error: itemsError } = await supabase
-          .from("order_items")
-          .select("platform, quantity")
-          .in("order_id", orderIds);
-
-        if (itemsError) {
-          console.error(
-            "Error fetching order items for platform chart:",
-            itemsError,
-          );
+      // ── Sold-by-platform totals (diffed) ────────────────────
+      if (soldRes) {
+        if (soldRes.error) {
+          console.error("Error fetching sold totals for platform chart:", soldRes.error);
         } else {
-          (items || []).forEach((r) => {
-            const key = r.platform?.toLowerCase();
-            if (key && soldTotals[key] !== undefined) {
-              soldTotals[key] += nonNegative(r.quantity);
-            }
-          });
+          lastSoldFetchAtRef.current = startedAt;
+          const soldJson = JSON.stringify(soldRes.totals);
+          if (soldJson !== prevSoldJsonRef.current) {
+            prevSoldJsonRef.current = soldJson;
+            setSoldByPlatform(soldRes.totals);
+          }
         }
       }
 
-      const soldJson = JSON.stringify(soldTotals);
-      if (soldJson !== prevSoldJsonRef.current) {
-        prevSoldJsonRef.current = soldJson;
-        setSoldByPlatform(soldTotals);
+      // ── Raw materials ───────────────────────────────────────
+      if (materialsRes.error) {
+        console.error("Error fetching raw materials:", materialsRes.error);
+        setMaterialsErrorMsg(
+          materialsRes.error.message || "Couldn't load raw materials data.",
+        );
+        if (fullResync) setRawMaterials([]);
+      } else {
+        const freshMaterials = materialsRes.data || [];
+        if (freshMaterials.length > 0) {
+          const newestUpdatedAt = freshMaterials.reduce(
+            (max, r) => (r.updated_at && r.updated_at > max ? r.updated_at : max),
+            lastMaterialsSyncAtRef.current || "",
+          );
+          lastMaterialsSyncAtRef.current = newestUpdatedAt;
+          setRawMaterials((prev) =>
+            fullResync ? freshMaterials : mergeById(prev, freshMaterials),
+          );
+        } else if (fullResync) {
+          setRawMaterials([]);
+        }
       }
-    }
 
-    // ── Raw materials (incremental by updated_at on polls) ───
-    let materialsQuery = supabase
-      .from("raw_materials")
-      .select(
-        "id, material_name, category, current_stock, reorder_point, status, updated_at, supplier_id, suppliers(name)",
-      );
-
-    if (!fullResync && lastMaterialsSyncAtRef.current) {
-      materialsQuery = materialsQuery.gt(
-        "updated_at",
-        lastMaterialsSyncAtRef.current,
-      );
-    }
-
-    const { data: materials, error: materialsError } = await materialsQuery;
-
-    if (materialsError) {
-      console.error("Error fetching raw materials:", materialsError);
-      setMaterialsErrorMsg(
-        materialsError.message || "Couldn't load raw materials data.",
-      );
-      if (fullResync) setRawMaterials([]);
-    } else {
-      const freshMaterials = materials || [];
-      if (freshMaterials.length > 0) {
-        const newestUpdatedAt = freshMaterials.reduce(
-          (max, r) => (r.updated_at && r.updated_at > max ? r.updated_at : max),
-          lastMaterialsSyncAtRef.current || "",
+      // ── Packaging materials ─────────────────────────────────
+      if (packagingRes.error) {
+        console.error("Error fetching packaging materials:", packagingRes.error);
+        setPackagingErrorMsg(
+          packagingRes.error.message || "Couldn't load packaging materials data.",
         );
-        lastMaterialsSyncAtRef.current = newestUpdatedAt;
-        setRawMaterials((prev) =>
-          fullResync ? freshMaterials : mergeById(prev, freshMaterials),
-        );
-      } else if (fullResync) {
-        setRawMaterials([]);
+        if (fullResync) setRawPackaging([]);
+      } else {
+        const freshPackaging = packagingRes.data || [];
+        if (freshPackaging.length > 0) {
+          const newestUpdatedAt = freshPackaging.reduce(
+            (max, r) => (r.updated_at && r.updated_at > max ? r.updated_at : max),
+            lastPackagingSyncAtRef.current || "",
+          );
+          lastPackagingSyncAtRef.current = newestUpdatedAt;
+          setRawPackaging((prev) =>
+            fullResync ? freshPackaging : mergeById(prev, freshPackaging),
+          );
+        } else if (fullResync) {
+          setRawPackaging([]);
+        }
       }
-    }
 
-    // ── Packaging materials (incremental by updated_at on polls) ─
-    let packagingQuery = supabase
-      .from("packaging_materials")
-      .select(
-        "id, item_name, category, current_stock, reorder_point, status, updated_at",
-      );
+      setLastUpdated(new Date());
 
-    if (!fullResync && lastPackagingSyncAtRef.current) {
-      packagingQuery = packagingQuery.gt(
-        "updated_at",
-        lastPackagingSyncAtRef.current,
-      );
-    }
-
-    const { data: packaging, error: packagingError } = await packagingQuery;
-
-    if (packagingError) {
-      console.error("Error fetching packaging materials:", packagingError);
-      setPackagingErrorMsg(
-        packagingError.message || "Couldn't load packaging materials data.",
-      );
-      if (fullResync) setRawPackaging([]);
-    } else {
-      const freshPackaging = packaging || [];
-      if (freshPackaging.length > 0) {
-        const newestUpdatedAt = freshPackaging.reduce(
-          (max, r) => (r.updated_at && r.updated_at > max ? r.updated_at : max),
-          lastPackagingSyncAtRef.current || "",
-        );
-        lastPackagingSyncAtRef.current = newestUpdatedAt;
-        setRawPackaging((prev) =>
-          fullResync ? freshPackaging : mergeById(prev, freshPackaging),
-        );
-      } else if (fullResync) {
-        setRawPackaging([]);
+      // ── Recent activity (small, always full, diffed) ────────
+      if (logsRes.error) {
+        console.error("Error fetching logs:", logsRes.error);
+      } else if (logsRes.data) {
+        const logs = logsRes.data;
+        const activityKey = logs
+          .map((l) => `${l.created_at}|${l.detail}`)
+          .join(",");
+        if (activityKey !== prevActivityKeyRef.current) {
+          prevActivityKeyRef.current = activityKey;
+          setActivity(
+            logs.map((l) => ({
+              text: l.detail || "Activity recorded",
+              time: formatLogTime(l.created_at),
+            })),
+          );
+        }
       }
+    } finally {
+      inFlightRef.current = false;
+      setInitialLoading(false);
+      setRefreshing(false);
     }
-
-    setLastUpdated(new Date());
-
-    // ── Recent activity (small, always full, diffed) ─────────
-    const { data: logs, error: logsError } = await supabase
-      .from("inventory_logs")
-      .select("detail, created_at")
-      .order("created_at", { ascending: false })
-      .limit(8);
-
-    if (logsError) {
-      console.error("Error fetching logs:", logsError);
-    } else if (logs) {
-      const activityKey = logs
-        .map((l) => `${l.created_at}|${l.detail}`)
-        .join(",");
-      if (activityKey !== prevActivityKeyRef.current) {
-        prevActivityKeyRef.current = activityKey;
-        setActivity(
-          logs.map((l) => ({
-            text: l.detail || "Activity recorded",
-            time: formatLogTime(l.created_at),
-          })),
-        );
-      }
-    }
-
-    setInitialLoading(false);
-    setRefreshing(false);
   }, []);
 
   // Polling: refetches on an interval, but only while the tab is visible —
@@ -1024,6 +1101,8 @@ function Inventory_db() {
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#F6F6F7" }}>
       <div className="p-6 space-y-4 max-w-[1400px] mx-auto">
+        <Greetings />
+
         {/* Header + filters */}
         <Card className="px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>

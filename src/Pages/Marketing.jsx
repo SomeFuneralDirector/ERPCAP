@@ -18,6 +18,7 @@ import {
   Cell,
 } from "recharts";
 import { supabase } from "../api/supabase";
+import Greetings from "../Components/Greetings";
 
 /* ── Design tokens — shared with Inventory / Sales dashboards ─────────── */
 const C = {
@@ -54,7 +55,7 @@ const CAMPAIGN_ENDING_SOON_DAYS = 7;
 const TOP_N_IN_TOOLTIP = 3;
 const TOP_PRODUCTS_SHOWN = 8;
 const LOW_PRODUCTS_SHOWN = 8;
-const POLL_INTERVAL_MS = 5000;
+const POLL_INTERVAL_MS = 30000;
 
 const TREND_LINE_COLOR = C.accent;
 const TREND_PEAK_COLOR = "#dc2626";
@@ -135,6 +136,19 @@ const localDateBoundary = (value, endOfDay = false) => {
   );
   return date.getTime();
 };
+
+function localDateKey(d = new Date()) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+// Default range: first day of this month up to today (same as Admin).
+function firstOfMonthKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
 
 const fmt = (n) => (n ?? 0).toLocaleString();
 const fmtCurrency = (n) =>
@@ -371,6 +385,89 @@ function ProductBars({ data, color = C.accent }) {
   );
 }
 
+const ORDER_COLUMNS =
+  "id, order_id, platform, total_amount, completed_at, created_at, paid_time, status, imported_at";
+const ORDER_ITEM_COLUMNS =
+  "id, order_uuid, order_id, platform, product_name, sku, quantity, unit_price";
+const ORDER_ITEMS_CHUNK_SIZE = 150;
+
+// Merge two lists of rows by `id` (later rows win), so repeated or
+// overlapping fetches can never produce duplicate rows.
+const mergeById = (prev, next) => {
+  const map = new Map(prev.map((row) => [row.id, row]));
+  next.forEach((row) => map.set(row.id, row));
+  return Array.from(map.values());
+};
+
+// Fallback only: fetch order_items for a list of order ids in parallel chunks.
+async function fetchItemsChunked(ids) {
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += ORDER_ITEMS_CHUNK_SIZE) {
+    chunks.push(ids.slice(i, i + ORDER_ITEMS_CHUNK_SIZE));
+  }
+  const results = await Promise.all(
+    chunks.map((chunk) =>
+      fetchAllRows(() =>
+        supabase
+          .from("order_items")
+          .select(ORDER_ITEM_COLUMNS)
+          .in("order_uuid", chunk)
+          .order("id")
+      )
+    )
+  );
+  return {
+    data: results.flatMap((r) => r.data || []),
+    error: results.find((r) => r.error)?.error || null,
+  };
+}
+
+/**
+ * Completed orders (optionally only those imported after `since`) together
+ * with their items. Tries ONE nested query first (orders + order_items).
+ * If that relationship isn't available, falls back to the chunked approach.
+ * Returns { orders, items, error, itemsError }.
+ */
+async function fetchOrdersWithItems(since) {
+  const buildQuery = (select) => () => {
+    let q = supabase
+      .from("orders")
+      .select(select)
+      .eq("status", "COMPLETED")
+      .order("id");
+    if (since) q = q.gt("imported_at", since);
+    return q;
+  };
+
+  const nested = await fetchAllRows(
+    buildQuery(`${ORDER_COLUMNS}, order_items(${ORDER_ITEM_COLUMNS})`)
+  );
+
+  if (!nested.error) {
+    const orders = [];
+    const items = [];
+    nested.data.forEach(({ order_items, ...order }) => {
+      orders.push(order);
+      (order_items || []).forEach((item) => items.push(item));
+    });
+    return { orders, items, error: null, itemsError: null };
+  }
+
+  console.warn("Nested orders/order_items query failed, using fallback:", nested.error);
+
+  const plain = await fetchAllRows(buildQuery(ORDER_COLUMNS));
+  if (plain.error) {
+    return { orders: [], items: [], error: plain.error, itemsError: null };
+  }
+  const itemsRes = await fetchItemsChunked(plain.data.map((o) => o.id).filter(Boolean));
+  return {
+    orders: plain.data,
+    items: itemsRes.data,
+    error: null,
+    itemsError: itemsRes.error,
+  };
+}
+
 function Marketing() {
   const [orders, setOrders] = useState([]);
   const [orderItems, setOrderItems] = useState([]);
@@ -383,8 +480,8 @@ function Marketing() {
 
   // Filters (same pattern as Sales dashboard)
   const [platformFilter, setPlatformFilter] = useState("all");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [dateFrom, setDateFrom] = useState(firstOfMonthKey);
+  const [dateTo, setDateTo] = useState(localDateKey);
 
   // Newest order `created_at` we've already pulled — background polls only
   // ask for rows newer than this instead of re-fetching the whole table.
@@ -394,15 +491,22 @@ function Marketing() {
   const prevCampaignsJsonRef = useRef("");
   const prevInventoryJsonRef = useRef("");
 
+  // True while a fetch is running, so background polls never overlap.
+  const inFlightRef = useRef(false);
+
   /**
    * mode: "initial" | "manual" | "poll"
    * - "initial" and "manual" always do a full resync.
    * - "poll" (the background interval) only asks for orders newer than the
-   *   last sync point, and skips setState entirely when nothing's new.
+   *   last sync point, skips if another fetch is still running, and skips
+   *   setState entirely when nothing's new.
    */
   const fetchAll = useCallback(async (mode = "poll") => {
     const isInitial = mode === "initial";
     const fullResync = mode !== "poll";
+
+    if (!fullResync && inFlightRef.current) return;
+    inFlightRef.current = true;
 
     if (isInitial) {
       setInitialLoading(true);
@@ -411,124 +515,93 @@ function Marketing() {
     }
     setErrorMsg("");
 
-    // Cursor is imported_at (a real timestamptz). created_at is TEXT in mixed
-    // formats, so ".gt('created_at', ...)" compared strings and missed rows.
-    const { data: fetchedOrders, error: ordersError } = await fetchAllRows(() => {
-      let q = supabase
-        .from("orders")
-        .select("id, order_id, platform, total_amount, completed_at, created_at, paid_time, status, imported_at")
-        .eq("status", "COMPLETED")
-        .order("id");
-      if (!fullResync && lastOrderSyncAtRef.current) {
-        q = q.gt("imported_at", lastOrderSyncAtRef.current);
-      }
-      return q;
-    });
+    try {
+      // Cursor is imported_at (a real timestamptz). created_at is TEXT in mixed
+      // formats, so ".gt('created_at', ...)" compared strings and missed rows.
+      const since = fullResync ? null : lastOrderSyncAtRef.current;
 
-    if (ordersError) {
-      setErrorMsg(ordersError.message);
+      // Orders (with their items), campaigns and inventory are independent,
+      // so they load at the same time instead of one after another.
+      const [ordersRes, campaignsRes, inventoryRes] = await Promise.all([
+        fetchOrdersWithItems(since),
+        supabase
+          .from("campaigns")
+          .select("id, name, platform, discount_type, discount_value, start_date, end_date, status"),
+        supabase
+          .from("inventory")
+          .select("product_code, product_name, category, shopee_stock, lazada_stock, tiktok_stock")
+          .eq("archived", false),
+      ]);
+
+      if (ordersRes.error) {
+        setErrorMsg(ordersRes.error.message);
+        return;
+      }
+
+      const newOrders = ordersRes.orders.filter((o) => safeDate(orderDate(o)));
+
+      if (newOrders.length > 0) {
+        lastOrderSyncAtRef.current = newOrders.reduce(
+          (max, o) => (o.imported_at && o.imported_at > max ? o.imported_at : max),
+          lastOrderSyncAtRef.current || ""
+        );
+
+        setOrders((prev) => (fullResync ? newOrders : mergeById(prev, newOrders)));
+      } else if (fullResync) {
+        setOrders([]);
+      }
+      // If this was a poll with zero new orders, `orders` state is left
+      // untouched — nothing changed, so no re-render for this slice.
+
+      if (ordersRes.itemsError) {
+        console.error("Error fetching order items:", ordersRes.itemsError);
+      } else {
+        const validOrderIds = new Set(newOrders.map((o) => o.id));
+        const newItems = ordersRes.items.filter(
+          (item) => validOrderIds.has(item.order_uuid) && toNumber(item.quantity) > 0
+        );
+
+        if (fullResync) {
+          setOrderItems(mergeById([], newItems));
+        } else if (newItems.length > 0) {
+          setOrderItems((prev) => mergeById(prev, newItems));
+        }
+      }
+
+      // Campaigns is a small table and statuses can change on existing rows
+      // (e.g. Cancelled), so it's always pulled in full — but the state update
+      // is skipped unless the payload actually differs from last time.
+      if (campaignsRes.error) {
+        console.error("Error fetching campaigns:", campaignsRes.error);
+        if (fullResync) setCampaigns([]);
+      } else {
+        const fresh = (campaignsRes.data || []).filter((c) => c?.name);
+        const freshJson = JSON.stringify(fresh);
+        if (freshJson !== prevCampaignsJsonRef.current) {
+          prevCampaignsJsonRef.current = freshJson;
+          setCampaigns(fresh);
+        }
+      }
+
+      // Inventory (also small, so also pulled in full and diffed). Used to find
+      // products with low sales, including ones that have not sold at all.
+      // Archived products are left out.
+      if (inventoryRes.error) {
+        console.error("Error fetching inventory:", inventoryRes.error);
+        if (fullResync) setInventory([]);
+      } else {
+        const freshInv = inventoryRes.data || [];
+        const freshInvJson = JSON.stringify(freshInv);
+        if (freshInvJson !== prevInventoryJsonRef.current) {
+          prevInventoryJsonRef.current = freshInvJson;
+          setInventory(freshInv);
+        }
+      }
+    } finally {
+      inFlightRef.current = false;
       setInitialLoading(false);
       setRefreshing(false);
-      return;
     }
-
-    const newOrders = (fetchedOrders || []).filter((o) => safeDate(orderDate(o)));
-
-    if (newOrders.length > 0) {
-      const newestCreatedAt = newOrders.reduce(
-        (max, o) => (o.imported_at && o.imported_at > max ? o.imported_at : max),
-        lastOrderSyncAtRef.current || ""
-      );
-      lastOrderSyncAtRef.current = newestCreatedAt;
-
-      setOrders((prev) => {
-        if (fullResync) return newOrders;
-        const byId = new Map(prev.map((o) => [o.id, o]));
-        newOrders.forEach((o) => byId.set(o.id, o));
-        return Array.from(byId.values());
-      });
-    } else if (fullResync) {
-      setOrders([]);
-    }
-    // If this was a poll with zero new orders, `orders` state is left
-    // untouched — nothing changed, so no re-render for this slice.
-
-    const idsNeedingItems = newOrders.map((o) => o.id).filter(Boolean);
-
-    if (idsNeedingItems.length > 0) {
-      const ORDER_ITEMS_CHUNK_SIZE = 150;
-      const chunks = [];
-      for (let i = 0; i < idsNeedingItems.length; i += ORDER_ITEMS_CHUNK_SIZE) {
-        chunks.push(idsNeedingItems.slice(i, i + ORDER_ITEMS_CHUNK_SIZE));
-      }
-
-      const itemsChunkResults = await Promise.all(
-        chunks.map((chunk) =>
-          fetchAllRows(() =>
-            supabase
-              .from("order_items")
-              .select("id, order_uuid, order_id, platform, product_name, sku, quantity, unit_price")
-              .in("order_uuid", chunk)
-              .order("id")
-          )
-        )
-      );
-
-      const firstItemsError = itemsChunkResults.find((r) => r.error)?.error || null;
-      if (firstItemsError) {
-        console.error("Error fetching order items:", firstItemsError);
-      } else {
-        const newItems = itemsChunkResults
-          .flatMap((r) => r.data || [])
-          .filter((item) => toNumber(item.quantity) > 0);
-
-        setOrderItems((prev) => (fullResync ? newItems : [...prev, ...newItems]));
-      }
-    } else if (fullResync) {
-      setOrderItems([]);
-    }
-
-    // Campaigns is a small table and statuses can change on existing rows
-    // (e.g. Cancelled), so it's always pulled in full — but the state update
-    // is skipped unless the payload actually differs from last time.
-    const campaignsRes = await supabase
-      .from("campaigns")
-      .select("id, name, platform, discount_type, discount_value, start_date, end_date, status");
-
-    if (campaignsRes.error) {
-      console.error("Error fetching campaigns:", campaignsRes.error);
-      if (fullResync) setCampaigns([]);
-    } else {
-      const fresh = (campaignsRes.data || []).filter((c) => c?.name);
-      const freshJson = JSON.stringify(fresh);
-      if (freshJson !== prevCampaignsJsonRef.current) {
-        prevCampaignsJsonRef.current = freshJson;
-        setCampaigns(fresh);
-      }
-    }
-
-    // Inventory (also small, so also pulled in full and diffed). Used to find
-    // products with low sales, including ones that have not sold at all.
-    // Archived products are left out.
-    const inventoryRes = await supabase
-      .from("inventory")
-      .select("product_code, product_name, category, shopee_stock, lazada_stock, tiktok_stock")
-      .eq("archived", false);
-
-    if (inventoryRes.error) {
-      console.error("Error fetching inventory:", inventoryRes.error);
-      if (fullResync) setInventory([]);
-    } else {
-      const freshInv = inventoryRes.data || [];
-      const freshInvJson = JSON.stringify(freshInv);
-      if (freshInvJson !== prevInventoryJsonRef.current) {
-        prevInventoryJsonRef.current = freshInvJson;
-        setInventory(freshInv);
-      }
-    }
-
-    setInitialLoading(false);
-    setRefreshing(false);
   }, []);
 
   // Polling: refetches on an interval, but only while the tab is visible —
@@ -964,6 +1037,8 @@ function Marketing() {
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#F6F6F7" }}>
       <div className="p-6 space-y-4 max-w-[1400px] mx-auto">
+        <Greetings />
+
         {/* Header + filters */}
         <Card className="px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>

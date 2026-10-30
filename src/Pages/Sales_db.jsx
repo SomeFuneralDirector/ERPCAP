@@ -14,6 +14,7 @@ import {
 } from "recharts";
 import { supabase } from "../api/supabase";
 import { toNumber, localDateKey, firstOfMonthKey } from "../lib/Finance";
+import Greetings from "../Components/Greetings";
 
 /* ── Design tokens (shared with Finance, Cash Book and Dashboard) ─ */
 const C = {
@@ -36,9 +37,14 @@ const PLATFORM_COLORS = {
   TikTok: "#101113",
 };
 
-const POLL_INTERVAL_MS = 5000;
+const POLL_INTERVAL_MS = 30000;
 const FETCH_CHUNK = 1000; // Supabase returns at most 1000 rows per request
-const ORDER_ITEMS_CHUNK_SIZE = 50; // keeps .in() URLs short and each chunk well under 1000 rows
+const ORDER_ITEMS_CHUNK_SIZE = 50; // fallback only: keeps .in() URLs short
+
+const ORDER_COLUMNS =
+  "id, order_id, platform, total_amount, completed_at, created_at, paid_time, status, imported_at";
+const ORDER_ITEM_COLUMNS =
+  "id, order_uuid, order_id, platform, product_name, sku, quantity, unit_price";
 
 const fmtPHP = (n) =>
   `₱${(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -85,6 +91,14 @@ const chunkArray = (arr, size) => {
   return chunks;
 };
 
+// Merge two lists of rows by `id` (later rows win), so repeated or
+// overlapping fetches can never produce duplicate rows.
+const mergeById = (prev, next) => {
+  const map = new Map(prev.map((row) => [row.id, row]));
+  next.forEach((row) => map.set(row.id, row));
+  return Array.from(map.values());
+};
+
 /* Fetch every row of a query, paging past the 1000-row cap.
    buildQuery must return a fresh query (with a stable order) on each call. */
 async function fetchAllPages(buildQuery) {
@@ -100,6 +114,71 @@ async function fetchAllPages(buildQuery) {
   }
 
   return { data: all, error: null };
+}
+
+// Fallback only: fetch order_items for a list of order ids in parallel chunks.
+async function fetchItemsChunked(ids) {
+  const results = await Promise.all(
+    chunkArray(ids, ORDER_ITEMS_CHUNK_SIZE).map((chunk) =>
+      fetchAllPages(() =>
+        supabase
+          .from("order_items")
+          .select(ORDER_ITEM_COLUMNS)
+          .in("order_uuid", chunk)
+          .order("id", { ascending: true })
+      )
+    )
+  );
+  return {
+    data: results.flatMap((r) => r.data || []),
+    error: results.find((r) => r.error)?.error || null,
+  };
+}
+
+/**
+ * Completed orders (optionally only those imported after `since`) together
+ * with their items. Tries ONE nested query first (orders + order_items).
+ * If that relationship is not available, falls back to the chunked approach.
+ * Returns { orders, items, error, itemsError }.
+ */
+async function fetchOrdersWithItems(since) {
+  const buildQuery = (select) => () => {
+    let q = supabase
+      .from("orders")
+      .select(select)
+      .eq("status", "COMPLETED")
+      .order("id", { ascending: true }); // stable order across pages
+    if (since) q = q.gt("imported_at", since);
+    return q;
+  };
+
+  const nested = await fetchAllPages(
+    buildQuery(`${ORDER_COLUMNS}, order_items(${ORDER_ITEM_COLUMNS})`)
+  );
+
+  if (!nested.error) {
+    const orders = [];
+    const items = [];
+    nested.data.forEach(({ order_items, ...order }) => {
+      orders.push(order);
+      (order_items || []).forEach((item) => items.push(item));
+    });
+    return { orders, items, error: null, itemsError: null };
+  }
+
+  console.warn("Nested orders/order_items query failed, using fallback:", nested.error);
+
+  const plain = await fetchAllPages(buildQuery(ORDER_COLUMNS));
+  if (plain.error) {
+    return { orders: [], items: [], error: plain.error, itemsError: null };
+  }
+  const itemsRes = await fetchItemsChunked(plain.data.map((o) => o.id).filter(Boolean));
+  return {
+    orders: plain.data,
+    items: itemsRes.data,
+    error: null,
+    itemsError: itemsRes.error,
+  };
 }
 
 function getStartOfWeek(d) {
@@ -274,19 +353,26 @@ function Sales_db({ onGoToImport }) {
   const [dateTo, setDateTo] = useState(localDateKey());
   const [platformFilter, setPlatformFilter] = useState("all");
 
-  // Newest order `created_at` already pulled — background polls only ask
+  // Newest order `imported_at` already pulled. Background polls only ask
   // for rows newer than this instead of re-fetching the whole table.
+  // (imported_at is a real timestamptz; created_at is TEXT in mixed formats.)
   const lastOrderSyncAtRef = useRef(null);
+  // True while a fetch is running, so background polls never overlap.
+  const inFlightRef = useRef(false);
 
   /**
    * mode: "initial" | "poll"
    * - "initial" always does a full resync.
    * - "poll" (the background interval) only asks for orders newer than the
-   *   last sync point, and skips setState entirely when nothing's new.
+   *   last sync point, skips if another fetch is still running, and skips
+   *   setState entirely when nothing is new.
    */
   const fetchAll = useCallback(async (mode = "poll") => {
     const isInitial = mode === "initial";
     const fullResync = mode !== "poll";
+
+    if (!fullResync && inFlightRef.current) return;
+    inFlightRef.current = true;
 
     if (isInitial) {
       setInitialLoading(true);
@@ -294,89 +380,58 @@ function Sales_db({ onGoToImport }) {
     setErrorMsg("");
     setItemsWarning("");
 
-    const { data: fetchedOrders, error: ordersError } = await fetchAllPages(() => {
-      let q = supabase
-        .from("orders")
-        .select("id, order_id, platform, total_amount, completed_at, created_at, paid_time, status")
-        .eq("status", "COMPLETED")
-        .order("id", { ascending: true }); // stable order across pages
+    try {
+      const since = fullResync ? null : lastOrderSyncAtRef.current;
 
-      if (!fullResync && lastOrderSyncAtRef.current) {
-        q = q.gt("created_at", lastOrderSyncAtRef.current);
+      // One nested query returns the orders together with their items.
+      const res = await fetchOrdersWithItems(since);
+
+      if (res.error) {
+        setErrorMsg(res.error.message || "Couldn't load orders.");
+        return;
       }
-      return q;
-    });
 
-    if (ordersError) {
-      setErrorMsg(ordersError.message || "Couldn't load orders.");
-      setInitialLoading(false);
-      return;
-    }
+      const newOrders = res.orders.filter((o) => safeDate(orderDate(o)));
 
-    const newOrders = (fetchedOrders || []).filter((o) => safeDate(orderDate(o)));
+      if (newOrders.length > 0) {
+        lastOrderSyncAtRef.current = newOrders.reduce(
+          (max, o) => (o.imported_at && o.imported_at > max ? o.imported_at : max),
+          lastOrderSyncAtRef.current || ""
+        );
 
-    if (newOrders.length > 0) {
-      const newestCreatedAt = newOrders.reduce(
-        (max, o) => (o.created_at && o.created_at > max ? o.created_at : max),
-        lastOrderSyncAtRef.current || ""
-      );
-      lastOrderSyncAtRef.current = newestCreatedAt;
+        setOrders((prev) => (fullResync ? newOrders : mergeById(prev, newOrders)));
+      } else if (fullResync) {
+        setOrders([]);
+      }
+      // On a poll with zero new orders, `orders` state is left untouched,
+      // so nothing re-renders for this slice.
 
-      setOrders((prev) => {
-        if (fullResync) return newOrders;
-        const byId = new Map(prev.map((o) => [o.id, o]));
-        newOrders.forEach((o) => byId.set(o.id, o));
-        return Array.from(byId.values());
-      });
-    } else if (fullResync) {
-      setOrders([]);
-    }
-    // On a poll with zero new orders, `orders` state is left untouched —
-    // nothing changed, so no re-render for this slice.
-
-    const idsNeedingItems = newOrders.map((o) => o.id).filter(Boolean);
-
-    if (idsNeedingItems.length > 0) {
-      // Fetch order_items in small chunks. A single .in() call with hundreds
-      // of UUIDs produces a URL long enough that Supabase/PostgREST (and most
-      // proxies in front of it) reject it with a 400. Each chunk is also
-      // paged, so a chunk with more than 1000 item rows is never truncated.
-      const chunks = chunkArray(idsNeedingItems, ORDER_ITEMS_CHUNK_SIZE);
-
-      const results = await Promise.all(
-        chunks.map((chunk) =>
-          fetchAllPages(() =>
-            supabase
-              .from("order_items")
-              .select("order_uuid, order_id, platform, product_name, sku, quantity, unit_price")
-              .in("order_uuid", chunk)
-              .order("order_uuid", { ascending: true })
-          )
-        )
-      );
-
-      const failed = results.find((r) => r.error);
-      if (failed) {
-        console.error("Error fetching order items:", failed.error);
+      if (res.itemsError) {
+        console.error("Error fetching order items:", res.itemsError);
         setItemsWarning(
-          `Order items failed to load: ${failed.error.message}. Item/product totals shown may be incomplete.`
+          `Order items failed to load: ${res.itemsError.message}. Item/product totals shown may be incomplete.`
         );
       } else {
-        const newItems = results
-          .flatMap((r) => r.data || [])
-          .filter((item) => toNumber(item.quantity) > 0);
+        const validOrderIds = new Set(newOrders.map((o) => o.id));
+        const newItems = res.items.filter(
+          (item) => validOrderIds.has(item.order_uuid) && toNumber(item.quantity) > 0
+        );
 
-        setOrderItems((prev) => (fullResync ? newItems : [...prev, ...newItems]));
+        if (fullResync) {
+          setOrderItems(mergeById([], newItems));
+        } else if (newItems.length > 0) {
+          setOrderItems((prev) => mergeById(prev, newItems));
+        }
       }
-    } else if (fullResync) {
-      setOrderItems([]);
-    }
 
-    setLastSynced(new Date());
-    setInitialLoading(false);
+      setLastSynced(new Date());
+    } finally {
+      inFlightRef.current = false;
+      setInitialLoading(false);
+    }
   }, []);
 
-  // Polling: refetches on an interval, but only while the tab is visible —
+  // Polling: refetches on an interval, but only while the tab is visible,
   // paused in background tabs, with an immediate catch-up fetch the moment
   // the tab becomes visible again.
   useEffect(() => {
@@ -518,6 +573,8 @@ function Sales_db({ onGoToImport }) {
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#F6F6F7" }}>
       <div className="p-6 space-y-4">
+        <Greetings />
+
         {/* Header */}
         <Card className="px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
