@@ -140,7 +140,12 @@ function Sidebar({
   authLoading,
   userRole,
   userDisplay,
+  homeItem,
 }) {
+  const goHome = () => {
+    if (homeItem) onNavigate(homeItem.id, homeItem.path);
+  };
+
   return (
     <aside
       className="h-full bg-white flex flex-col"
@@ -161,13 +166,13 @@ function Sidebar({
             alt="logo"
             className="h-10 w-10 rounded-full shadow-sm bg-white cursor-pointer object-cover"
             style={{ border: `2px solid ${C.accentSoftBorder}` }}
-            onClick={() => onNavigate("admin-dashboard", "/admin")}
+            onClick={goHome}
           />
           {!collapsed && (
             <span
               className="font-bold text-sm tracking-tight whitespace-nowrap overflow-hidden cursor-pointer"
               style={{ color: C.text }}
-              onClick={() => onNavigate("admin-dashboard", "/admin")}
+              onClick={goHome}
             >
               ISONFAM
             </span>
@@ -405,12 +410,15 @@ function Nav() {
     }
   };
 
+  // Each account only sees its own section:
+  // admin -> Admin, inventory -> Inventory, marketing -> Marketing, etc.
   const filteredNavItems = navItems.filter((item) => {
-    if (authLoading) return false;
-    if (!userRole) return false;
-    if (userRole === "admin") return true;
+    if (authLoading || !userRole) return false;
     return item.role === userRole;
   });
+
+  // Logo click goes to the first page of the user's own menu
+  const homeItem = filteredNavItems[0]?.children?.[0];
 
   const getUserDisplay = () => {
     if (!user) return { initials: "US", name: "User", roleDisplay: "User" };
@@ -441,6 +449,7 @@ function Nav() {
     authLoading,
     userRole,
     userDisplay,
+    homeItem,
   };
 
   return (

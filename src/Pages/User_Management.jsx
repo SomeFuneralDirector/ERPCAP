@@ -433,7 +433,7 @@ function UserModal({ user, saving, onClose, onSave }) {
             <select
               value={role}
               onChange={e => setRole(e.target.value)}
-              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-red-400 bg-white"
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-red-400 bg-white cursor-pointer"
             >
               {ROLES.map(r => (
                 <option key={r} value={r}>
@@ -460,7 +460,7 @@ function UserModal({ user, saving, onClose, onSave }) {
             <button
               type="submit"
               disabled={saving}
-              className="px-4 py-2 rounded-lg text-sm font-semibold bg-red-700 hover:bg-red-600 text-white disabled:opacity-50"
+              className="px-4 py-2 rounded-lg text-sm font-semibold bg-red-700 hover:bg-red-600 text-white disabled:opacity-50 cursor-pointer"
             >
               {saving ? 'Sending...' : user ? 'Save Changes' : 'Send Invite'}
             </button>

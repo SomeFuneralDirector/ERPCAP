@@ -53,6 +53,9 @@ const isLowStock = (item) => {
   return total <= (item.reorder_point ?? 5);
 };
 
+// Lowercase and strip all whitespace so "F036 ", " f 036" and "F036" all match
+const normalize = (str) => (str ?? "").toString().toLowerCase().replace(/\s+/g, "");
+
 const EMPTY_FORM = {
   product_code: "",
   product_name: "",
@@ -632,12 +635,14 @@ function Inventory() {
   setSaving(false);
 };
 
+  // Whitespace-insensitive search: ignores leading/trailing/inner spaces
   const filtered = inventory.filter((item) => {
     const matchCat = filterCategory === "All" || item.category === filterCategory;
+    const q = normalize(search);
     const matchSearch =
-      !search ||
-      item.product_name.toLowerCase().includes(search.toLowerCase()) ||
-      item.product_code.toLowerCase().includes(search.toLowerCase());
+      !q ||
+      normalize(item.product_name).includes(q) ||
+      normalize(item.product_code).includes(q);
     return matchCat && matchSearch;
   });
 
