@@ -5,8 +5,6 @@ import {
   Bar,
   AreaChart,
   Area,
-  LineChart,
-  Line,
   PieChart,
   Pie,
   XAxis,
@@ -14,7 +12,6 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
-  LabelList,
   Cell,
 } from "recharts";
 import { supabase } from "../api/supabase";
@@ -48,8 +45,8 @@ const CATEGORY_COLORS = {
   Unisex: "#475569",
 };
 
-const LINE_COLORS = [C.accent, "#1D4E89", "#0E7490"];
-const STOCK_BAR_COLOR = "#9CA3AF";
+const STOCK_BAR_COLOR = "#D1D5DB";
+const TRACK_COLOR = "#F3F4F6";
 
 const CAMPAIGN_ENDING_SOON_DAYS = 7;
 const TOP_N_IN_TOOLTIP = 3;
@@ -95,9 +92,6 @@ const toNumber = (value) => {
 
 const centsToPesos = (c) => Math.max(0, toNumber(c)) / 100;
 
-// orders.created_at / completed_at are TEXT columns holding two formats:
-// "MM/DD/YYYY HH:mm" (spreadsheet imports) and ISO "YYYY-MM-DD HH:mm:ss".
-// Parse the first one explicitly instead of relying on new Date() guessing.
 const safeDate = (value) => {
   if (!value) return null;
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
@@ -108,8 +102,6 @@ const safeDate = (value) => {
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
-// PostgREST returns at most 1000 rows per request, so a plain .select()
-// silently truncates once there are more orders than that. Page through all.
 const PAGE_SIZE = 1000;
 async function fetchAllRows(buildQuery) {
   const rows = [];
@@ -122,7 +114,6 @@ async function fetchAllRows(buildQuery) {
   return { data: rows, error: null };
 }
 
-/** Local midnight / end-of-day boundaries for date-string filters (YYYY-MM-DD). */
 const localDateBoundary = (value, endOfDay = false) => {
   if (!value) return null;
   const [year, month, day] = value.split("-").map(Number);
@@ -144,7 +135,6 @@ function localDateKey(d = new Date()) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-// Default range: first day of this month up to today (same as Admin).
 function firstOfMonthKey() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
@@ -169,7 +159,6 @@ const monthLabel = (key) => {
   return d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
 };
 
-// Short month name for chart axes ("Jan", or "Jan 25" when data spans years).
 const shortMonth = (key, withYear) => {
   const [year, month] = key.split("-");
   const d = new Date(Number(year), Number(month) - 1, 1);
@@ -179,7 +168,7 @@ const shortMonth = (key, withYear) => {
   });
 };
 
-const shortName = (name) => (name.length > 24 ? `${name.slice(0, 23)}…` : name);
+const shortName = (name) => (name.length > 22 ? `${name.slice(0, 21)}…` : name);
 
 function deriveCampaignStatus(c) {
   if (c.status === "Cancelled") return "Cancelled";
@@ -246,15 +235,17 @@ function TrendDot(props) {
         cy={cy}
         r={isPeak ? 6 : 4}
         fill={isPeak ? TREND_PEAK_COLOR : TREND_LINE_COLOR}
+        stroke="#fff"
+        strokeWidth={isPeak ? 2 : 1.5}
       />
       {isPeak && (
         <text
           x={cx}
-          y={cy - 16}
+          y={cy - 14}
           textAnchor="middle"
           fill={TREND_PEAK_COLOR}
-          fontSize={13}
-          fontWeight={600}
+          fontSize={12}
+          fontWeight={700}
         >
           {fmt(payload.total)}
         </text>
@@ -268,13 +259,13 @@ function TrendTooltip({ active, payload, label }) {
   const row = payload[0].payload;
   const topSellers = row.topSellers || [];
   return (
-    <div className="bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2 text-xs min-w-[190px]">
-      <p className="font-semibold text-gray-700 mb-1">{label}</p>
-      <p className="text-gray-500 mb-2">{fmt(row.total)} units sold</p>
+    <div className="bg-white border border-gray-200 rounded-lg shadow-xl px-3.5 py-2.5 text-xs min-w-[210px]">
+      <p className="font-semibold text-gray-800 mb-1">{label}</p>
+      <p className="text-gray-500 mb-2.5">{fmt(row.total)} units sold</p>
       {topSellers.length > 0 && (
-        <div className="space-y-1">
-          <p className="text-gray-400 uppercase tracking-wide" style={{ fontSize: "10px" }}>
-            Top {topSellers.length} sellers
+        <div className="space-y-1.5">
+          <p className="text-gray-400 uppercase tracking-wider" style={{ fontSize: "10px" }}>
+            Top sellers
           </p>
           {topSellers.map((p, idx) => {
             const pct = row.total > 0 ? ((p.qty / row.total) * 100).toFixed(1) : "0.0";
@@ -287,9 +278,9 @@ function TrendTooltip({ active, payload, label }) {
                   >
                     {idx + 1}
                   </span>
-                  <span className="truncate">{p.name}</span>
+                  <span className="truncate max-w-[110px]">{p.name}</span>
                 </span>
-                <span className="text-gray-500 shrink-0">
+                <span className="text-gray-500 shrink-0 tabular-nums">
                   {fmt(p.qty)} · {pct}%
                 </span>
               </div>
@@ -298,12 +289,12 @@ function TrendTooltip({ active, payload, label }) {
         </div>
       )}
       {row.activeCampaigns && row.activeCampaigns.length > 0 && (
-        <div className="mt-2 pt-2 border-t border-gray-100">
-          <p className="text-gray-400 uppercase tracking-wide" style={{ fontSize: "10px" }}>
-            Campaigns this month
+        <div className="mt-2.5 pt-2 border-t border-gray-100">
+          <p className="text-gray-400 uppercase tracking-wider mb-1" style={{ fontSize: "10px" }}>
+            Campaigns
           </p>
           {row.activeCampaigns.map((c) => (
-            <p key={c} className="truncate" style={{ color: C.accent }}>
+            <p key={c} className="truncate font-medium" style={{ color: C.accent }}>
               {c}
             </p>
           ))}
@@ -313,75 +304,107 @@ function TrendTooltip({ active, payload, label }) {
   );
 }
 
-// Tooltip for the "units sold" product bar charts.
-function ProductBarTooltip({ active, payload }) {
-  if (!active || !payload?.length) return null;
-  const d = payload[0].payload;
+/** Modern ranking bars with track background + rank badge. */
+function RankingBars({ data, color = C.accent, valueKey = "qty" }) {
+  const max = Math.max(...data.map((d) => d[valueKey] || 0), 1);
+
   return (
-    <div className="bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2 text-xs">
-      <p className="font-semibold text-gray-700 mb-1">{d.name}</p>
-      <p className="text-gray-600">{fmt(d.qty)} units sold</p>
-      {d.orders != null && (
-        <p className="text-gray-500">
-          {fmt(d.orders)} {d.orders === 1 ? "order" : "orders"}
-        </p>
-      )}
-      {d.sales != null && <p className="text-gray-500">{fmtCurrency(d.sales)} in sales</p>}
+    <div className="space-y-3">
+      {data.map((row, i) => {
+        const value = row[valueKey] || 0;
+        const pct = Math.round((value / max) * 100);
+        return (
+          <div key={row.name} className="group">
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <div className="flex items-center gap-2 min-w-0">
+                <span
+                  className="w-5 h-5 shrink-0 flex items-center justify-center rounded-full text-[10px] font-bold text-white"
+                  style={{ backgroundColor: i < 3 ? color : "#9CA3AF" }}
+                >
+                  {i + 1}
+                </span>
+                <span className="text-xs font-medium text-gray-700 truncate" title={row.name}>
+                  {shortName(row.name)}
+                </span>
+              </div>
+              <span className="text-xs font-semibold text-gray-800 tabular-nums shrink-0">
+                {fmt(value)}
+              </span>
+            </div>
+            <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: TRACK_COLOR }}>
+              <div
+                className="h-full rounded-full transition-all duration-500 ease-out"
+                style={{
+                  width: `${pct}%`,
+                  backgroundColor: color,
+                  opacity: 1 - i * 0.06,
+                }}
+              />
+            </div>
+            {(row.orders != null || row.sales != null) && (
+              <div className="flex gap-3 mt-0.5 text-[10px] text-gray-400">
+                {row.orders != null && <span>{fmt(row.orders)} orders</span>}
+                {row.sales != null && <span>{fmtCurrency(row.sales)}</span>}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-// Tooltip for the low performing chart (sold vs left in stock).
-function LowPerformerTooltip({ active, payload }) {
-  if (!active || !payload?.length) return null;
-  const d = payload[0].payload;
-  return (
-    <div className="bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2 text-xs">
-      <p className="font-semibold text-gray-700 mb-1">{d.name}</p>
-      <p style={{ color: C.warning }}>{fmt(d.sold)} units sold</p>
-      <p className="text-gray-500">{fmt(d.stock)} left in stock</p>
-    </div>
-  );
-}
+/** Dual metric ranking for low performers (sold vs stock). */
+function LowRankingBars({ data }) {
+  const maxSold = Math.max(...data.map((d) => d.sold || 0), 1);
+  const maxStock = Math.max(...data.map((d) => d.stock || 0), 1);
 
-// Horizontal bars of units sold per product (used for Top products charts).
-function ProductBars({ data, color = C.accent }) {
   return (
-    <ResponsiveContainer width="100%" height={Math.max(220, data.length * 44)}>
-      <BarChart
-        data={data}
-        layout="vertical"
-        margin={{ top: 0, right: 48, left: 8, bottom: 0 }}
-        barCategoryGap={12}
-      >
-        <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
-        <XAxis
-          type="number"
-          tick={{ fontSize: 11, fill: "#6B7280" }}
-          axisLine={false}
-          tickLine={false}
-          tickFormatter={(v) => fmt(v)}
-        />
-        <YAxis
-          type="category"
-          dataKey="name"
-          width={160}
-          tick={{ fontSize: 11, fill: "#374151" }}
-          axisLine={false}
-          tickLine={false}
-          tickFormatter={shortName}
-        />
-        <Tooltip content={<ProductBarTooltip />} cursor={{ fill: "#f9fafb" }} />
-        <Bar dataKey="qty" name="Units sold" radius={[0, 4, 4, 0]} barSize={20} fill={color}>
-          <LabelList
-            dataKey="qty"
-            position="right"
-            formatter={(v) => fmt(v)}
-            style={{ fontSize: 11, fill: "#374151", fontWeight: 600 }}
-          />
-        </Bar>
-      </BarChart>
-    </ResponsiveContainer>
+    <div className="space-y-4">
+      {data.map((row) => {
+        const soldPct = Math.round(((row.sold || 0) / maxSold) * 100);
+        const stockPct = Math.round(((row.stock || 0) / maxStock) * 100);
+        return (
+          <div key={row.name}>
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <span className="text-xs font-medium text-gray-700 truncate" title={row.name}>
+                {shortName(row.name)}
+              </span>
+              <div className="flex items-center gap-3 text-[11px] tabular-nums shrink-0">
+                <span style={{ color: C.warning }} className="font-semibold">
+                  {fmt(row.sold)} sold
+                </span>
+                <span className="text-gray-400">{fmt(row.stock)} stock</span>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: TRACK_COLOR }}>
+                <div
+                  className="h-full rounded-full"
+                  style={{ width: `${soldPct}%`, backgroundColor: C.warning }}
+                />
+              </div>
+              <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: TRACK_COLOR }}>
+                <div
+                  className="h-full rounded-full"
+                  style={{ width: `${stockPct}%`, backgroundColor: STOCK_BAR_COLOR }}
+                />
+              </div>
+            </div>
+          </div>
+        );
+      })}
+      <div className="flex items-center gap-4 pt-1 text-[10px] text-gray-400">
+        <span className="flex items-center gap-1.5">
+          <span className="w-2.5 h-1.5 rounded-sm" style={{ backgroundColor: C.warning }} />
+          Units sold
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2.5 h-1.5 rounded-sm" style={{ backgroundColor: STOCK_BAR_COLOR }} />
+          Left in stock
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -391,15 +414,12 @@ const ORDER_ITEM_COLUMNS =
   "id, order_uuid, order_id, platform, product_name, sku, quantity, unit_price";
 const ORDER_ITEMS_CHUNK_SIZE = 150;
 
-// Merge two lists of rows by `id` (later rows win), so repeated or
-// overlapping fetches can never produce duplicate rows.
 const mergeById = (prev, next) => {
   const map = new Map(prev.map((row) => [row.id, row]));
   next.forEach((row) => map.set(row.id, row));
   return Array.from(map.values());
 };
 
-// Fallback only: fetch order_items for a list of order ids in parallel chunks.
 async function fetchItemsChunked(ids) {
   const chunks = [];
   for (let i = 0; i < ids.length; i += ORDER_ITEMS_CHUNK_SIZE) {
@@ -422,12 +442,6 @@ async function fetchItemsChunked(ids) {
   };
 }
 
-/**
- * Completed orders (optionally only those imported after `since`) together
- * with their items. Tries ONE nested query first (orders + order_items).
- * If that relationship isn't available, falls back to the chunked approach.
- * Returns { orders, items, error, itemsError }.
- */
 async function fetchOrdersWithItems(since) {
   const buildQuery = (select) => () => {
     let q = supabase
@@ -477,30 +491,17 @@ function Marketing() {
   const [refreshing, setRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [selectedMonth, setSelectedMonth] = useState(null);
+  const [productView, setProductView] = useState("overall");
 
-  // Filters (same pattern as Sales dashboard)
   const [platformFilter, setPlatformFilter] = useState("all");
   const [dateFrom, setDateFrom] = useState(firstOfMonthKey);
   const [dateTo, setDateTo] = useState(localDateKey);
 
-  // Newest order `created_at` we've already pulled — background polls only
-  // ask for rows newer than this instead of re-fetching the whole table.
   const lastOrderSyncAtRef = useRef(null);
-  // Last campaigns / inventory payloads actually applied to state, so
-  // identical polls can skip the setState (and the re-renders it would cause).
   const prevCampaignsJsonRef = useRef("");
   const prevInventoryJsonRef = useRef("");
-
-  // True while a fetch is running, so background polls never overlap.
   const inFlightRef = useRef(false);
 
-  /**
-   * mode: "initial" | "manual" | "poll"
-   * - "initial" and "manual" always do a full resync.
-   * - "poll" (the background interval) only asks for orders newer than the
-   *   last sync point, skips if another fetch is still running, and skips
-   *   setState entirely when nothing's new.
-   */
   const fetchAll = useCallback(async (mode = "poll") => {
     const isInitial = mode === "initial";
     const fullResync = mode !== "poll";
@@ -516,12 +517,8 @@ function Marketing() {
     setErrorMsg("");
 
     try {
-      // Cursor is imported_at (a real timestamptz). created_at is TEXT in mixed
-      // formats, so ".gt('created_at', ...)" compared strings and missed rows.
       const since = fullResync ? null : lastOrderSyncAtRef.current;
 
-      // Orders (with their items), campaigns and inventory are independent,
-      // so they load at the same time instead of one after another.
       const [ordersRes, campaignsRes, inventoryRes] = await Promise.all([
         fetchOrdersWithItems(since),
         supabase
@@ -550,8 +547,6 @@ function Marketing() {
       } else if (fullResync) {
         setOrders([]);
       }
-      // If this was a poll with zero new orders, `orders` state is left
-      // untouched — nothing changed, so no re-render for this slice.
 
       if (ordersRes.itemsError) {
         console.error("Error fetching order items:", ordersRes.itemsError);
@@ -568,9 +563,6 @@ function Marketing() {
         }
       }
 
-      // Campaigns is a small table and statuses can change on existing rows
-      // (e.g. Cancelled), so it's always pulled in full — but the state update
-      // is skipped unless the payload actually differs from last time.
       if (campaignsRes.error) {
         console.error("Error fetching campaigns:", campaignsRes.error);
         if (fullResync) setCampaigns([]);
@@ -583,9 +575,6 @@ function Marketing() {
         }
       }
 
-      // Inventory (also small, so also pulled in full and diffed). Used to find
-      // products with low sales, including ones that have not sold at all.
-      // Archived products are left out.
       if (inventoryRes.error) {
         console.error("Error fetching inventory:", inventoryRes.error);
         if (fullResync) setInventory([]);
@@ -604,9 +593,6 @@ function Marketing() {
     }
   }, []);
 
-  // Polling: refetches on an interval, but only while the tab is visible —
-  // paused in background tabs, with an immediate catch-up fetch the moment
-  // the tab becomes visible again.
   useEffect(() => {
     fetchAll("initial");
 
@@ -646,8 +632,6 @@ function Marketing() {
     };
   }, [fetchAll]);
 
-  // ── Filtered data (platform + date range) ─────────────────
-
   const filteredOrders = useMemo(() => {
     let result = orders;
 
@@ -681,8 +665,6 @@ function Marketing() {
     [orderItems, filteredOrderUuids]
   );
 
-  // ── Derived metrics (all based on filtered data) ──────────
-
   const totalSales = useMemo(
     () => filteredOrders.reduce((sum, o) => sum + centsToPesos(o.total_amount), 0),
     [filteredOrders]
@@ -704,12 +686,8 @@ function Marketing() {
   }, [filteredOrders]);
 
   const topPlatform = platformSales[0] || null;
+  const platformTotal = platformSales.reduce((s, p) => s + p.amount, 0);
 
-  // Only products that exist in the main Inventory are counted in the product
-  // charts. A sold item is matched to Inventory by its SKU (TikTok SKUs start
-  // with "TT", so that is removed), then by name. It is then renamed to the
-  // Inventory product name, so the same product sold on different platforms
-  // (with different listing names) is counted as one product.
   const inventoryLookup = useMemo(() => {
     const byCode = new Map();
     const byName = new Map();
@@ -749,15 +727,10 @@ function Marketing() {
       map[name].sales += qty * centsToPesos(row.unit_price);
       map[name].orderSet.add(row.order_uuid);
     });
-    // Ties are common (e.g. three products on 15 units): break them by sales,
-    // then name, so the #1 slot is stable instead of "whichever came first".
     return Object.values(map)
       .map(({ orderSet, ...p }) => ({ ...p, orders: orderSet.size }))
       .sort((a, b) => b.qty - a.qty || b.sales - a.sales || a.name.localeCompare(b.name));
   }, [inventoryItems]);
-
-  // ── Inventory-based product performance (same idea as the
-  //    "Low Performing" filter on Marketing - Inventory Overview) ─────────
 
   const inventoryByName = useMemo(() => {
     const map = {};
@@ -773,7 +746,6 @@ function Marketing() {
     return map;
   }, [inventory]);
 
-  // Every inventory product (even with zero sales) plus any sold product.
   const performance = useMemo(() => {
     const map = {};
     inventory.forEach((item) => {
@@ -789,7 +761,7 @@ function Marketing() {
       };
     });
     products.forEach((p) => {
-      if (!map[p.name]) return; // only products in the main Inventory
+      if (!map[p.name]) return;
       map[p.name].qty = p.qty;
       map[p.name].sales = p.sales;
       map[p.name].orders = p.orders;
@@ -797,7 +769,6 @@ function Marketing() {
     return Object.values(map);
   }, [inventory, products, inventoryByName]);
 
-  // Average units sold per product. Below this = low performing.
   const avgSold = useMemo(() => {
     if (performance.length === 0) return 0;
     return performance.reduce((sum, p) => sum + p.qty, 0) / performance.length;
@@ -826,7 +797,6 @@ function Marketing() {
     [lowPerformers]
   );
 
-  // Sales (pesos) per category: Men / Women / ...
   const categorySales = useMemo(() => {
     const map = {};
     inventoryItems.forEach((row) => {
@@ -898,22 +868,6 @@ function Marketing() {
       .slice(0, TOP_PRODUCTS_SHOWN);
   }, [selectedMonth, availableMonths, monthlyProductTotals]);
 
-  // The 3 best sellers overall, followed month by month.
-  const topThree = useMemo(() => products.slice(0, 3), [products]);
-
-  const topThreeTrend = useMemo(() => {
-    const keys = [...availableMonths].reverse();
-    const withYear = new Set(keys.map((k) => k.split("-")[0])).size > 1;
-    return keys.map((key) => {
-      const row = { month: shortMonth(key, withYear) };
-      topThree.forEach((p, i) => {
-        row[`p${i}`] = monthlyProductTotals[key]?.[p.name]?.qty || 0;
-      });
-      return row;
-    });
-  }, [availableMonths, monthlyProductTotals, topThree]);
-
-  // Sales (pesos) each month, split by platform.
   const monthlyPlatformSales = useMemo(() => {
     const months = {};
     filteredOrders.forEach((o) => {
@@ -943,7 +897,6 @@ function Marketing() {
       return campaigns
         .filter((c) => c.status !== "Cancelled")
         .filter((c) => {
-          // Optional: also respect platform filter for campaign list in tooltip
           if (platformFilter !== "all" && normalizePlatform(c.platform) !== platformFilter) {
             return false;
           }
@@ -1033,20 +986,19 @@ function Marketing() {
   }
 
   const topProductsChart = products.slice(0, TOP_PRODUCTS_SHOWN);
+  const productChartColor = productView === "overall" ? C.accent : "#1D4E89";
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#F6F6F7" }}>
       <div className="p-6 space-y-4 max-w-[1400px] mx-auto">
         <Greetings />
 
-        {/* Header + filters */}
         <Card className="px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">Marketing - Dashboard</h1>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
-            {/* Platform filter */}
             <div className={SEGMENT_WRAP}>
               {["all", "Shopee", "Lazada", "TikTok"].map((p) => (
                 <button
@@ -1059,7 +1011,6 @@ function Marketing() {
               ))}
             </div>
 
-            {/* Date range */}
             <div className="flex items-center gap-2">
               <input
                 type="date"
@@ -1095,14 +1046,15 @@ function Marketing() {
           </div>
         )}
 
-        {/* Summary cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Card className="p-4">
             <p className="text-xs text-gray-500">Total Sales</p>
             {loading ? (
               <Skeleton />
             ) : (
-              <p className="text-2xl font-semibold mt-1 text-gray-900">{fmtCurrency(totalSales)}</p>
+              <p className="text-2xl font-semibold mt-1 text-gray-900 tabular-nums">
+                {fmtCurrency(totalSales)}
+              </p>
             )}
             <p className="text-xs mt-1 text-gray-400">{fmt(filteredOrders.length)} completed orders</p>
           </Card>
@@ -1129,7 +1081,7 @@ function Marketing() {
             {loading ? (
               <Skeleton />
             ) : (
-              <p className="text-2xl font-semibold mt-1" style={{ color: C.accent }}>
+              <p className="text-2xl font-semibold mt-1 tabular-nums" style={{ color: C.accent }}>
                 {fmt(activeCampaigns.length)}
               </p>
             )}
@@ -1145,7 +1097,7 @@ function Marketing() {
             {loading ? (
               <Skeleton />
             ) : (
-              <p className="text-2xl font-semibold mt-1" style={{ color: C.warning }}>
+              <p className="text-2xl font-semibold mt-1 tabular-nums" style={{ color: C.warning }}>
                 {fmt(lowPerformers.length)}
               </p>
             )}
@@ -1153,81 +1105,123 @@ function Marketing() {
           </Card>
         </div>
 
-        {/* Sales by platform + Sales by category */}
+        {/* Composition donuts with center totals */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <Card className="p-6">
-            <ChartTitle title="Sales by platform" subtitle="How much each platform sold, in pesos." />
+            <ChartTitle title="Sales by platform" subtitle="Share of total sales in the selected period." />
             {loading ? (
               <Skeleton className="h-48 w-full" />
             ) : platformSales.length === 0 ? (
               <p className="text-xs text-gray-400">No sales data yet.</p>
             ) : (
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={platformSales} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                  <XAxis
-                    dataKey="platform"
-                    tick={{ fontSize: 11, fill: "#6B7280" }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11, fill: "#6B7280" }}
-                    axisLine={false}
-                    tickLine={false}
-                    tickFormatter={(v) => fmt(v)}
-                  />
-                  <Tooltip formatter={(v) => fmtCurrency(v)} cursor={{ fill: "#f9fafb" }} />
-                  <Bar dataKey="amount" name="Sales" radius={[6, 6, 0, 0]}>
-                    {platformSales.map((p) => (
-                      <Cell key={p.platform} fill={p.color} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
+                <div className="relative">
+                  <ResponsiveContainer width="100%" height={200}>
+                    <PieChart>
+                      <Pie
+                        data={platformSales}
+                        dataKey="amount"
+                        nameKey="platform"
+                        innerRadius={58}
+                        outerRadius={82}
+                        paddingAngle={4}
+                        stroke="none"
+                      >
+                        {platformSales.map((p) => (
+                          <Cell key={p.platform} fill={p.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(v) => [
+                          `${fmtCurrency(v)} (${platformTotal > 0 ? ((v / platformTotal) * 100).toFixed(0) : 0}%)`,
+                          "Sales",
+                        ]}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span className="text-[10px] text-gray-400 uppercase tracking-wide">Total</span>
+                    <span className="text-sm font-bold text-gray-800 tabular-nums">
+                      {fmtCurrency(platformTotal)}
+                    </span>
+                  </div>
+                </div>
+                <ul className="space-y-2.5">
+                  {platformSales.map((p) => (
+                    <li key={p.platform} className="flex items-center justify-between text-xs">
+                      <span className="flex items-center gap-2 text-gray-600">
+                        <span
+                          className="w-2.5 h-2.5 rounded-full inline-block shrink-0"
+                          style={{ backgroundColor: p.color }}
+                        />
+                        {p.platform}
+                      </span>
+                      <span className="text-right tabular-nums">
+                        <span className="font-semibold text-gray-800">{fmtCurrency(p.amount)}</span>
+                        <span className="text-gray-400 ml-1">
+                          {platformTotal > 0 ? ((p.amount / platformTotal) * 100).toFixed(0) : 0}%
+                        </span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
           </Card>
 
           <Card className="p-6">
-            <ChartTitle title="Sales by category" subtitle="Men and Women share of all sales." />
+            <ChartTitle title="Sales by category" subtitle="Men / Women / Unisex share of all sales." />
             {loading ? (
               <Skeleton className="h-48 w-full" />
             ) : categorySales.length === 0 ? (
               <p className="text-xs text-gray-400">No sales data yet.</p>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
-                <ResponsiveContainer width="100%" height={200}>
-                  <PieChart>
-                    <Pie
-                      data={categorySales}
-                      dataKey="amount"
-                      nameKey="name"
-                      innerRadius={50}
-                      outerRadius={80}
-                      paddingAngle={3}
-                    >
-                      {categorySales.map((c) => (
-                        <Cell key={c.name} fill={c.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(v) => fmtCurrency(v)} />
-                  </PieChart>
-                </ResponsiveContainer>
-                <ul className="space-y-2">
+                <div className="relative">
+                  <ResponsiveContainer width="100%" height={200}>
+                    <PieChart>
+                      <Pie
+                        data={categorySales}
+                        dataKey="amount"
+                        nameKey="name"
+                        innerRadius={58}
+                        outerRadius={82}
+                        paddingAngle={4}
+                        stroke="none"
+                      >
+                        {categorySales.map((c) => (
+                          <Cell key={c.name} fill={c.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(v) => [
+                          `${fmtCurrency(v)} (${categoryTotal > 0 ? ((v / categoryTotal) * 100).toFixed(0) : 0}%)`,
+                          "Sales",
+                        ]}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span className="text-[10px] text-gray-400 uppercase tracking-wide">Total</span>
+                    <span className="text-sm font-bold text-gray-800 tabular-nums">
+                      {fmtCurrency(categoryTotal)}
+                    </span>
+                  </div>
+                </div>
+                <ul className="space-y-2.5">
                   {categorySales.map((c) => (
                     <li key={c.name} className="flex items-center justify-between text-xs">
-                      <span className="flex items-center gap-1.5 text-gray-600">
+                      <span className="flex items-center gap-2 text-gray-600">
                         <span
-                          className="w-2.5 h-2.5 rounded-sm inline-block"
+                          className="w-2.5 h-2.5 rounded-full inline-block shrink-0"
                           style={{ backgroundColor: c.color }}
                         />
                         {c.name}
                       </span>
-                      <span className="text-right">
-                        <span className="font-semibold text-gray-700">{fmtCurrency(c.amount)}</span>
-                        <span className="text-gray-400">
-                          {" "}
-                          ({categoryTotal > 0 ? ((c.amount / categoryTotal) * 100).toFixed(0) : 0}%)
+                      <span className="text-right tabular-nums">
+                        <span className="font-semibold text-gray-800">{fmtCurrency(c.amount)}</span>
+                        <span className="text-gray-400 ml-1">
+                          {categoryTotal > 0 ? ((c.amount / categoryTotal) * 100).toFixed(0) : 0}%
                         </span>
                       </span>
                     </li>
@@ -1238,11 +1232,11 @@ function Marketing() {
           </Card>
         </div>
 
-        {/* Seasonal trend */}
+        {/* Units sold trend */}
         <Card className="p-6">
           <ChartTitle
-            title="Trend"
-            subtitle="Units sold each month. Hover a point to see the best sellers and campaigns."
+            title="Units sold trend"
+            subtitle="Monthly volume. Hover for top sellers and campaigns that were active that month."
           />
           {loading ? (
             <Skeleton className="h-64 w-full" />
@@ -1250,10 +1244,10 @@ function Marketing() {
             <p className="text-xs text-gray-400">No sales data yet.</p>
           ) : (
             <ResponsiveContainer width="100%" height={300}>
-              <AreaChart data={monthlyTrend} margin={{ top: 24, right: 16, left: 0, bottom: 0 }}>
+              <AreaChart data={monthlyTrend} margin={{ top: 28, right: 16, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={TREND_LINE_COLOR} stopOpacity={0.35} />
+                    <stop offset="0%" stopColor={TREND_LINE_COLOR} stopOpacity={0.28} />
                     <stop offset="100%" stopColor={TREND_LINE_COLOR} stopOpacity={0} />
                   </linearGradient>
                 </defs>
@@ -1270,26 +1264,26 @@ function Marketing() {
                   tickLine={false}
                   tickFormatter={(v) => fmt(v)}
                 />
-                <Tooltip content={<TrendTooltip />} cursor={{ stroke: TREND_GRID_COLOR }} />
+                <Tooltip content={<TrendTooltip />} cursor={{ stroke: "#e5e7eb", strokeWidth: 1 }} />
                 <Area
                   type="monotone"
                   dataKey="total"
                   stroke={TREND_LINE_COLOR}
-                  strokeWidth={2}
+                  strokeWidth={2.5}
                   fill="url(#trendFill)"
                   dot={<TrendDot />}
-                  activeDot={{ r: 6, fill: TREND_LINE_COLOR }}
+                  activeDot={{ r: 7, fill: TREND_LINE_COLOR, stroke: "#fff", strokeWidth: 2 }}
                 />
               </AreaChart>
             </ResponsiveContainer>
           )}
         </Card>
 
-        {/* Sales each month, by platform */}
+        {/* Sales by platform over time */}
         <Card className="p-6">
           <ChartTitle
-            title="Sales each month by platform"
-            subtitle="Each bar is one month. The colors show how much each platform sold."
+            title="Sales by platform over time"
+            subtitle="Stacked monthly sales. See how each marketplace contributes month by month."
           />
           {loading ? (
             <Skeleton className="h-64 w-full" />
@@ -1300,6 +1294,7 @@ function Marketing() {
               <BarChart
                 data={monthlyPlatformSales}
                 margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
+                barCategoryGap="28%"
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
                 <XAxis
@@ -1314,8 +1309,17 @@ function Marketing() {
                   tickLine={false}
                   tickFormatter={(v) => fmt(v)}
                 />
-                <Tooltip formatter={(v) => fmtCurrency(v)} cursor={{ fill: "#f9fafb" }} />
-                <Legend iconType="square" wrapperStyle={{ fontSize: 12 }} />
+                <Tooltip
+                  formatter={(v) => fmtCurrency(v)}
+                  cursor={{ fill: "rgba(0,0,0,0.03)" }}
+                  contentStyle={{
+                    borderRadius: 8,
+                    border: "1px solid #e5e7eb",
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+                    fontSize: 12,
+                  }}
+                />
+                <Legend iconType="circle" wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
                 <Bar dataKey="Shopee" stackId="sales" fill={PLATFORM_COLORS.Shopee} />
                 <Bar dataKey="Lazada" stackId="sales" fill={PLATFORM_COLORS.Lazada} />
                 <Bar
@@ -1329,53 +1333,65 @@ function Marketing() {
           )}
         </Card>
 
-        {/* Top products chart */}
+        {/* Top products — modern ranking bars */}
         <Card className="p-6">
-          <ChartTitle
-            title="Top products"
-            subtitle={`The ${TOP_PRODUCTS_SHOWN} products that sold the most units.`}
-          />
-          {loading ? (
-            <Skeleton className="h-56 w-full" />
-          ) : topProductsChart.length === 0 ? (
-            <p className="text-xs text-gray-400">No sales data yet.</p>
-          ) : (
-            <ProductBars data={topProductsChart} color={C.accent} />
-          )}
-        </Card>
-
-        {/* Top products by month */}
-        <Card className="p-6">
-          <div className="flex flex-col md:flex-row md:items-start justify-between gap-3 mb-4">
+          <div className="flex flex-col md:flex-row md:items-start justify-between gap-3 mb-5">
             <ChartTitle
-              title="Top products by month"
-              subtitle="Pick a month to see its best sellers."
+              title="Top products"
+              subtitle={
+                productView === "overall"
+                  ? `The ${TOP_PRODUCTS_SHOWN} products that sold the most units in the selected period.`
+                  : "Best sellers for the month you pick."
+              }
             />
-            {!loading && availableMonths.length > 0 && (
-              <div className="flex gap-2 flex-wrap">
-                {availableMonths.map((key) => (
-                  <button
-                    key={key}
-                    onClick={() => setSelectedMonth(key)}
-                    className={`px-3 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
-                      (selectedMonth || availableMonths[0]) === key
-                        ? "text-white hover:brightness-90"
-                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                    }`}
-                    style={
-                      (selectedMonth || availableMonths[0]) === key
-                        ? { backgroundColor: C.accent }
-                        : undefined
-                    }
-                  >
-                    {monthLabel(key)}
-                  </button>
-                ))}
+            <div className="flex flex-col items-end gap-2">
+              <div className={SEGMENT_WRAP}>
+                <button
+                  onClick={() => setProductView("overall")}
+                  className={SEGMENT_BTN(productView === "overall")}
+                >
+                  Overall
+                </button>
+                <button
+                  onClick={() => setProductView("month")}
+                  className={SEGMENT_BTN(productView === "month")}
+                >
+                  By month
+                </button>
               </div>
-            )}
+              {productView === "month" && !loading && availableMonths.length > 0 && (
+                <div className="flex gap-1.5 flex-wrap justify-end">
+                  {availableMonths.map((key) => (
+                    <button
+                      key={key}
+                      onClick={() => setSelectedMonth(key)}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                        (selectedMonth || availableMonths[0]) === key
+                          ? "text-white"
+                          : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                      }`}
+                      style={
+                        (selectedMonth || availableMonths[0]) === key
+                          ? { backgroundColor: C.accent }
+                          : undefined
+                      }
+                    >
+                      {monthLabel(key)}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
+
           {loading ? (
             <Skeleton className="h-56 w-full" />
+          ) : productView === "overall" ? (
+            topProductsChart.length === 0 ? (
+              <p className="text-xs text-gray-400">No sales data yet.</p>
+            ) : (
+              <RankingBars data={topProductsChart} color={productChartColor} />
+            )
           ) : availableMonths.length === 0 ? (
             <p className="text-xs text-gray-400">No sales data yet.</p>
           ) : selectedMonthProducts.length === 0 ? (
@@ -1383,63 +1399,15 @@ function Marketing() {
               No sales recorded for {monthLabel(selectedMonth || availableMonths[0])}.
             </p>
           ) : (
-            <ProductBars data={selectedMonthProducts} color="#1D4E89" />
+            <RankingBars data={selectedMonthProducts} color={productChartColor} />
           )}
         </Card>
 
-        {/* Top 3 products, month by month */}
-        <Card className="p-6">
-          <ChartTitle
-            title="Top 3 products month by month"
-            subtitle="Follow the 3 best sellers to see when they go up or down."
-          />
-          {loading ? (
-            <Skeleton className="h-64 w-full" />
-          ) : topThree.length === 0 ? (
-            <p className="text-xs text-gray-400">No sales data yet.</p>
-          ) : topThreeTrend.length < 2 ? (
-            <p className="text-xs text-gray-400">
-              This chart needs sales from at least 2 months.
-            </p>
-          ) : (
-            <ResponsiveContainer width="100%" height={280}>
-              <LineChart data={topThreeTrend} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                <XAxis
-                  dataKey="month"
-                  tick={{ fontSize: 11, fill: "#6B7280" }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{ fontSize: 11, fill: "#6B7280" }}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={(v) => fmt(v)}
-                />
-                <Tooltip formatter={(v) => `${fmt(v)} units`} />
-                <Legend iconType="line" wrapperStyle={{ fontSize: 12 }} />
-                {topThree.map((p, i) => (
-                  <Line
-                    key={p.name}
-                    type="monotone"
-                    dataKey={`p${i}`}
-                    name={shortName(p.name)}
-                    stroke={LINE_COLORS[i]}
-                    strokeWidth={2}
-                    dot={{ r: 3 }}
-                    activeDot={{ r: 5 }}
-                  />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
-          )}
-        </Card>
-
-        {/* Low performing products (based on Inventory Overview) */}
+        {/* Low performing products */}
         <Card className="p-6">
           <ChartTitle
             title="Low performing products"
+            subtitle="Products that sold fewer units than average. Stock shown for context."
             badge={
               !loading && (
                 <span
@@ -1465,61 +1433,9 @@ function Marketing() {
             </p>
           ) : (
             <>
-              <ResponsiveContainer
-                width="100%"
-                height={Math.max(240, lowPerformerChart.length * 56)}
-              >
-                <BarChart
-                  data={lowPerformerChart}
-                  layout="vertical"
-                  margin={{ top: 0, right: 48, left: 8, bottom: 0 }}
-                  barCategoryGap={14}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
-                  <XAxis
-                    type="number"
-                    tick={{ fontSize: 11, fill: "#6B7280" }}
-                    axisLine={false}
-                    tickLine={false}
-                    tickFormatter={(v) => fmt(v)}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    width={160}
-                    tick={{ fontSize: 11, fill: "#374151" }}
-                    axisLine={false}
-                    tickLine={false}
-                    tickFormatter={shortName}
-                  />
-                  <Tooltip content={<LowPerformerTooltip />} cursor={{ fill: "#f9fafb" }} />
-                  <Legend iconType="square" wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="sold" name="Units sold" fill={C.warning} radius={[0, 4, 4, 0]} barSize={14}>
-                    <LabelList
-                      dataKey="sold"
-                      position="right"
-                      formatter={(v) => fmt(v)}
-                      style={{ fontSize: 11, fill: "#374151", fontWeight: 600 }}
-                    />
-                  </Bar>
-                  <Bar
-                    dataKey="stock"
-                    name="Left in stock"
-                    fill={STOCK_BAR_COLOR}
-                    radius={[0, 4, 4, 0]}
-                    barSize={14}
-                  >
-                    <LabelList
-                      dataKey="stock"
-                      position="right"
-                      formatter={(v) => fmt(v)}
-                      style={{ fontSize: 11, fill: "#6B7280" }}
-                    />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              <LowRankingBars data={lowPerformerChart} />
               {lowPerformers.length > lowPerformerChart.length && (
-                <p className="text-xs text-gray-400 mt-2">
+                <p className="text-xs text-gray-400 mt-4">
                   Showing the {lowPerformerChart.length} lowest. {fmt(
                     lowPerformers.length - lowPerformerChart.length
                   )}{" "}
@@ -1530,7 +1446,7 @@ function Marketing() {
           )}
         </Card>
 
-        {/* Active campaigns snapshot */}
+        {/* Active campaigns */}
         <Card className="p-6">
           <h2 className="text-sm font-semibold text-gray-700 mb-3">Active &amp; upcoming campaigns</h2>
           {loading ? (

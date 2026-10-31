@@ -12,6 +12,7 @@ const C = {
   border: "#E4E4E7",
   success: "#15803D",
   successSoft: "#EEF6EF",
+  successBorder: "#CFE5D2",
   warning: "#A15C07",
   warningSoft: "#FBF3E7",
   warningBorder: "#F1DDB8",
@@ -128,6 +129,40 @@ function SecondaryButton({ children, className = "", ...props }) {
     <button
       {...props}
       className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-50 cursor-pointer ${className}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+// Compact button used in the table's Actions column.
+function ActionButton({ variant = "primary", children, className = "", ...props }) {
+  const variants = {
+    // solid red — main action
+    primary: {
+      color: "#FFFFFF",
+      backgroundColor: C.accent,
+      borderColor: C.accent,
+    },
+    // soft red — destructive action
+    danger: {
+      color: C.accent,
+      backgroundColor: C.accentSoft,
+      borderColor: C.accentSoftBorder,
+    },
+    // soft green — restore action
+    success: {
+      color: C.success,
+      backgroundColor: C.successSoft,
+      borderColor: C.successBorder,
+    },
+  };
+
+  return (
+    <button
+      {...props}
+      className={`inline-flex items-center px-3 py-1.5 rounded-md border text-xs font-medium transition-all hover:brightness-95 active:scale-95 disabled:opacity-50 cursor-pointer ${className}`}
+      style={variants[variant] || variants.primary}
     >
       {children}
     </button>
@@ -340,7 +375,6 @@ function Marketing_campaigns() {
           </div>
           <div className="flex items-center gap-2 self-start md:self-auto">
             <PrimaryButton onClick={openCreateForm}>+ New Campaign</PrimaryButton>
-            
           </div>
         </Card>
 
@@ -451,36 +485,19 @@ function Marketing_campaigns() {
                           <StatusBadge status={status} />
                         </td>
                         <td className="px-5 py-3">
-                          <div className="flex items-center gap-3">
-                            <button
-                              onClick={() => setViewCampaign(c)}
-                              className="text-xs font-medium cursor-pointer hover:underline"
-                              style={{ color: C.accent }}
-                              onMouseEnter={(e) => (e.currentTarget.style.color = C.accentHover)}
-                              onMouseLeave={(e) => (e.currentTarget.style.color = C.accent)}
-                            >
+                          <div className="flex items-center gap-2">
+                            <ActionButton variant="primary" onClick={() => setViewCampaign(c)}>
                               View
-                            </button>
+                            </ActionButton>
+
                             {status === "Cancelled" ? (
-                              <button
-                                onClick={() => handleReactivate(c)}
-                                className="text-xs font-medium text-gray-500 hover:text-gray-700 hover:underline cursor-pointer"
-                              >
+                              <ActionButton variant="success" onClick={() => handleReactivate(c)}>
                                 Reactivate
-                              </button>
+                              </ActionButton>
                             ) : status !== "Ended" ? (
-                              <button
-                                onClick={() => handleCancel(c)}
-                                className="text-xs font-medium text-gray-400 hover:underline cursor-pointer"
-                                onMouseEnter={(e) =>
-                                  (e.currentTarget.style.color = C.accent)
-                                }
-                                onMouseLeave={(e) =>
-                                  (e.currentTarget.style.color = "")
-                                }
-                              >
+                              <ActionButton variant="danger" onClick={() => handleCancel(c)}>
                                 Cancel
-                              </button>
+                              </ActionButton>
                             ) : null}
                           </div>
                         </td>
@@ -720,14 +737,19 @@ function ViewCampaignModal({ campaign, onClose, onCancel, onReactivate, onNotesU
           {status === "Cancelled" ? (
             <button
               onClick={() => onReactivate(campaign)}
-              className="w-full px-3 py-2 rounded-md text-sm font-medium text-gray-700 border border-gray-300 hover:bg-gray-50 transition-colors cursor-pointer"
+              className="w-full px-3 py-2 rounded-md text-sm font-medium border transition-all hover:brightness-95 active:scale-95 cursor-pointer"
+              style={{
+                color: C.success,
+                borderColor: C.successBorder,
+                backgroundColor: C.successSoft,
+              }}
             >
               Reactivate Campaign
             </button>
           ) : status !== "Ended" ? (
             <button
               onClick={() => onCancel(campaign)}
-              className="w-full px-3 py-2 rounded-md text-sm font-medium border transition-colors cursor-pointer hover:brightness-95"
+              className="w-full px-3 py-2 rounded-md text-sm font-medium border transition-all hover:brightness-95 active:scale-95 cursor-pointer"
               style={{
                 color: C.accent,
                 borderColor: C.accentSoftBorder,

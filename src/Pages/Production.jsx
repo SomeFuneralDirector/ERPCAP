@@ -15,9 +15,10 @@ import {
   LabelList,
 } from "recharts";
 import { supabase } from "../api/supabase";
+import Greetings from "../Components/Greetings";
 
 /* ---------------------------------------------------------------------
- * Design tokens (ISONFAM ERP) — shared conventions with Sales_db.jsx.
+ * Design tokens (ISONFAM ERP) - shared conventions with Sales_db.jsx.
  * Red is reserved for the primary action and true alerts (low/out of
  * stock); status and platform colors use their own semantic palette
  * so red keeps its meaning as "needs attention".
@@ -70,7 +71,25 @@ const fmtKey = (k) =>
   keyToDate(k).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 
 const FINISHED_GOODS_PAGE_SIZE = 6;
-const POLL_INTERVAL_MS = 5000;
+const POLL_INTERVAL_MS = 30000;
+const FETCH_CHUNK = 1000; // Supabase returns at most 1000 rows per request
+
+/* Fetch every row of a query, paging past the 1000-row cap.
+   buildQuery must return a fresh query (with a stable order) on each call. */
+async function fetchAllPages(buildQuery) {
+  let all = [];
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await buildQuery().range(from, from + FETCH_CHUNK - 1);
+    if (error) return { data: null, error };
+    all = all.concat(data || []);
+    if (!data || data.length < FETCH_CHUNK) break;
+    from += FETCH_CHUNK;
+  }
+
+  return { data: all, error: null };
+}
 
 const CARD = "bg-white rounded-md border border-gray-200 shadow-sm";
 const SEGMENT_WRAP = "flex gap-0.5 bg-gray-100 rounded-md p-0.5";
@@ -166,145 +185,169 @@ function Production() {
   const prevFinishedGoodsJsonRef = useRef("");
   const prevReadyJsonRef = useRef("");
   const prevShippedCountRef = useRef(-1);
+  // True while a fetch is running, so background polls never overlap.
+  const inFlightRef = useRef(false);
 
   /**
    * mode: "initial" | "poll"
-   * Both fetch the same full data — only the loading indicator differs.
-   * The diff-skip above is what keeps "poll" cheap for the UI.
+   * Both fetch the same full data, only the loading indicator differs.
+   * The diff-skip above is what keeps "poll" cheap for the UI, and a poll
+   * is skipped entirely if the previous fetch is still running.
    */
   const fetchAll = useCallback(async (mode = "poll") => {
     const isInitial = mode === "initial";
+
+    if (!isInitial && inFlightRef.current) return;
+    inFlightRef.current = true;
 
     if (isInitial) setLoading(true);
     setErrorMsg("");
     setSoftErrors([]);
 
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
+    try {
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
 
-    const [woRes, outputRes, usageRes, materialsRes, finishedGoodsRes, readyRes, shippedRes] = await Promise.all([
-      supabase.from("work_orders").select("*").order("created_at", { ascending: false }),
-      supabase
-        .from("production_output")
-        .select("*")
-        .order("production_date", { ascending: false })
-        .limit(300),
-      supabase
-        .from("raw_material_usage")
-        .select("*")
-        .order("usage_date", { ascending: false })
-        .limit(300),
-      supabase.from("raw_materials").select("id, material_name, category, status, current_stock, suppliers(name)"),
-      // Finished goods stock: shared with Inventory's Products page. Same
-      // `reorder_point` column that page's threshold is based on, so a
-      // product flagged low here is flagged low there too.
-      supabase
-        .from("inventory")
-        .select("id, product_code, product_name, category, shopee_stock, lazada_stock, tiktok_stock, reorder_point"),
-      supabase
-        .from("production_orders")
-        .select("order_id, platform, total_amount, created_at")
-        .eq("status", "READY_TO_SHIP"),
-      supabase
-        .from("production_orders")
-        .select("order_id", { count: "exact", head: true })
-        .eq("status", "SHIPPED")
-        .gte("shipped_at", startOfToday.toISOString()),
-    ]);
+      const [woRes, outputRes, usageRes, materialsRes, finishedGoodsRes, readyRes, shippedRes] =
+        await Promise.all([
+          // Paged: work orders have no filter, so they grow forever and a
+          // plain query would silently stop at 1000 rows. Only the columns
+          // this page uses are requested.
+          fetchAllPages(() =>
+            supabase
+              .from("work_orders")
+              .select("id, status, product_name, quantity, due_date, completed_at, created_at")
+              .order("created_at", { ascending: false })
+              .order("id", { ascending: false }) // stable order across pages
+          ),
+          supabase
+            .from("production_output")
+            .select("id, product_name, batch_number, quantity, allocated, production_date, created_at")
+            .order("production_date", { ascending: false })
+            .limit(300),
+          supabase
+            .from("raw_material_usage")
+            .select("id, material_name, quantity_used, notes, wo_number, usage_date, created_at")
+            .order("usage_date", { ascending: false })
+            .limit(300),
+          supabase
+            .from("raw_materials")
+            .select("id, material_name, category, status, current_stock, suppliers(name)"),
+          // Finished goods stock: shared with Inventory's Products page. Same
+          // `reorder_point` column that page's threshold is based on, so a
+          // product flagged low here is flagged low there too.
+          supabase
+            .from("inventory")
+            .select(
+              "id, product_code, product_name, category, shopee_stock, lazada_stock, tiktok_stock, reorder_point"
+            ),
+          supabase
+            .from("production_orders")
+            .select("order_id, platform, total_amount, created_at")
+            .eq("status", "READY_TO_SHIP"),
+          supabase
+            .from("production_orders")
+            .select("order_id", { count: "exact", head: true })
+            .eq("status", "SHIPPED")
+            .gte("shipped_at", startOfToday.toISOString()),
+        ]);
 
-    // work_orders is the one dataset the whole page depends on. If it
-    // fails, block with a full-page error + retry. Everything else below is
-    // supplementary: a failure there is surfaced as a small amber notice
-    // and doesn't stop the rest of the dashboard from rendering.
-    const softIssues = [];
+      // work_orders is the one dataset the whole page depends on. If it
+      // fails, block with a full-page error + retry. Everything else below is
+      // supplementary: a failure there is surfaced as a small amber notice
+      // and doesn't stop the rest of the dashboard from rendering.
+      const softIssues = [];
 
-    if (woRes.error) {
-      setErrorMsg(woRes.error.message || "Couldn't load work orders.");
-    } else {
-      const fresh = woRes.data || [];
-      const freshJson = JSON.stringify(fresh);
-      if (freshJson !== prevWorkOrdersJsonRef.current) {
-        prevWorkOrdersJsonRef.current = freshJson;
-        setWorkOrders(fresh);
+      if (woRes.error) {
+        setErrorMsg(woRes.error.message || "Couldn't load work orders.");
+      } else {
+        const fresh = woRes.data || [];
+        const freshJson = JSON.stringify(fresh);
+        if (freshJson !== prevWorkOrdersJsonRef.current) {
+          prevWorkOrdersJsonRef.current = freshJson;
+          setWorkOrders(fresh);
+        }
       }
-    }
 
-    if (!outputRes.error) {
-      const fresh = outputRes.data || [];
-      const freshJson = JSON.stringify(fresh);
-      if (freshJson !== prevOutputJsonRef.current) {
-        prevOutputJsonRef.current = freshJson;
-        setOutput(fresh);
+      if (!outputRes.error) {
+        const fresh = outputRes.data || [];
+        const freshJson = JSON.stringify(fresh);
+        if (freshJson !== prevOutputJsonRef.current) {
+          prevOutputJsonRef.current = freshJson;
+          setOutput(fresh);
+        }
+      } else {
+        console.error("production_output fetch error:", outputRes.error);
+        softIssues.push("Production output couldn't be loaded.");
       }
-    } else {
-      console.error("production_output fetch error:", outputRes.error);
-      softIssues.push("Production output couldn't be loaded.");
-    }
 
-    if (!usageRes.error) {
-      const fresh = usageRes.data || [];
-      const freshJson = JSON.stringify(fresh);
-      if (freshJson !== prevUsageJsonRef.current) {
-        prevUsageJsonRef.current = freshJson;
-        setUsage(fresh);
+      if (!usageRes.error) {
+        const fresh = usageRes.data || [];
+        const freshJson = JSON.stringify(fresh);
+        if (freshJson !== prevUsageJsonRef.current) {
+          prevUsageJsonRef.current = freshJson;
+          setUsage(fresh);
+        }
+      } else {
+        console.error("raw_material_usage fetch error:", usageRes.error);
+        softIssues.push("Material usage couldn't be loaded.");
       }
-    } else {
-      console.error("raw_material_usage fetch error:", usageRes.error);
-      softIssues.push("Material usage couldn't be loaded.");
-    }
 
-    if (!materialsRes.error) {
-      const fresh = materialsRes.data || [];
-      const freshJson = JSON.stringify(fresh);
-      if (freshJson !== prevMaterialsJsonRef.current) {
-        prevMaterialsJsonRef.current = freshJson;
-        setMaterials(fresh);
+      if (!materialsRes.error) {
+        const fresh = materialsRes.data || [];
+        const freshJson = JSON.stringify(fresh);
+        if (freshJson !== prevMaterialsJsonRef.current) {
+          prevMaterialsJsonRef.current = freshJson;
+          setMaterials(fresh);
+        }
+      } else {
+        console.error("raw_materials fetch error:", materialsRes.error);
+        softIssues.push("Raw materials couldn't be loaded.");
       }
-    } else {
-      console.error("raw_materials fetch error:", materialsRes.error);
-      softIssues.push("Raw materials couldn't be loaded.");
-    }
 
-    if (!finishedGoodsRes.error) {
-      const fresh = finishedGoodsRes.data || [];
-      const freshJson = JSON.stringify(fresh);
-      if (freshJson !== prevFinishedGoodsJsonRef.current) {
-        prevFinishedGoodsJsonRef.current = freshJson;
-        setFinishedGoods(fresh);
+      if (!finishedGoodsRes.error) {
+        const fresh = finishedGoodsRes.data || [];
+        const freshJson = JSON.stringify(fresh);
+        if (freshJson !== prevFinishedGoodsJsonRef.current) {
+          prevFinishedGoodsJsonRef.current = freshJson;
+          setFinishedGoods(fresh);
+        }
+      } else {
+        console.error("inventory (finished goods) fetch error:", finishedGoodsRes.error);
+        softIssues.push("Finished goods stock couldn't be loaded.");
       }
-    } else {
-      console.error("inventory (finished goods) fetch error:", finishedGoodsRes.error);
-      softIssues.push("Finished goods stock couldn't be loaded.");
-    }
 
-    if (readyRes.error) {
-      console.error("production_orders (ready) fetch error:", readyRes.error);
-      softIssues.push("Ready to Ship data couldn't be loaded.");
-    } else {
-      const fresh = readyRes.data || [];
-      const freshJson = JSON.stringify(fresh);
-      if (freshJson !== prevReadyJsonRef.current) {
-        prevReadyJsonRef.current = freshJson;
-        setReadyToShip(fresh);
+      if (readyRes.error) {
+        console.error("production_orders (ready) fetch error:", readyRes.error);
+        softIssues.push("Ready to Ship data couldn't be loaded.");
+      } else {
+        const fresh = readyRes.data || [];
+        const freshJson = JSON.stringify(fresh);
+        if (freshJson !== prevReadyJsonRef.current) {
+          prevReadyJsonRef.current = freshJson;
+          setReadyToShip(fresh);
+        }
       }
-    }
 
-    if (shippedRes.error) {
-      console.error("production_orders (shipped) fetch error:", shippedRes.error);
-      softIssues.push("Today's shipped count couldn't be loaded.");
-    } else {
-      const freshCount = shippedRes.count || 0;
-      if (freshCount !== prevShippedCountRef.current) {
-        prevShippedCountRef.current = freshCount;
-        setShippedTodayCount(freshCount);
+      if (shippedRes.error) {
+        console.error("production_orders (shipped) fetch error:", shippedRes.error);
+        softIssues.push("Today's shipped count couldn't be loaded.");
+      } else {
+        const freshCount = shippedRes.count || 0;
+        if (freshCount !== prevShippedCountRef.current) {
+          prevShippedCountRef.current = freshCount;
+          setShippedTodayCount(freshCount);
+        }
       }
-    }
 
-    setSoftErrors(softIssues);
-    setLoading(false);
+      setSoftErrors(softIssues);
+    } finally {
+      inFlightRef.current = false;
+      setLoading(false);
+    }
   }, []);
 
-  // Polling: refetches on an interval, but only while the tab is visible —
+  // Polling: refetches on an interval, but only while the tab is visible,
   // paused in background tabs, with an immediate catch-up fetch the moment
   // the tab becomes visible again.
   useEffect(() => {
@@ -434,7 +477,7 @@ function Production() {
 
   const filteredReadyValue = filteredReadyToShip.reduce((sum, o) => sum + (o.total_amount || 0), 0) / 100;
 
-  // Per-platform breakdown carries both order count AND peso value —
+  // Per-platform breakdown carries both order count AND peso value,
   // count alone hides the fact that a platform with fewer orders can be
   // worth more.
   const readyPlatformChartData = useMemo(() => {
@@ -586,6 +629,8 @@ function Production() {
 
   return (
     <div className="p-6 space-y-4">
+      <Greetings />
+
       <div className={`${CARD} p-5 flex items-center justify-between gap-3`}>
         <h1 className="text-lg font-semibold text-gray-900">Production - Dashboard</h1>
         <div className="flex items-center gap-2">
@@ -660,7 +705,7 @@ function Production() {
         />
         <StatCard
           label="On-time completion"
-          value={woTimeliness.onTimeRate !== null ? `${woTimeliness.onTimeRate}%` : "—"}
+          value={woTimeliness.onTimeRate !== null ? `${woTimeliness.onTimeRate}%` : "-"}
           sub={
             woTimeliness.overdue > 0
               ? `${woTimeliness.overdue} open order(s) overdue`
