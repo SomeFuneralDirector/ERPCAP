@@ -8,9 +8,6 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
-  Cell,
-  BarChart,
-  Bar,
 } from "recharts";
 import { supabase } from "../api/supabase";
 import { toNumber, localDateKey, firstOfMonthKey } from "../lib/Finance";
@@ -37,9 +34,11 @@ const PLATFORM_COLORS = {
   TikTok: "#101113",
 };
 
+const TRACK_COLOR = "#F3F4F6";
+
 const POLL_INTERVAL_MS = 30000;
-const FETCH_CHUNK = 1000; // Supabase returns at most 1000 rows per request
-const ORDER_ITEMS_CHUNK_SIZE = 50; // fallback only: keeps .in() URLs short
+const FETCH_CHUNK = 1000;
+const ORDER_ITEMS_CHUNK_SIZE = 50;
 
 const ORDER_COLUMNS =
   "id, order_id, platform, total_amount, completed_at, created_at, paid_time, status, imported_at";
@@ -47,13 +46,16 @@ const ORDER_ITEM_COLUMNS =
   "id, order_uuid, order_id, platform, product_name, sku, quantity, unit_price";
 
 const fmtPHP = (n) =>
-  `₱${(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  `₱${(n ?? 0).toLocaleString("en-PH", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 
 const fmtAxis = (v) => `₱${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`;
 
 const centsToPesos = (c) => Math.max(0, toNumber(c)) / 100;
 
-const axisTick = { fontSize: 14, fill: "#000000" };
+const axisTick = { fontSize: 12, fill: "#6B7280" };
 
 const safeDate = (value) => {
   if (!value) return null;
@@ -66,7 +68,12 @@ const localDateBoundary = (value, endOfDay = false) => {
   const [year, month, day] = value.split("-").map(Number);
   const date = new Date(year, month - 1, day);
   if (Number.isNaN(date.getTime())) return null;
-  date.setHours(endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0);
+  date.setHours(
+    endOfDay ? 23 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 999 : 0
+  );
   return date.getTime();
 };
 
@@ -81,8 +88,6 @@ const normalizePlatform = (p) => {
 
 const orderDate = (o) => o.completed_at || o.created_at || o.paid_time;
 
-// Batch an array into chunks of a max size. Used to keep PostgREST
-// `.in()` filter URLs from growing past server/proxy URL length limits.
 const chunkArray = (arr, size) => {
   const chunks = [];
   for (let i = 0; i < arr.length; i += size) {
@@ -91,16 +96,12 @@ const chunkArray = (arr, size) => {
   return chunks;
 };
 
-// Merge two lists of rows by `id` (later rows win), so repeated or
-// overlapping fetches can never produce duplicate rows.
 const mergeById = (prev, next) => {
   const map = new Map(prev.map((row) => [row.id, row]));
   next.forEach((row) => map.set(row.id, row));
   return Array.from(map.values());
 };
 
-/* Fetch every row of a query, paging past the 1000-row cap.
-   buildQuery must return a fresh query (with a stable order) on each call. */
 async function fetchAllPages(buildQuery) {
   let all = [];
   let from = 0;
@@ -116,7 +117,6 @@ async function fetchAllPages(buildQuery) {
   return { data: all, error: null };
 }
 
-// Fallback only: fetch order_items for a list of order ids in parallel chunks.
 async function fetchItemsChunked(ids) {
   const results = await Promise.all(
     chunkArray(ids, ORDER_ITEMS_CHUNK_SIZE).map((chunk) =>
@@ -135,19 +135,13 @@ async function fetchItemsChunked(ids) {
   };
 }
 
-/**
- * Completed orders (optionally only those imported after `since`) together
- * with their items. Tries ONE nested query first (orders + order_items).
- * If that relationship is not available, falls back to the chunked approach.
- * Returns { orders, items, error, itemsError }.
- */
 async function fetchOrdersWithItems(since) {
   const buildQuery = (select) => () => {
     let q = supabase
       .from("orders")
       .select(select)
       .eq("status", "COMPLETED")
-      .order("id", { ascending: true }); // stable order across pages
+      .order("id", { ascending: true });
     if (since) q = q.gt("imported_at", since);
     return q;
   };
@@ -251,7 +245,7 @@ function useCountUp(target, duration = 500) {
   return value;
 }
 
-/* ── UI building blocks (same as the other pages) ─ */
+/* ── UI building blocks ─ */
 function Card({ children, className = "" }) {
   return (
     <div className={`bg-white rounded-lg border border-gray-200 shadow-sm ${className}`}>
@@ -307,7 +301,11 @@ function KpiCard({ label, loading, sub, children }) {
   return (
     <Card className="p-4">
       <p className="text-sm text-gray-500">{label}</p>
-      {loading ? <Skeleton /> : <div className="flex items-center gap-2 mt-1">{children}</div>}
+      {loading ? (
+        <Skeleton />
+      ) : (
+        <div className="flex items-center gap-2 mt-1">{children}</div>
+      )}
       {sub && <p className="text-sm mt-1 text-gray-400">{sub}</p>}
     </Card>
   );
@@ -316,13 +314,79 @@ function KpiCard({ label, loading, sub, children }) {
 function CurrencyTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-white border border-gray-200 rounded-md shadow-lg px-4 py-3.5 text-sm">
-      <p className="font-semibold text-gray-700 mb-1">{label}</p>
+    <div className="bg-white border border-gray-200 rounded-lg shadow-xl px-3.5 py-2.5 text-sm min-w-[160px]">
+      <p className="font-semibold text-gray-800 mb-1.5">{label}</p>
       {payload.map((p) => (
-        <p key={p.dataKey} style={{ color: p.color || p.fill }}>
+        <p key={p.dataKey} className="tabular-nums" style={{ color: p.color || p.fill }}>
           {p.name}: {fmtPHP(p.value)}
         </p>
       ))}
+    </div>
+  );
+}
+
+/** Progress-style ranking bars */
+function RankingBars({
+  data,
+  valueKey = "amount",
+  nameKey = "name",
+  color = C.accent,
+  formatter = (v) => Number(v).toLocaleString(),
+  secondaryFormatter,
+  secondaryKey,
+}) {
+  if (!data || data.length === 0) return null;
+  const max = Math.max(...data.map((d) => d[valueKey] || 0), 1);
+
+  return (
+    <div className="space-y-3.5">
+      {data.map((row, i) => {
+        const value = row[valueKey] || 0;
+        const pct = Math.round((value / max) * 100);
+        const label = row[nameKey];
+        return (
+          <div key={label}>
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <div className="flex items-center gap-2 min-w-0">
+                <span
+                  className="w-5 h-5 shrink-0 flex items-center justify-center rounded-full text-[10px] font-bold text-white"
+                  style={{
+                    backgroundColor: i < 3 ? row.color || color : "#9CA3AF",
+                  }}
+                >
+                  {i + 1}
+                </span>
+                <span className="text-sm font-medium text-gray-700 truncate" title={label}>
+                  {label}
+                </span>
+              </div>
+              <div className="text-right shrink-0">
+                <span className="text-sm font-semibold text-gray-800 tabular-nums">
+                  {formatter(value)}
+                </span>
+                {secondaryKey && secondaryFormatter && (
+                  <span className="block text-xs text-gray-400 tabular-nums">
+                    {secondaryFormatter(row[secondaryKey])}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div
+              className="h-2 rounded-full overflow-hidden"
+              style={{ backgroundColor: TRACK_COLOR }}
+            >
+              <div
+                className="h-full rounded-full transition-all duration-500 ease-out"
+                style={{
+                  width: `${pct}%`,
+                  backgroundColor: row.color || color,
+                  opacity: 1 - i * 0.05,
+                }}
+              />
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -348,25 +412,13 @@ function Sales_db({ onGoToImport }) {
   const [trendMode, setTrendMode] = useState("weekly");
   const [productSort, setProductSort] = useState("qty");
   const [lastSynced, setLastSynced] = useState(null);
-  // Default to the current month, the same as the Finance page.
   const [dateFrom, setDateFrom] = useState(firstOfMonthKey());
   const [dateTo, setDateTo] = useState(localDateKey());
   const [platformFilter, setPlatformFilter] = useState("all");
 
-  // Newest order `imported_at` already pulled. Background polls only ask
-  // for rows newer than this instead of re-fetching the whole table.
-  // (imported_at is a real timestamptz; created_at is TEXT in mixed formats.)
   const lastOrderSyncAtRef = useRef(null);
-  // True while a fetch is running, so background polls never overlap.
   const inFlightRef = useRef(false);
 
-  /**
-   * mode: "initial" | "poll"
-   * - "initial" always does a full resync.
-   * - "poll" (the background interval) only asks for orders newer than the
-   *   last sync point, skips if another fetch is still running, and skips
-   *   setState entirely when nothing is new.
-   */
   const fetchAll = useCallback(async (mode = "poll") => {
     const isInitial = mode === "initial";
     const fullResync = mode !== "poll";
@@ -382,8 +434,6 @@ function Sales_db({ onGoToImport }) {
 
     try {
       const since = fullResync ? null : lastOrderSyncAtRef.current;
-
-      // One nested query returns the orders together with their items.
       const res = await fetchOrdersWithItems(since);
 
       if (res.error) {
@@ -403,8 +453,6 @@ function Sales_db({ onGoToImport }) {
       } else if (fullResync) {
         setOrders([]);
       }
-      // On a poll with zero new orders, `orders` state is left untouched,
-      // so nothing re-renders for this slice.
 
       if (res.itemsError) {
         console.error("Error fetching order items:", res.itemsError);
@@ -431,9 +479,6 @@ function Sales_db({ onGoToImport }) {
     }
   }, []);
 
-  // Polling: refetches on an interval, but only while the tab is visible,
-  // paused in background tabs, with an immediate catch-up fetch the moment
-  // the tab becomes visible again.
   useEffect(() => {
     fetchAll("initial");
 
@@ -524,6 +569,7 @@ function Sales_db({ onGoToImport }) {
     });
     return Object.entries(map)
       .map(([platform, amount]) => ({
+        name: platform,
         platform,
         amount,
         color: PLATFORM_COLORS[platform] ?? "#6b7280",
@@ -545,9 +591,13 @@ function Sales_db({ onGoToImport }) {
       .slice(0, 6);
   }, [filteredOrderItems, productSort]);
 
-  const trendPoints = useMemo(() => bucketSales(filteredOrders, trendMode), [filteredOrders, trendMode]);
+  const trendPoints = useMemo(
+    () => bucketSales(filteredOrders, trendMode),
+    [filteredOrders, trendMode]
+  );
 
-  const latestPeriodValue = trendPoints.length > 0 ? trendPoints[trendPoints.length - 1].value : null;
+  const latestPeriodValue =
+    trendPoints.length > 0 ? trendPoints[trendPoints.length - 1].value : null;
   const periodUnit = { weekly: "week", monthly: "month", yearly: "year" }[trendMode];
 
   const loading = initialLoading;
@@ -562,7 +612,9 @@ function Sales_db({ onGoToImport }) {
         <div className="p-6">
           <Card className="p-6">
             <h1 className="text-3xl font-semibold text-gray-900 mb-2">Sales Dashboard</h1>
-            <p className="text-base mb-4" style={{ color: C.accent }}>{errorMsg}</p>
+            <p className="text-base mb-4" style={{ color: C.accent }}>
+              {errorMsg}
+            </p>
             <PrimaryButton onClick={() => fetchAll("initial")}>Retry</PrimaryButton>
           </Card>
         </div>
@@ -579,9 +631,7 @@ function Sales_db({ onGoToImport }) {
         <Card className="px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
             <h1 className="text-3xl font-semibold text-gray-900">Sales Dashboard</h1>
-            {lastSynced && !loading && (
-              <p className="text-sm text-gray-400 mt-0.5">Synced {timeAgo(lastSynced)}</p>
-            )}
+          
           </div>
 
           <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
@@ -614,16 +664,24 @@ function Sales_db({ onGoToImport }) {
 
         {errorMsg && orders.length > 0 && (
           <div
-            className="rounded-md border px-4 py-4 text-sm"
-            style={{ backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder, color: C.accent }}
+            className="rounded-md border px-4 py-3 text-sm"
+            style={{
+              backgroundColor: C.accentSoft,
+              borderColor: C.accentSoftBorder,
+              color: C.accent,
+            }}
           >
             Last refresh failed: {errorMsg}
           </div>
         )}
         {itemsWarning && (
           <div
-            className="rounded-md border px-4 py-4 text-sm"
-            style={{ backgroundColor: C.warningSoft, borderColor: C.warningBorder, color: C.warning }}
+            className="rounded-md border px-4 py-3 text-sm"
+            style={{
+              backgroundColor: C.warningSoft,
+              borderColor: C.warningBorder,
+              color: C.warning,
+            }}
           >
             {itemsWarning}
           </div>
@@ -636,21 +694,29 @@ function Sales_db({ onGoToImport }) {
             loading={loading}
             sub={`${filteredOrders.length.toLocaleString()} completed orders`}
           >
-            <p className="text-3xl font-semibold text-gray-900">{fmtPHP(animatedTotalSales)}</p>
+            <p className="text-3xl font-semibold text-gray-900 tabular-nums">
+              {fmtPHP(animatedTotalSales)}
+            </p>
           </KpiCard>
 
           <KpiCard label="Avg order value" loading={loading} sub="per completed order">
-            <p className="text-3xl font-semibold text-gray-900">{fmtPHP(animatedAvgOrder)}</p>
+            <p className="text-3xl font-semibold text-gray-900 tabular-nums">
+              {fmtPHP(animatedAvgOrder)}
+            </p>
           </KpiCard>
 
           <KpiCard label="Items sold" loading={loading} sub="units across all orders">
-            <p className="text-3xl font-semibold text-gray-900">
+            <p className="text-3xl font-semibold text-gray-900 tabular-nums">
               {Math.round(animatedItemsSold).toLocaleString()}
             </p>
           </KpiCard>
 
-          <KpiCard label="Latest period" loading={loading} sub={`sales in the latest ${periodUnit}`}>
-            <p className="text-3xl font-semibold text-gray-900">
+          <KpiCard
+            label="Latest period"
+            loading={loading}
+            sub={`sales in the latest ${periodUnit}`}
+          >
+            <p className="text-3xl font-semibold text-gray-900 tabular-nums">
               {latestPeriodValue != null ? fmtPHP(latestPeriodValue) : "-"}
             </p>
           </KpiCard>
@@ -665,13 +731,16 @@ function Sales_db({ onGoToImport }) {
             return (
               <Card key={platform} className="p-4">
                 <p className="text-sm text-gray-500 flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: color }} />
+                  <span
+                    className="w-2.5 h-2.5 rounded-full inline-block"
+                    style={{ background: color }}
+                  />
                   {platform}
                 </p>
                 {loading ? (
                   <Skeleton />
                 ) : (
-                  <p className="text-3xl font-semibold mt-1" style={{ color }}>
+                  <p className="text-3xl font-semibold mt-1 tabular-nums" style={{ color }}>
                     {fmtPHP(entry?.amount)}
                   </p>
                 )}
@@ -683,8 +752,14 @@ function Sales_db({ onGoToImport }) {
 
         {/* Sales trend */}
         <Card className="p-6">
-          <div className="flex items-center justify-between mb-3 gap-3">
-            <h2 className="text-base font-semibold text-gray-700">Sales trend</h2>
+          <div className="flex items-center justify-between mb-1 gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-gray-700">Sales trend</h2>
+              <p className="text-sm text-gray-400">
+                {trendMode.charAt(0).toUpperCase() + trendMode.slice(1)} sales over the selected
+                range
+              </p>
+            </div>
             <SegmentedControl
               value={trendMode}
               onChange={setTrendMode}
@@ -695,30 +770,41 @@ function Sales_db({ onGoToImport }) {
             />
           </div>
           {loading ? (
-            <Skeleton className="h-72 w-full" />
+            <Skeleton className="h-72 w-full mt-4" />
           ) : trendPoints.length === 0 ? (
             <EmptyState onImport={onGoToImport} />
           ) : (
             <ResponsiveContainer width="100%" height={330}>
-              <AreaChart data={trendPoints} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+              <AreaChart data={trendPoints} margin={{ top: 16, right: 16, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="salesFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={C.accent} stopOpacity={0.35} />
+                    <stop offset="0%" stopColor={C.accent} stopOpacity={0.28} />
                     <stop offset="100%" stopColor={C.accent} stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                <XAxis dataKey="label" tick={axisTick} axisLine={false} tickLine={false} />
-                <YAxis tick={axisTick} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
+                <XAxis
+                  dataKey="label"
+                  tick={axisTick}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={axisTick}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={fmtAxis}
+                />
                 <Tooltip
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
                     const point = payload[0].payload;
                     return (
-                      <div className="bg-white border border-gray-200 rounded-md shadow-lg px-4 py-3.5 text-sm">
-                        <p className="font-semibold text-gray-700 mb-1">{label}</p>
-                        <p style={{ color: C.accent }}>
-                          {trendMode.charAt(0).toUpperCase() + trendMode.slice(1)} sales: {fmtPHP(point.value)}
+                      <div className="bg-white border border-gray-200 rounded-lg shadow-xl px-3.5 py-2.5 text-sm min-w-[160px]">
+                        <p className="font-semibold text-gray-800 mb-1.5">{label}</p>
+                        <p className="tabular-nums" style={{ color: C.accent }}>
+                          {trendMode.charAt(0).toUpperCase() + trendMode.slice(1)} sales:{" "}
+                          {fmtPHP(point.value)}
                         </p>
                         <p className="text-gray-500">
                           {point.orders} order{point.orders !== 1 ? "s" : ""}
@@ -727,90 +813,91 @@ function Sales_db({ onGoToImport }) {
                     );
                   }}
                 />
-                <Legend verticalAlign="top" height={36} iconType="line" wrapperStyle={{ fontSize: 15 }} />
+                <Legend
+                  verticalAlign="top"
+                  height={36}
+                  iconType="circle"
+                  wrapperStyle={{ fontSize: 13, paddingBottom: 4 }}
+                />
                 <Area
                   type="monotone"
                   dataKey="value"
                   name={`${trendMode.charAt(0).toUpperCase() + trendMode.slice(1)} Sales`}
                   stroke={C.accent}
-                  strokeWidth={2}
+                  strokeWidth={2.5}
                   fill="url(#salesFill)"
-                  dot={{ r: 3, fill: C.accent, strokeWidth: 0 }}
-                  activeDot={{ r: 5 }}
+                  dot={{ r: 4, fill: C.accent, strokeWidth: 0 }}
+                  activeDot={{ r: 6, fill: C.accent, strokeWidth: 0 }}
                 />
               </AreaChart>
             </ResponsiveContainer>
           )}
         </Card>
 
-        {/* Sales per platform */}
-        <Card className="p-6">
-          <h2 className="text-base font-semibold text-gray-700 mb-3">Sales per platform</h2>
-          {loading ? (
-            <Skeleton className="h-56 w-full" />
-          ) : platformTotals.length === 0 ? (
-            <EmptyState onImport={onGoToImport} />
-          ) : (
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={platformTotals} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                <XAxis dataKey="platform" tick={axisTick} axisLine={false} tickLine={false} />
-                <YAxis tick={axisTick} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
-                <Tooltip content={<CurrencyTooltip />} cursor={{ fill: "#F9FAFB" }} />
-                <Bar dataKey="amount" name="Sales" radius={[4, 4, 0, 0]} maxBarSize={80}>
-                  {platformTotals.map((p) => (
-                    <Cell key={p.platform} fill={p.color} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </Card>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {/* Sales per platform — ranking bars */}
+          <Card className="p-6">
+            <h2 className="text-base font-semibold text-gray-700 mb-1">Sales per platform</h2>
+            <p className="text-sm text-gray-400 mb-5">Share of completed order revenue</p>
+            {loading ? (
+              <Skeleton className="h-40 w-full" />
+            ) : platformTotals.length === 0 ? (
+              <EmptyState onImport={onGoToImport} />
+            ) : (
+              <RankingBars
+                data={platformTotals}
+                valueKey="amount"
+                nameKey="name"
+                formatter={(v) => fmtPHP(v)}
+              />
+            )}
+          </Card>
 
-        {/* Top products */}
-        <Card className="p-6">
-          <div className="flex items-center justify-between mb-3 gap-3">
-            <h2 className="text-base font-semibold text-gray-700">Top products sold</h2>
-            <SegmentedControl
-              value={productSort}
-              onChange={setProductSort}
-              options={[
-                { value: "qty", label: "Units" },
-                { value: "amount", label: "Revenue" },
-              ]}
-            />
-          </div>
-          {loading ? (
-            <Skeleton className="h-56 w-full" />
-          ) : topProducts.length === 0 ? (
-            <EmptyState onImport={onGoToImport} />
-          ) : (
-            <ResponsiveContainer width="100%" height={Math.max(220, topProducts.length * 48)}>
-              <BarChart
-                data={topProducts}
-                layout="vertical"
-                margin={{ top: 0, right: 16, left: 8, bottom: 0 }}
-                barCategoryGap={12}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
-                <XAxis type="number" tick={axisTick} axisLine={false} tickLine={false} />
-                <YAxis type="category" dataKey="name" width={180} tick={axisTick} axisLine={false} tickLine={false} />
-                <Tooltip
-                  cursor={{ fill: "#F9FAFB" }}
-                  contentStyle={{ fontSize: 15, borderRadius: 8, borderColor: C.border }}
-                  formatter={(value, name) =>
-                    name === "amount" ? [fmtPHP(value), "Revenue"] : [`${value} sold`, "Quantity"]
+          {/* Top products — ranking bars */}
+          <Card className="p-6">
+            <div className="flex items-center justify-between mb-1 gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-gray-700">Top products sold</h2>
+                <p className="text-sm text-gray-400">Top 6 by {productSort === "qty" ? "units" : "revenue"}</p>
+              </div>
+              <SegmentedControl
+                value={productSort}
+                onChange={setProductSort}
+                options={[
+                  { value: "qty", label: "Units" },
+                  { value: "amount", label: "Revenue" },
+                ]}
+              />
+            </div>
+            {loading ? (
+              <Skeleton className="h-40 w-full mt-4" />
+            ) : topProducts.length === 0 ? (
+              <EmptyState onImport={onGoToImport} />
+            ) : (
+              <div className="mt-4">
+                <RankingBars
+                  data={topProducts.map((p, i) => ({
+                    ...p,
+                    color: i === 0 ? C.accent : "#C45C56",
+                  }))}
+                  valueKey={productSort}
+                  nameKey="name"
+                  formatter={
+                    productSort === "amount"
+                      ? (v) => fmtPHP(v)
+                      : (v) => `${Number(v).toLocaleString()} sold`
+                  }
+                  secondaryKey={productSort === "qty" ? "amount" : "qty"}
+                  secondaryFormatter={
+                    productSort === "qty"
+                      ? (v) => fmtPHP(v)
+                      : (v) => `${Number(v).toLocaleString()} units`
                   }
                 />
-                <Bar dataKey={productSort} name={productSort} radius={[0, 4, 4, 0]} barSize={26}>
-                  {topProducts.map((_, i) => (
-                    <Cell key={i} fill={i === 0 ? C.accent : "#E8B9B9"} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </Card>
+              </div>
+            )}
+          </Card>
+        </div>
       </div>
     </div>
   );

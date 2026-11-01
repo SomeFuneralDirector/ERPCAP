@@ -148,29 +148,54 @@ function Sidebar({
 
   return (
     <aside
-      className="h-full bg-white flex flex-col"
+      className="h-full bg-white flex flex-col relative"
       style={{
-        width: collapsed ? 70 : 240,
-        transition: "width 0.25s cubic-bezier(.4,0,.2,1)",
-        boxShadow: "20px 0px 100px rgba(0, 0, 0, 0.12)",
+        width: collapsed ? 72 : 248,
+        transition: "width 0.22s ease",
         borderRight: `1px solid ${C.border}`,
       }}
     >
+      {/* Edge toggle: same position in both states, centered on the header */}
+      {onToggleCollapsed && (
+        <button
+          onClick={onToggleCollapsed}
+          className="hidden lg:flex absolute top-5 -right-3 z-40 items-center justify-center w-6 h-6 rounded-full bg-white shadow-sm cursor-pointer transition-colors"
+          style={{ border: `1px solid ${C.border}`, color: C.textMuted }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.color = C.accent;
+            e.currentTarget.style.borderColor = C.accentSoftBorder;
+            e.currentTarget.style.backgroundColor = C.accentSoft;
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.color = C.textMuted;
+            e.currentTarget.style.borderColor = C.border;
+            e.currentTarget.style.backgroundColor = "#FFFFFF";
+          }}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          title={collapsed ? "Expand" : "Collapse"}
+        >
+          {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+        </button>
+      )}
+
+      {/* Brand */}
       <div
-        className="flex items-center justify-between px-4 h-16 flex-shrink-0"
+        className={`flex items-center h-16 flex-shrink-0 gap-2 ${
+          collapsed ? "justify-center px-2" : "justify-between px-3"
+        }`}
         style={{ borderBottom: `1px solid ${C.border}` }}
       >
-        <div className="flex items-center gap-3">
+        <div className={`flex items-center gap-2 min-w-0 ${collapsed ? "" : "flex-1"}`}>
           <img
             src={logotry}
             alt="logo"
-            className="h-10 w-10 rounded-full shadow-sm bg-white cursor-pointer object-cover"
+            className="h-9 w-9 rounded-full shadow-sm bg-white cursor-pointer object-cover flex-shrink-0"
             style={{ border: `2px solid ${C.accentSoftBorder}` }}
             onClick={goHome}
           />
           {!collapsed && (
             <span
-              className="font-bold text-sm tracking-tight whitespace-nowrap overflow-hidden cursor-pointer"
+              className="font-bold text-sm tracking-tight truncate cursor-pointer"
               style={{ color: C.text }}
               onClick={goHome}
             >
@@ -178,84 +203,103 @@ function Sidebar({
             </span>
           )}
         </div>
-        {onToggleCollapsed && (
-          <button
-            onClick={onToggleCollapsed}
-            className="hidden lg:flex transition-colors cursor-pointer"
-            style={{ color: C.textMuted }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = C.accent;
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = C.textMuted;
-            }}
-          >
-            {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-          </button>
-        )}
         {showClose && (
           <button
             onClick={onClose}
-            className="lg:hidden transition-colors"
+            className="lg:hidden flex items-center justify-center w-7 h-7 rounded-md transition-colors cursor-pointer flex-shrink-0"
             style={{ color: C.textMuted }}
+            aria-label="Close menu"
           >
             <X size={16} />
           </button>
         )}
       </div>
 
-      <nav className="flex-1 px-2 py-3 space-y-1 overflow-y-auto">
+      {/* Nav */}
+      <nav className="flex-1 px-2 py-3 space-y-1 overflow-y-auto overflow-x-hidden">
         {filteredNavItems.length > 0 ? (
           filteredNavItems.map(({ id, label, icon: Icon, children }) => {
-            const isOpen = !!openGroups[id];
+            const isOpen = !collapsed && !!openGroups[id];
             const hasActiveChild = children?.some((c) => c.id === active);
 
+            // Collapsed: show every page icon (children), not just the section
+            if (collapsed) {
+              return (
+                <div key={id} className="space-y-1">
+                  {(children || []).map(({ id: childId, label: childLabel, icon: ChildIcon, path }) => {
+                    const isActive = active === childId;
+                    return (
+                      <button
+                        key={childId}
+                        type="button"
+                        onClick={() => onNavigate(childId, path)}
+                        title={childLabel}
+                        className="w-full flex items-center justify-center rounded-lg py-2.5 transition-all cursor-pointer"
+                        style={{
+                          color: isActive ? "#FFFFFF" : C.textMuted,
+                          backgroundColor: isActive ? C.accent : "transparent",
+                          boxShadow: isActive ? "0 2px 8px rgba(179,33,27,0.22)" : "none",
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isActive) {
+                            e.currentTarget.style.backgroundColor = C.accentSoft;
+                            e.currentTarget.style.color = C.accent;
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isActive) {
+                            e.currentTarget.style.backgroundColor = "transparent";
+                            e.currentTarget.style.color = C.textMuted;
+                          }
+                        }}
+                      >
+                        <ChildIcon size={18} strokeWidth={isActive ? 2.2 : 1.8} />
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            }
+
+            // Expanded: group header + children
             return (
               <div key={id}>
                 <button
                   type="button"
                   onClick={() => onToggleGroup(id)}
-                  title={collapsed ? label : undefined}
-                  className={`w-full flex items-center rounded-lg text-sm font-medium transition-all cursor-pointer ${
-                    collapsed ? "justify-center px-2 py-2" : "justify-between px-2.5 py-2"
-                  }`}
+                  className="w-full flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-sm font-medium transition-all cursor-pointer"
                   style={{
                     color: hasActiveChild || isOpen ? C.accent : C.textMuted,
-                    backgroundColor: hasActiveChild ? C.accentSoft : "transparent",
+                    backgroundColor: hasActiveChild && !isOpen ? C.accentSoft : "transparent",
                   }}
                   onMouseEnter={(e) => {
-                    if (!hasActiveChild) e.currentTarget.style.backgroundColor = C.accentSoft;
+                    e.currentTarget.style.backgroundColor = C.accentSoft;
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = hasActiveChild
-                      ? C.accentSoft
-                      : "transparent";
+                    e.currentTarget.style.backgroundColor =
+                      hasActiveChild && !isOpen ? C.accentSoft : "transparent";
                   }}
                 >
                   <span className="flex items-center gap-2.5 min-w-0">
-                    <Icon size={15} className="flex-shrink-0" strokeWidth={1.8} />
-                    {!collapsed && (
-                      <span className="text-xs font-bold uppercase tracking-widest truncate">
-                        {label}
-                      </span>
-                    )}
+                    <Icon size={16} className="flex-shrink-0" strokeWidth={1.8} />
+                    <span className="text-[11px] font-bold uppercase tracking-wider truncate">
+                      {label}
+                    </span>
                   </span>
-                  {!collapsed && (
-                    <ChevronDown
-                      size={14}
-                      className="flex-shrink-0"
-                      style={{
-                        transform: isOpen ? "rotate(0deg)" : "rotate(-90deg)",
-                        transition: "transform 0.2s ease",
-                      }}
-                    />
-                  )}
+                  <ChevronDown
+                    size={14}
+                    className="flex-shrink-0 opacity-70"
+                    style={{
+                      transform: isOpen ? "rotate(0deg)" : "rotate(-90deg)",
+                      transition: "transform 0.18s ease",
+                    }}
+                  />
                 </button>
 
                 {isOpen && children && (
                   <div
-                    className={`mt-0.5 space-y-0.5 ${collapsed ? "" : "ml-3 pl-2"}`}
-                    style={collapsed ? undefined : { borderLeft: `1px solid ${C.border}` }}
+                    className="mt-0.5 mb-1 ml-3 pl-2 space-y-0.5"
+                    style={{ borderLeft: `1px solid ${C.border}` }}
                   >
                     {children.map(({ id: childId, label: childLabel, icon: ChildIcon, path }) => {
                       const isActive = active === childId;
@@ -263,16 +307,13 @@ function Sidebar({
                         <button
                           key={childId}
                           onClick={() => onNavigate(childId, path)}
-                          title={collapsed ? childLabel : undefined}
-                          className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-all cursor-pointer ${
-                            collapsed ? "justify-center" : ""
-                          }`}
+                          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-all cursor-pointer"
                           style={
                             isActive
                               ? {
                                   backgroundColor: C.accent,
                                   color: "#FFFFFF",
-                                  boxShadow: "0 2px 10px rgba(179,33,27,0.25)",
+                                  boxShadow: "0 2px 8px rgba(179,33,27,0.22)",
                                   fontWeight: 500,
                                 }
                               : { color: C.textMuted }
@@ -295,9 +336,7 @@ function Sidebar({
                             className="flex-shrink-0"
                             strokeWidth={isActive ? 2.2 : 1.8}
                           />
-                          {!collapsed && (
-                            <span className="text-left whitespace-nowrap">{childLabel}</span>
-                          )}
+                          <span className="text-left truncate">{childLabel}</span>
                         </button>
                       );
                     })}
@@ -316,14 +355,14 @@ function Sidebar({
         )}
       </nav>
 
-      <div
-        className="px-2 py-3 space-y-0.5"
-        style={{ borderTop: `1px solid ${C.border}` }}
-      >
+      {/* Footer */}
+      <div className="px-2 py-3 space-y-1" style={{ borderTop: `1px solid ${C.border}` }}>
         <button
           onClick={onLogout}
           title={collapsed ? "Logout" : undefined}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer"
+          className={`w-full flex items-center gap-2.5 rounded-lg text-sm font-medium transition-all cursor-pointer ${
+            collapsed ? "justify-center py-2.5" : "px-2.5 py-2"
+          }`}
           style={{ color: C.textMuted }}
           onMouseEnter={(e) => {
             e.currentTarget.style.backgroundColor = C.accentSoft;
@@ -334,27 +373,28 @@ function Sidebar({
             e.currentTarget.style.color = C.textMuted;
           }}
         >
-          <LogOut size={18} className="flex-shrink-0" strokeWidth={1.8} />
+          <LogOut size={16} className="flex-shrink-0" strokeWidth={1.8} />
           {!collapsed && <span className="flex-1 text-left">Logout</span>}
         </button>
+
         {userRole && (
           <div
-            className={`flex items-center gap-3 px-3 py-2 rounded-xl mt-2 ${
-              collapsed ? "justify-center" : ""
+            className={`flex items-center gap-2.5 rounded-lg ${
+              collapsed ? "justify-center py-2" : "px-2.5 py-2"
             }`}
           >
             <div
-              className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-white text-xs font-bold"
+              className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-white text-xs font-bold"
               style={{ backgroundColor: C.accent }}
             >
               {userDisplay.initials}
             </div>
             {!collapsed && (
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold truncate" style={{ color: C.text }}>
+                <p className="text-sm font-semibold truncate" style={{ color: C.text }}>
                   {userDisplay.name}
                 </p>
-                <p className="text-[10px] capitalize" style={{ color: C.textMuted }}>
+                <p className="text-xs capitalize" style={{ color: C.textMuted }}>
                   {userDisplay.roleDisplay}
                 </p>
               </div>
@@ -410,14 +450,11 @@ function Nav() {
     }
   };
 
-  // Each account only sees its own section:
-  // admin -> Admin, inventory -> Inventory, marketing -> Marketing, etc.
   const filteredNavItems = navItems.filter((item) => {
     if (authLoading || !userRole) return false;
     return item.role === userRole;
   });
 
-  // Logo click goes to the first page of the user's own menu
   const homeItem = filteredNavItems[0]?.children?.[0];
 
   const getUserDisplay = () => {
@@ -457,15 +494,18 @@ function Nav() {
       <button
         onClick={() => setMobileOpen(true)}
         className="fixed top-4 left-4 z-10 lg:hidden bg-white p-2 rounded-lg shadow-md"
+        aria-label="Open menu"
       >
         <Menu size={20} />
       </button>
+
       {mobileOpen && (
         <div
           className="fixed inset-0 bg-black/40 z-20 lg:hidden"
           onClick={() => setMobileOpen(false)}
         />
       )}
+
       <div className="hidden lg:block h-full flex-shrink-0">
         <Sidebar
           {...sidebarProps}
@@ -473,11 +513,12 @@ function Nav() {
           onToggleCollapsed={() => setCollapsed((v) => !v)}
         />
       </div>
+
       <div
         className={`fixed left-0 top-0 h-full z-30 lg:hidden transition-transform duration-300 ${
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         }`}
-        style={{ width: 240 }}
+        style={{ width: 248 }}
       >
         <Sidebar
           {...sidebarProps}
