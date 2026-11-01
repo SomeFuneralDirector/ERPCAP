@@ -208,8 +208,11 @@ function Inventory_archive() {
 
   const tab = TABS.find((t) => t.key === tabKey);
 
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
+  // silent = true refreshes the lists without flashing the loading skeleton.
+  // Used by the realtime listener so items archived elsewhere appear here
+  // right away.
+  const fetchAll = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setLoadError("");
     const results = await Promise.all(
       TABS.map((t) =>
@@ -234,11 +237,36 @@ function Inventory_archive() {
     });
     setRows(next);
     if (errors.length) setLoadError(errors.join(" · "));
-    setLoading(false);
+    if (!silent) setLoading(false);
   }, []);
 
   useEffect(() => {
     fetchAll();
+  }, [fetchAll]);
+
+  // Live-refresh: one channel listening to all three tables, debounced so a
+  // burst of changes causes a single refetch.
+  useEffect(() => {
+    let debounceId = null;
+    const scheduleRefresh = () => {
+      clearTimeout(debounceId);
+      debounceId = setTimeout(() => fetchAll(true), 400);
+    };
+
+    const channel = supabase.channel("inventory_archive_live");
+    TABS.forEach((t) => {
+      channel.on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: t.table },
+        scheduleRefresh,
+      );
+    });
+    channel.subscribe();
+
+    return () => {
+      clearTimeout(debounceId);
+      supabase.removeChannel(channel);
+    };
   }, [fetchAll]);
 
   const switchTab = (key) => {
@@ -289,10 +317,6 @@ function Inventory_archive() {
           <h1 className="text-2xl font-semibold text-gray-900">
             Inventory - Archive
           </h1>
-          <p className="text-xs text-gray-400 mt-0.5">
-            Archived items are hidden from their inventory pages. Restore one to
-            bring it back.
-          </p>
         </div>
 
         {loadError && (

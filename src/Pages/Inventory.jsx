@@ -383,7 +383,7 @@ function AllocationRequestsPanel({ requests, inventory, onResolved }) {
 
   // The platform is whatever Production set on the request. "All" or empty
   // means the request isn't tied to a single sellable platform yet, so it
-  // can't be resolved here — that's on Production, not Inventory.
+  // can't be resolved here. That is on Production, not Inventory.
   const platformFor = (req) => (req.platform && req.platform !== "All" ? req.platform : null);
 
   const handleApprove = async (req) => {
@@ -396,18 +396,27 @@ function AllocationRequestsPanel({ requests, inventory, onResolved }) {
       return;
     }
     if (!platform) {
-      setError(`"${req.wo_number || req.product_name}" has no specific platform assigned. Reject it and ask Production to resubmit with a platform — Inventory can't choose one here.`);
+      setError(`"${req.wo_number || req.product_name}" has no specific platform assigned. Reject it and ask Production to resubmit with a platform. Inventory can't choose one here.`);
+      return;
+    }
+
+    // `inventory` only holds ACTIVE products. If the product was archived
+    // after the request was made, it will not be found here. Without this
+    // guard the update below would overwrite that product's platform stock
+    // with just the request quantity.
+    const product = inventory.find((p) => p.id === productId);
+    if (!product) {
+      setError(`"${req.product_name}" isn't in active inventory (it may be archived). Restore it from Inventory - Archive first, or reject this request.`);
       return;
     }
 
     setBusyId(req.id);
-    const product = inventory.find((p) => p.id === productId);
     const field = PLATFORM_FIELD[platform];
-    const newFieldValue = (product?.[field] || 0) + req.quantity;
+    const newFieldValue = (product[field] || 0) + req.quantity;
     const newTotal =
-      (platform === "Shopee" ? newFieldValue : product?.shopee_stock || 0) +
-      (platform === "Lazada" ? newFieldValue : product?.lazada_stock || 0) +
-      (platform === "TikTok" ? newFieldValue : product?.tiktok_stock || 0);
+      (platform === "Shopee" ? newFieldValue : product.shopee_stock || 0) +
+      (platform === "Lazada" ? newFieldValue : product.lazada_stock || 0) +
+      (platform === "TikTok" ? newFieldValue : product.tiktok_stock || 0);
 
     const { error: invError } = await supabase
       .from("inventory")
@@ -472,7 +481,7 @@ function AllocationRequestsPanel({ requests, inventory, onResolved }) {
         {requests.map((req) => {
           const product = inventory.find((p) => p.id === req.product_id);
           const platform = platformFor(req);
-          const canApprove = !!req.product_id && !!platform;
+          const canApprove = !!req.product_id && !!platform && !!product;
 
           return (
             <div key={req.id} className="border border-gray-200 rounded-md px-3 py-2.5 flex flex-col md:flex-row md:items-center gap-3">
@@ -481,8 +490,8 @@ function AllocationRequestsPanel({ requests, inventory, onResolved }) {
                 <p className="text-xs text-gray-500">
                   {req.wo_number || "No WO"} · {req.quantity} units · requested {new Date(req.requested_at).toLocaleDateString()}
                 </p>
-                {!product && <p className="text-xs mt-0.5" style={{ color: C.warning }}>Not matched to an inventory product</p>}
-                {!platform && <p className="text-xs mt-0.5" style={{ color: C.warning }}>No platform assigned — cannot be approved, only rejected</p>}
+                {!product && <p className="text-xs mt-0.5" style={{ color: C.warning }}>Not matched to an active inventory product (it may be archived)</p>}
+                {!platform && <p className="text-xs mt-0.5" style={{ color: C.warning }}>No platform assigned, cannot be approved, only rejected</p>}
               </div>
 
               <div className="w-full md:w-56 text-xs text-gray-600">
@@ -506,7 +515,7 @@ function AllocationRequestsPanel({ requests, inventory, onResolved }) {
                 <button
                   onClick={() => handleApprove(req)}
                   disabled={busyId === req.id || !canApprove}
-                  title={!canApprove ? "Missing product or platform on this request — reject and ask Production to resubmit" : undefined}
+                  title={!canApprove ? "Missing an active product or a platform on this request. Reject it and ask Production to resubmit, or restore the product if it was archived." : undefined}
                   className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white rounded-md disabled:opacity-40 transition-colors cursor-pointer"
                   style={{ backgroundColor: C.success }}
                 >
@@ -561,17 +570,20 @@ function Inventory() {
 
   const [pendingRequests, setPendingRequests] = useState([]);
 
-  const fetchInventory = useCallback(async () => {
-    setLoading(true);
+  // silent = true refreshes the data without flashing the loading skeleton.
+  // Used by the realtime listener below. Callers that pass no argument
+  // (onSaved, onResolved) behave exactly as before.
+  const fetchInventory = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     const { data, error } = await supabase
-  .from("inventory")
-  .select("*")
-  .eq("archived", false)          // ← add this
-  .order("category", { ascending: true })
-  .order("product_name", { ascending: true });
+      .from("inventory")
+      .select("*")
+      .eq("archived", false) // archived products live in Inventory - Archive
+      .order("category", { ascending: true })
+      .order("product_name", { ascending: true });
 
     if (!error && data) setInventory(data);
-    setLoading(false);
+    if (!silent) setLoading(false);
   }, []);
 
   const fetchPendingRequests = useCallback(async () => {
@@ -589,7 +601,7 @@ function Inventory() {
     fetchPendingRequests();
   }, [fetchInventory, fetchPendingRequests]);
 
- 
+  // Live-refresh allocation requests.
   useEffect(() => {
     const channel = supabase
       .channel("inventory_allocation_requests")
@@ -604,6 +616,22 @@ function Inventory() {
     };
   }, [fetchPendingRequests]);
 
+  // Live-refresh products, so an archive or restore done in another tab or by
+  // another user shows up here without a page reload.
+  useEffect(() => {
+    const channel = supabase
+      .channel("inventory_products_live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "inventory" },
+        () => fetchInventory(true)
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchInventory]);
+
   const handleView = (item) => {
     setSelectedItem(item);
     setShowViewModal(true);
@@ -617,23 +645,23 @@ function Inventory() {
     setShowArchiveModal(true);
   };
 
- const confirmArchive = async () => {
-  if (!itemToArchive) return;
-  setSaving(true);
-  const { error } = await supabase.rpc("archive_record", {
-    p_table: "inventory",
-    p_id: String(itemToArchive.id),
-    p_label: `${itemToArchive.product_code} - ${itemToArchive.product_name}`,
-  });
-  if (error) {
-    alert(error.message);
-  } else {
-    setInventory((prev) => prev.filter((i) => i.id !== itemToArchive.id));
-    setShowArchiveModal(false);
-    setItemToArchive(null);
-  }
-  setSaving(false);
-};
+  const confirmArchive = async () => {
+    if (!itemToArchive) return;
+    setSaving(true);
+    const { error } = await supabase.rpc("archive_record", {
+      p_table: "inventory",
+      p_id: String(itemToArchive.id),
+      p_label: `${itemToArchive.product_code} - ${itemToArchive.product_name}`,
+    });
+    if (error) {
+      alert(error.message);
+    } else {
+      setInventory((prev) => prev.filter((i) => i.id !== itemToArchive.id));
+      setShowArchiveModal(false);
+      setItemToArchive(null);
+    }
+    setSaving(false);
+  };
 
   // Whitespace-insensitive search: ignores leading/trailing/inner spaces
   const filtered = inventory.filter((item) => {
@@ -738,8 +766,8 @@ function Inventory() {
         <div className="bg-white rounded-lg border border-gray-200 shadow-sm px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">Inventory - Products</h1>
-            </div>
-           
+          </div>
+
           <div className="flex gap-2 self-start md:self-auto">
             <PrimaryButton
               onClick={() => {
@@ -935,7 +963,7 @@ function Inventory() {
                               {item.product_name}
                               {low && (
                                 <span
-                                  title={`At or below threshold of ${threshold} — shown on Production's dashboard`}
+                                  title={`At or below threshold of ${threshold}, shown on Production's dashboard`}
                                   className="px-1.5 py-0.5 text-[11px] rounded font-semibold shrink-0"
                                   style={{ color: "#fff", backgroundColor: C.accent }}
                                 >
@@ -1011,7 +1039,7 @@ function Inventory() {
         <div className="flex gap-4 flex-wrap text-xs text-gray-500 pb-2">
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-3 rounded-sm inline-block" style={{ backgroundColor: C.accent }} />
-            Low stock — at or below each product's threshold (default 5), also shown on Production's dashboard
+            Low stock: at or below each product's threshold (default 5), also shown on Production's dashboard
           </span>
         </div>
 
@@ -1055,7 +1083,8 @@ function Inventory() {
 
               <div className="px-5 py-4">
                 <p className="text-sm text-gray-600">
-                  Archive <span className="font-medium text-gray-800">{itemToArchive.product_name}</span>? 
+                  Archive <span className="font-medium text-gray-800">{itemToArchive.product_name}</span>?
+                  It will be hidden everywhere and can be restored from Inventory - Archive.
                 </p>
               </div>
 

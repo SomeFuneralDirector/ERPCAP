@@ -4,18 +4,12 @@ import {
   PieChart,
   Pie,
   Cell,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
   Tooltip,
-  LabelList,
 } from "recharts";
 import { supabase } from "../api/supabase";
 import Greetings from "../Components/Greetings";
 
-/* ── Design tokens — shared with the Products / Raw Materials pages ─────── */
+/* ── Design tokens - shared with the Products / Raw Materials pages ─────── */
 const C = {
   accent: "#B3211B",
   accentHover: "#8E1A15",
@@ -62,6 +56,8 @@ const STATUS_COLORS = {
   "Out of Stock": C.accent,
 };
 
+const TRACK_COLOR = "#F3F4F6";
+
 // Every raw material (oils and alcohol) is measured in litres.
 const UNIT = "L";
 // Packaging materials are counted in pieces.
@@ -79,6 +75,13 @@ const SEGMENT_BTN = (active) =>
 // totals are recalculated during background refreshes.
 const POLL_INTERVAL_MS = 30000;
 const SOLD_REFRESH_MS = 60000;
+
+// When a realtime change arrives, wait this long before refetching so a burst
+// of changes (for example several archives in a row) causes one refresh.
+const REALTIME_DEBOUNCE_MS = 600;
+
+// Tables the dashboard reads from, watched for realtime changes.
+const WATCHED_TABLES = ["inventory", "raw_materials", "packaging_materials"];
 
 // PostgREST returns at most 1000 rows per request.
 const PAGE_SIZE = 1000;
@@ -185,6 +188,16 @@ function mergeById(prev, fresh) {
   const map = new Map(prev.map((r) => [r.id, r]));
   fresh.forEach((r) => map.set(r.id, r));
   return Array.from(map.values());
+}
+
+/**
+ * Merge freshly-fetched rows, then drop anything that is archived.
+ * Background polls return every row changed since the last sync, and
+ * archiving a row changes it, so an archived row arrives here and must be
+ * removed from the list instead of being kept.
+ */
+function mergeActive(prev, fresh) {
+  return mergeById(prev, fresh).filter((r) => !r.archived);
 }
 
 /** Keep only rows whose updated_at falls inside the date range. */
@@ -319,10 +332,10 @@ function PrimaryButton({ children, className = "", ...props }) {
 function UnitsTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2 text-xs">
-      {label && <p className="font-semibold text-gray-700 mb-1">{label}</p>}
+    <div className="bg-white border border-gray-200 rounded-lg shadow-xl px-3.5 py-2.5 text-sm min-w-[140px]">
+      {label && <p className="font-semibold text-gray-800 mb-1.5">{label}</p>}
       {payload.map((p) => (
-        <p key={p.dataKey} style={{ color: p.color || p.fill }}>
+        <p key={p.dataKey} className="tabular-nums" style={{ color: p.color || p.fill }}>
           {p.name}: {(p.value ?? 0).toLocaleString()} {p.unit || "units"}
         </p>
       ))}
@@ -330,15 +343,75 @@ function UnitsTooltip({ active, payload, label }) {
   );
 }
 
+/** Progress-style ranking bars (replaces plain horizontal bars for ranked lists) */
+function RankingBars({
+  data,
+  valueKey = "qty",
+  nameKey = "name",
+  color = C.accent,
+  formatter = (v) => Number(v).toLocaleString(),
+  onItemClick,
+}) {
+  if (!data || data.length === 0) return null;
+  const max = Math.max(...data.map((d) => d[valueKey] || 0), 1);
+
+  return (
+    <div className="space-y-3">
+      {data.map((row, i) => {
+        const value = row[valueKey] || 0;
+        const pct = Math.round((value / max) * 100);
+        const label = row[nameKey];
+        return (
+          <div
+            key={label}
+            className={onItemClick ? "cursor-pointer group" : ""}
+            onClick={onItemClick ? () => onItemClick(row) : undefined}
+          >
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <div className="flex items-center gap-2 min-w-0">
+                <span
+                  className="w-5 h-5 shrink-0 flex items-center justify-center rounded-full text-[10px] font-bold text-white"
+                  style={{ backgroundColor: i < 3 ? (row.color || color) : "#9CA3AF" }}
+                >
+                  {i + 1}
+                </span>
+                <span
+                  className={`text-sm font-medium text-gray-700 truncate ${onItemClick ? "group-hover:text-gray-900" : ""}`}
+                  title={label}
+                >
+                  {label}
+                </span>
+              </div>
+              <span className="text-sm font-semibold text-gray-800 tabular-nums shrink-0">
+                {formatter(value)}
+              </span>
+            </div>
+            <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: TRACK_COLOR }}>
+              <div
+                className="h-full rounded-full transition-all duration-500 ease-out"
+                style={{
+                  width: `${pct}%`,
+                  backgroundColor: row.color || color,
+                  opacity: 1 - i * 0.05,
+                }}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function SectionHeading({ title, subtitle }) {
   return (
     <div className="flex items-center gap-3 pt-2">
-      <h2 className="text-sm font-semibold text-gray-700 whitespace-nowrap">
+      <h2 className="text-base font-semibold text-gray-700 whitespace-nowrap">
         {title}
       </h2>
       <div className="h-px bg-gray-200 flex-1" />
       {subtitle && (
-        <span className="text-xs text-gray-400 whitespace-nowrap">
+        <span className="text-sm text-gray-400 whitespace-nowrap">
           {subtitle}
         </span>
       )}
@@ -349,7 +422,7 @@ function SectionHeading({ title, subtitle }) {
 function WarningBanner({ children }) {
   return (
     <div
-      className="rounded-md border px-3 py-2.5 text-xs"
+      className="rounded-md border px-3 py-2.5 text-sm"
       style={{
         backgroundColor: C.warningSoft,
         borderColor: C.warningBorder,
@@ -389,7 +462,7 @@ function Inventory_db() {
   const [breakdown, setBreakdown] = useState(null);
 
   // Newest `updated_at` we've already pulled for each incrementally-synced
-  // table — background polls only ask for rows changed since these.
+  // table. Background polls only ask for rows changed since these.
   const lastInventorySyncAtRef = useRef(null);
   const lastMaterialsSyncAtRef = useRef(null);
   const lastPackagingSyncAtRef = useRef(null);
@@ -404,10 +477,12 @@ function Inventory_db() {
 
   /**
    * mode: "initial" | "manual" | "poll"
-   * - "initial" and "manual" always do a full resync of inventory/materials.
-   * - "poll" (the background interval) only asks for inventory/materials
-   *   rows changed since the last sync point, skips if another fetch is
-   *   still running, and skips setState entirely when nothing's new.
+   * - "initial" and "manual" always do a full resync of inventory/materials,
+   *   and only load rows that are NOT archived.
+   * - "poll" (the background interval and realtime events) only asks for rows
+   *   changed since the last sync point. Archived rows that come back are
+   *   removed from state by mergeActive, so archiving on any page shows up
+   *   here without a full reload.
    * All requests run at the same time instead of one after another.
    */
   const fetchAll = useCallback(async (mode = "poll") => {
@@ -433,37 +508,43 @@ function Inventory_db() {
       const refreshSold =
         fullResync || startedAt - lastSoldFetchAtRef.current >= SOLD_REFRESH_MS;
 
-      // Inventory (incremental by updated_at on polls)
+      // Inventory: active rows on a full resync, changed rows on a poll
       let invQuery = supabase
         .from("inventory")
         .select(
           "id, stock, shopee_stock, lazada_stock, tiktok_stock, " +
-            "category, product_name, product_code, reorder_point, updated_at",
+            "category, product_name, product_code, reorder_point, updated_at, archived",
         );
-      if (!fullResync && lastInventorySyncAtRef.current) {
+      if (fullResync) {
+        invQuery = invQuery.eq("archived", false);
+      } else if (lastInventorySyncAtRef.current) {
         invQuery = invQuery.gt("updated_at", lastInventorySyncAtRef.current);
       }
 
-      // Raw materials (incremental by updated_at on polls)
+      // Raw materials: active rows on a full resync, changed rows on a poll
       let materialsQuery = supabase
         .from("raw_materials")
         .select(
-          "id, material_name, category, current_stock, reorder_point, status, updated_at, supplier_id, suppliers(name)",
+          "id, material_name, category, current_stock, reorder_point, status, updated_at, archived, supplier_id, suppliers(name)",
         );
-      if (!fullResync && lastMaterialsSyncAtRef.current) {
+      if (fullResync) {
+        materialsQuery = materialsQuery.eq("archived", false);
+      } else if (lastMaterialsSyncAtRef.current) {
         materialsQuery = materialsQuery.gt(
           "updated_at",
           lastMaterialsSyncAtRef.current,
         );
       }
 
-      // Packaging materials (incremental by updated_at on polls)
+      // Packaging materials: active rows on a full resync, changed rows on a poll
       let packagingQuery = supabase
         .from("packaging_materials")
         .select(
-          "id, item_name, category, current_stock, reorder_point, status, updated_at",
+          "id, item_name, category, current_stock, reorder_point, status, updated_at, archived",
         );
-      if (!fullResync && lastPackagingSyncAtRef.current) {
+      if (fullResync) {
+        packagingQuery = packagingQuery.eq("archived", false);
+      } else if (lastPackagingSyncAtRef.current) {
         packagingQuery = packagingQuery.gt(
           "updated_at",
           lastPackagingSyncAtRef.current,
@@ -497,13 +578,13 @@ function Inventory_db() {
         );
         lastInventorySyncAtRef.current = newestUpdatedAt;
         setRawInventory((prev) =>
-          fullResync ? freshInv : mergeById(prev, freshInv),
+          fullResync ? freshInv : mergeActive(prev, freshInv),
         );
       } else if (fullResync) {
         setRawInventory([]);
       }
-      // On a poll with nothing new, rawInventory is left untouched — no
-      // re-render for this slice.
+      // On a poll with nothing new, rawInventory is left untouched, so there
+      // is no re-render for this slice.
 
       // ── Sold-by-platform totals (diffed) ────────────────────
       if (soldRes) {
@@ -535,7 +616,7 @@ function Inventory_db() {
           );
           lastMaterialsSyncAtRef.current = newestUpdatedAt;
           setRawMaterials((prev) =>
-            fullResync ? freshMaterials : mergeById(prev, freshMaterials),
+            fullResync ? freshMaterials : mergeActive(prev, freshMaterials),
           );
         } else if (fullResync) {
           setRawMaterials([]);
@@ -558,7 +639,7 @@ function Inventory_db() {
           );
           lastPackagingSyncAtRef.current = newestUpdatedAt;
           setRawPackaging((prev) =>
-            fullResync ? freshPackaging : mergeById(prev, freshPackaging),
+            fullResync ? freshPackaging : mergeActive(prev, freshPackaging),
           );
         } else if (fullResync) {
           setRawPackaging([]);
@@ -592,8 +673,8 @@ function Inventory_db() {
     }
   }, []);
 
-  // Polling: refetches on an interval, but only while the tab is visible —
-  // paused in background tabs, with an immediate catch-up fetch the moment
+  // Polling: refetches on an interval, but only while the tab is visible.
+  // Paused in background tabs, with an immediate catch-up fetch the moment
   // the tab becomes visible again.
   useEffect(() => {
     fetchAll("initial");
@@ -634,6 +715,32 @@ function Inventory_db() {
     };
   }, [fetchAll]);
 
+  // Realtime: when anyone archives, restores or edits an item, refresh right
+  // away instead of waiting for the next poll. Changes are debounced so a
+  // burst of updates causes a single refresh.
+  useEffect(() => {
+    let debounceId = null;
+    const scheduleRefresh = () => {
+      clearTimeout(debounceId);
+      debounceId = setTimeout(() => fetchAll("poll"), REALTIME_DEBOUNCE_MS);
+    };
+
+    const channel = supabase.channel("inventory_dashboard_live");
+    WATCHED_TABLES.forEach((table) => {
+      channel.on(
+        "postgres_changes",
+        { event: "*", schema: "public", table },
+        scheduleRefresh,
+      );
+    });
+    channel.subscribe();
+
+    return () => {
+      clearTimeout(debounceId);
+      supabase.removeChannel(channel);
+    };
+  }, [fetchAll]);
+
   // ── Filtered inventory (platform + date on updated_at) ─────
 
   const filteredInventory = useMemo(() => {
@@ -671,7 +778,7 @@ function Inventory_db() {
     [rawPackaging, dateFrom, dateTo],
   );
 
-  // ── Derived chart data — products (from filtered inventory) ─
+  // ── Derived chart data: products (from filtered inventory) ─
 
   const totals = useMemo(() => {
     const data = filteredInventory.reduce(
@@ -778,7 +885,7 @@ function Inventory_db() {
     ];
   }, [totals, soldByPlatform]);
 
-  // ── Derived chart data — raw materials ─────────────────────
+  // ── Derived chart data: raw materials ──────────────────────
 
   const materialStats = useMemo(() => {
     const total = filteredMaterials.length;
@@ -843,7 +950,7 @@ function Inventory_db() {
       .slice(0, 8);
   }, [filteredMaterials]);
 
-  // ── Derived chart data — packaging materials ───────────────
+  // ── Derived chart data: packaging materials ────────────────
 
   const packagingStats = useMemo(() => {
     const total = filteredPackaging.length;
@@ -1110,7 +1217,7 @@ function Inventory_db() {
               Inventory - Dashboard
             </h1>
             {lastUpdated && !loading && (
-              <p className="text-xs text-gray-400 mt-0.5">
+              <p className="text-sm text-gray-400 mt-0.5">
                 Updated {formatLogTime(lastUpdated.toISOString())}
               </p>
             )}
@@ -1134,7 +1241,7 @@ function Inventory_db() {
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
-                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none"
+                className="border border-gray-300 rounded-md px-2 py-1.5 text-base text-gray-700 cursor-pointer focus:outline-none"
                 onFocus={focusDateInput}
                 onBlur={blurDateInput}
                 title="Updated from"
@@ -1144,7 +1251,7 @@ function Inventory_db() {
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
-                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none"
+                className="border border-gray-300 rounded-md px-2 py-1.5 text-base text-gray-700 cursor-pointer focus:outline-none"
                 onFocus={focusDateInput}
                 onBlur={blurDateInput}
                 title="Updated to"
@@ -1171,7 +1278,7 @@ function Inventory_db() {
 
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <Card className="p-4">
-            <p className="text-xs text-gray-500">Total stock</p>
+            <p className="text-sm text-gray-500">Total stock</p>
             {loading ? (
               <Skeleton />
             ) : (
@@ -1179,7 +1286,7 @@ function Inventory_db() {
                 {fmt(totals.total)}
               </p>
             )}
-            <p className="text-xs mt-1 text-gray-400">Units on hand</p>
+            <p className="text-sm mt-1 text-gray-400">Units on hand</p>
           </Card>
 
           {["Shopee", "Lazada", "TikTok"].map((platform) => {
@@ -1201,13 +1308,13 @@ function Inventory_db() {
                     {fmt(totals[key])}
                   </p>
                 )}
-                <p className="text-xs mt-1 text-gray-400">Units in stock</p>
+                <p className="text-sm mt-1 text-gray-400">Units in stock</p>
               </Card>
             );
           })}
 
           <Card className="p-4">
-            <p className="text-xs text-gray-500">Out of stock</p>
+            <p className="text-sm text-gray-500">Out of stock</p>
             {loading ? (
               <Skeleton />
             ) : (
@@ -1218,19 +1325,19 @@ function Inventory_db() {
                 {fmt(outOfStockCount)}
               </p>
             )}
-            <p className="text-xs mt-1 text-gray-400">Products at zero</p>
+            <p className="text-sm mt-1 text-gray-400">Products at zero</p>
           </Card>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           <Card className="lg:col-span-2 p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">
+            <h2 className="text-base font-semibold text-gray-700 mb-3">
               Stock by platform
             </h2>
             {loading ? (
               <Skeleton className="h-56 w-full" />
             ) : platformData.every((p) => p.qty === 0) ? (
-              <p className="text-xs text-gray-400">
+              <p className="text-sm text-gray-400">
                 No data for current filters.
               </p>
             ) : (
@@ -1243,7 +1350,10 @@ function Inventory_db() {
                       nameKey="platform"
                       cx="50%"
                       cy="50%"
+                      innerRadius={55}
                       outerRadius={100}
+                      paddingAngle={3}
+                      stroke="none"
                       onClick={handlePlatformClick}
                       cursor="pointer"
                     >
@@ -1282,7 +1392,7 @@ function Inventory_db() {
                               %)
                             </span>
                           </p>
-                          <p className="text-xs text-gray-400">
+                          <p className="text-sm text-gray-400">
                             {fmt(p.sold)} sold
                           </p>
                         </div>
@@ -1306,13 +1416,13 @@ function Inventory_db() {
           </Card>
 
           <Card className="lg:col-span-1 p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">
+            <h2 className="text-base font-semibold text-gray-700 mb-3">
               Stock by category
             </h2>
             {loading ? (
               <Skeleton className="h-40 w-full" />
             ) : cats.length === 0 ? (
-              <p className="text-xs text-gray-400">No data</p>
+              <p className="text-sm text-gray-400">No data</p>
             ) : (
               <>
                 <ResponsiveContainer width="100%" height={160}>
@@ -1321,9 +1431,10 @@ function Inventory_db() {
                       data={cats}
                       dataKey="qty"
                       nameKey="name"
-                      innerRadius={40}
-                      outerRadius={60}
-                      paddingAngle={3}
+                      innerRadius={42}
+                      outerRadius={64}
+                      paddingAngle={4}
+                      stroke="none"
                       onClick={handleCategoryClick}
                       cursor="pointer"
                     >
@@ -1338,7 +1449,7 @@ function Inventory_db() {
                   {cats.map((c) => (
                     <li
                       key={c.name}
-                      className="flex items-center justify-between text-xs"
+                      className="flex items-center justify-between text-sm"
                     >
                       <span className="flex items-center gap-1.5 text-gray-600">
                         <span
@@ -1360,73 +1471,28 @@ function Inventory_db() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           <Card className="lg:col-span-2 p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">
+            <h2 className="text-base font-semibold text-gray-700 mb-3">
               Top stocked items
             </h2>
             {loading ? (
               <Skeleton className="h-56 w-full" />
             ) : topMovers.length === 0 ? (
-              <p className="text-xs text-gray-400">No stock data available.</p>
+              <p className="text-sm text-gray-400">No stock data available.</p>
             ) : (
-              <ResponsiveContainer
-                width="100%"
-                height={Math.max(220, topMovers.length * 44)}
-              >
-                <BarChart
-                  data={topMovers}
-                  layout="vertical"
-                  margin={{ top: 0, right: 40, left: 8, bottom: 0 }}
-                  barCategoryGap={12}
-                >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="#f3f4f6"
-                    horizontal={false}
-                  />
-                  <XAxis
-                    type="number"
-                    tick={{ fontSize: 11, fill: "#6B7280" }}
-                    axisLine={false}
-                    tickLine={false}
-                    tickFormatter={(v) => fmt(v)}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    width={140}
-                    tick={{ fontSize: 11, fill: "#374151" }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip content={<UnitsTooltip />} />
-                  <Bar
-                    dataKey="qty"
-                    name="Stock"
-                    radius={[0, 4, 4, 0]}
-                    barSize={20}
-                    onClick={handleTopMoverClick}
-                    cursor="pointer"
-                  >
-                    {topMovers.map((m) => (
-                      <Cell
-                        key={m.name}
-                        fill={PLATFORM_COLORS[m.platform] ?? C.accent}
-                      />
-                    ))}
-                    <LabelList
-                      dataKey="qty"
-                      position="right"
-                      formatter={(v) => fmt(v)}
-                      style={{ fontSize: 11, fill: "#374151", fontWeight: 600 }}
-                    />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              <RankingBars
+                data={topMovers.map((m) => ({
+                  ...m,
+                  color: PLATFORM_COLORS[m.platform] ?? C.accent,
+                }))}
+                valueKey="qty"
+                formatter={(v) => fmt(v)}
+                onItemClick={handleTopMoverClick}
+              />
             )}
           </Card>
 
           <Card className="lg:col-span-1 p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+            <h2 className="text-base font-semibold text-gray-700 mb-3 flex items-center gap-2">
               Low stock alerts
               {!loading && (
                 <span
@@ -1448,7 +1514,7 @@ function Inventory_db() {
                 ))}
               </div>
             ) : lowStock.length === 0 ? (
-              <p className="text-xs text-gray-400">
+              <p className="text-sm text-gray-400">
                 All items are sufficiently stocked.
               </p>
             ) : (
@@ -1460,10 +1526,10 @@ function Inventory_db() {
                     <div key={p.code}>
                       <div className="flex items-center justify-between mb-1">
                         <div>
-                          <p className="text-xs font-medium text-gray-700">
+                          <p className="text-sm font-medium text-gray-700">
                             {p.name}
                           </p>
-                          <p className="text-xs font-mono text-gray-400">
+                          <p className="text-sm font-mono text-gray-400">
                             {p.code}
                           </p>
                         </div>
@@ -1505,7 +1571,7 @@ function Inventory_db() {
 
         <div className="grid grid-cols-1 gap-3">
           <Card className="p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">
+            <h2 className="text-base font-semibold text-gray-700 mb-3">
               Recent activity
             </h2>
             {loading ? (
@@ -1515,7 +1581,7 @@ function Inventory_db() {
                 ))}
               </div>
             ) : activity.length === 0 ? (
-              <p className="text-xs text-gray-400">No recent activity.</p>
+              <p className="text-sm text-gray-400">No recent activity.</p>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
                 {activity.map((a, i) => (
@@ -1528,10 +1594,10 @@ function Inventory_db() {
                       style={{ backgroundColor: C.accent }}
                     />
                     <div>
-                      <p className="text-xs text-gray-700 leading-snug">
+                      <p className="text-sm text-gray-700 leading-snug">
                         {a.text}
                       </p>
-                      <p className="text-xs text-gray-400 mt-0.5">{a.time}</p>
+                      <p className="text-sm text-gray-400 mt-0.5">{a.time}</p>
                     </div>
                   </div>
                 ))}
@@ -1547,7 +1613,7 @@ function Inventory_db() {
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Card className="p-4">
-            <p className="text-xs text-gray-500">Total materials</p>
+            <p className="text-sm text-gray-500">Total materials</p>
             {loading ? (
               <Skeleton />
             ) : (
@@ -1558,7 +1624,7 @@ function Inventory_db() {
           </Card>
 
           <Card className="p-4">
-            <p className="text-xs text-gray-500">Oils on hand</p>
+            <p className="text-sm text-gray-500">Oils on hand</p>
             {loading ? (
               <Skeleton />
             ) : (
@@ -1569,7 +1635,7 @@ function Inventory_db() {
           </Card>
 
           <Card className="p-4">
-            <p className="text-xs text-gray-500">Alcohol on hand</p>
+            <p className="text-sm text-gray-500">Alcohol on hand</p>
             {loading ? (
               <Skeleton />
             ) : (
@@ -1580,7 +1646,7 @@ function Inventory_db() {
           </Card>
 
           <Card className="p-4">
-            <p className="text-xs text-gray-500">Needs reorder</p>
+            <p className="text-sm text-gray-500">Needs reorder</p>
             {loading ? (
               <Skeleton />
             ) : (
@@ -1596,7 +1662,7 @@ function Inventory_db() {
                 )}
               </p>
             )}
-            <p className="text-xs mt-1 text-gray-400">
+            <p className="text-sm mt-1 text-gray-400">
               {fmt(materialStats.lowStockCount)} low ·{" "}
               {fmt(materialStats.outOfStockCount)} out
             </p>
@@ -1605,94 +1671,33 @@ function Inventory_db() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           <Card className="lg:col-span-2 p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">
+            <h2 className="text-base font-semibold text-gray-700 mb-3">
               Stock volume by supplier
             </h2>
             {loading ? (
               <Skeleton className="h-56 w-full" />
             ) : materialSupplierData.length === 0 ? (
-              <p className="text-xs text-gray-400">
+              <p className="text-sm text-gray-400">
                 No raw materials recorded yet.
               </p>
             ) : (
-              <ResponsiveContainer
-                width="100%"
-                height={Math.max(200, materialSupplierData.length * 52)}
-              >
-                <BarChart
-                  data={materialSupplierData}
-                  layout="vertical"
-                  margin={{ top: 0, right: 60, left: 8, bottom: 0 }}
-                  barCategoryGap={12}
-                >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="#f3f4f6"
-                    horizontal={false}
-                  />
-                  <XAxis
-                    type="number"
-                    tick={{ fontSize: 11, fill: "#6B7280" }}
-                    axisLine={false}
-                    tickLine={false}
-                    tickFormatter={(v) => `${fmt(v)} L`}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    width={110}
-                    tick={{ fontSize: 11, fill: "#374151" }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip
-                    content={({ active, payload }) => {
-                      if (!active || !payload?.length) return null;
-                      const d = payload[0].payload;
-                      return (
-                        <div className="bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2 text-xs">
-                          <p className="font-semibold text-gray-700 mb-1">
-                            {d.name}
-                          </p>
-                          <p className="text-gray-600">
-                            {fmtL(d.litres)} · {fmt(d.count)} material
-                            {d.count !== 1 ? "s" : ""}
-                          </p>
-                        </div>
-                      );
-                    }}
-                  />
-                  <Bar
-                    dataKey="litres"
-                    name="Volume"
-                    radius={[0, 4, 4, 0]}
-                    barSize={22}
-                    onClick={handleMaterialSupplierClick}
-                    cursor="pointer"
-                  >
-                    {materialSupplierData.map((c) => (
-                      <Cell key={c.name} fill={c.color} />
-                    ))}
-                    <LabelList
-                      dataKey="litres"
-                      position="right"
-                      formatter={(v) => fmtL(v)}
-                      style={{ fontSize: 10, fill: "#374151", fontWeight: 600 }}
-                    />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              <RankingBars
+                data={materialSupplierData}
+                valueKey="litres"
+                formatter={(v) => fmtL(v)}
+                onItemClick={handleMaterialSupplierClick}
+              />
             )}
           </Card>
 
           <Card className="lg:col-span-1 p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">
+            <h2 className="text-base font-semibold text-gray-700 mb-3">
               Stock status
             </h2>
             {loading ? (
               <Skeleton className="h-40 w-full" />
             ) : materialStatusData.length === 0 ? (
-              <p className="text-xs text-gray-400">No data</p>
+              <p className="text-sm text-gray-400">No data</p>
             ) : (
               <>
                 <ResponsiveContainer width="100%" height={160}>
@@ -1701,9 +1706,10 @@ function Inventory_db() {
                       data={materialStatusData}
                       dataKey="count"
                       nameKey="status"
-                      innerRadius={40}
-                      outerRadius={60}
-                      paddingAngle={3}
+                      innerRadius={42}
+                      outerRadius={64}
+                      paddingAngle={4}
+                      stroke="none"
                       onClick={handleMaterialStatusClick}
                       cursor="pointer"
                     >
@@ -1716,7 +1722,7 @@ function Inventory_db() {
                         if (!active || !payload?.length) return null;
                         const d = payload[0].payload;
                         return (
-                          <div className="bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2 text-xs">
+                          <div className="bg-white border border-gray-200 rounded-lg shadow-xl px-3.5 py-2.5 text-sm">
                             <p
                               className="font-semibold"
                               style={{ color: d.color }}
@@ -1736,7 +1742,7 @@ function Inventory_db() {
                   {materialStatusData.map((s) => (
                     <li
                       key={s.status}
-                      className="flex items-center justify-between text-xs"
+                      className="flex items-center justify-between text-sm"
                     >
                       <span className="flex items-center gap-1.5 text-gray-600">
                         <span
@@ -1757,7 +1763,7 @@ function Inventory_db() {
         </div>
 
         <Card className="p-6">
-          <h2 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+          <h2 className="text-base font-semibold text-gray-700 mb-3 flex items-center gap-2">
             Materials needing reorder
             {!loading && (
               <span
@@ -1779,7 +1785,7 @@ function Inventory_db() {
               ))}
             </div>
           ) : materialLowStock.length === 0 ? (
-            <p className="text-xs text-gray-400">
+            <p className="text-sm text-gray-400">
               All raw materials are sufficiently stocked.
             </p>
           ) : (
@@ -1803,16 +1809,16 @@ function Inventory_db() {
                     }
                   >
                     <div className="min-w-0">
-                      <p className="text-xs font-medium text-gray-700 truncate">
+                      <p className="text-sm font-medium text-gray-700 truncate">
                         {m.material_name}
                       </p>
-                      <p className="text-xs text-gray-400 truncate">
+                      <p className="text-sm text-gray-400 truncate">
                         {m.category || "Uncategorized"}
                         {m.suppliers?.name ? ` · ${m.suppliers.name}` : ""}
                       </p>
                     </div>
                     <span
-                      className="ml-3 shrink-0 px-1.5 py-0.5 text-xs rounded font-medium"
+                      className="ml-3 shrink-0 px-1.5 py-0.5 text-sm rounded font-medium"
                       style={{ color: isOut ? C.accent : C.warning }}
                     >
                       {fmt(m.current_stock)} {UNIT}
@@ -1831,7 +1837,7 @@ function Inventory_db() {
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Card className="p-4">
-            <p className="text-xs text-gray-500">Packaging items</p>
+            <p className="text-sm text-gray-500">Packaging items</p>
             {loading ? (
               <Skeleton />
             ) : (
@@ -1839,14 +1845,14 @@ function Inventory_db() {
                 {fmt(packagingStats.total)}
               </p>
             )}
-            <p className="text-xs mt-1 text-gray-400">
+            <p className="text-sm mt-1 text-gray-400">
               {fmt(packagingStats.categories)} categor
               {packagingStats.categories !== 1 ? "ies" : "y"}
             </p>
           </Card>
 
           <Card className="p-4">
-            <p className="text-xs text-gray-500">Pieces on hand</p>
+            <p className="text-sm text-gray-500">Pieces on hand</p>
             {loading ? (
               <Skeleton />
             ) : (
@@ -1854,11 +1860,11 @@ function Inventory_db() {
                 {fmt(packagingStats.pieces)}
               </p>
             )}
-            <p className="text-xs mt-1 text-gray-400">Across all items</p>
+            <p className="text-sm mt-1 text-gray-400">Across all items</p>
           </Card>
 
           <Card className="p-4">
-            <p className="text-xs text-gray-500">Low stock</p>
+            <p className="text-sm text-gray-500">Low stock</p>
             {loading ? (
               <Skeleton />
             ) : (
@@ -1871,13 +1877,13 @@ function Inventory_db() {
                 {fmt(packagingStats.lowStockCount)}
               </p>
             )}
-            <p className="text-xs mt-1 text-gray-400">
+            <p className="text-sm mt-1 text-gray-400">
               At or below reorder point
             </p>
           </Card>
 
           <Card className="p-4">
-            <p className="text-xs text-gray-500">Out of stock</p>
+            <p className="text-sm text-gray-500">Out of stock</p>
             {loading ? (
               <Skeleton />
             ) : (
@@ -1890,100 +1896,39 @@ function Inventory_db() {
                 {fmt(packagingStats.outOfStockCount)}
               </p>
             )}
-            <p className="text-xs mt-1 text-gray-400">Items at zero</p>
+            <p className="text-sm mt-1 text-gray-400">Items at zero</p>
           </Card>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           <Card className="lg:col-span-2 p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">
+            <h2 className="text-base font-semibold text-gray-700 mb-3">
               Stock by category
             </h2>
             {loading ? (
               <Skeleton className="h-56 w-full" />
             ) : packagingCategoryData.length === 0 ? (
-              <p className="text-xs text-gray-400">
+              <p className="text-sm text-gray-400">
                 No packaging materials recorded yet.
               </p>
             ) : (
-              <ResponsiveContainer
-                width="100%"
-                height={Math.max(200, packagingCategoryData.length * 52)}
-              >
-                <BarChart
-                  data={packagingCategoryData}
-                  layout="vertical"
-                  margin={{ top: 0, right: 70, left: 8, bottom: 0 }}
-                  barCategoryGap={12}
-                >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="#f3f4f6"
-                    horizontal={false}
-                  />
-                  <XAxis
-                    type="number"
-                    tick={{ fontSize: 11, fill: "#6B7280" }}
-                    axisLine={false}
-                    tickLine={false}
-                    tickFormatter={(v) => fmt(v)}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    width={110}
-                    tick={{ fontSize: 11, fill: "#374151" }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip
-                    content={({ active, payload }) => {
-                      if (!active || !payload?.length) return null;
-                      const d = payload[0].payload;
-                      return (
-                        <div className="bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2 text-xs">
-                          <p className="font-semibold text-gray-700 mb-1">
-                            {d.name}
-                          </p>
-                          <p className="text-gray-600">
-                            {fmtP(d.pieces)} · {fmt(d.count)} item
-                            {d.count !== 1 ? "s" : ""}
-                          </p>
-                        </div>
-                      );
-                    }}
-                  />
-                  <Bar
-                    dataKey="pieces"
-                    name="Pieces"
-                    radius={[0, 4, 4, 0]}
-                    barSize={22}
-                    onClick={handlePackagingCategoryClick}
-                    cursor="pointer"
-                  >
-                    {packagingCategoryData.map((c) => (
-                      <Cell key={c.name} fill={c.color} />
-                    ))}
-                    <LabelList
-                      dataKey="pieces"
-                      position="right"
-                      formatter={(v) => fmtP(v)}
-                      style={{ fontSize: 10, fill: "#374151", fontWeight: 600 }}
-                    />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              <RankingBars
+                data={packagingCategoryData}
+                valueKey="pieces"
+                formatter={(v) => fmtP(v)}
+                onItemClick={handlePackagingCategoryClick}
+              />
             )}
           </Card>
 
           <Card className="lg:col-span-1 p-6">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">
+            <h2 className="text-base font-semibold text-gray-700 mb-3">
               Stock status
             </h2>
             {loading ? (
               <Skeleton className="h-40 w-full" />
             ) : packagingStatusData.length === 0 ? (
-              <p className="text-xs text-gray-400">No data</p>
+              <p className="text-sm text-gray-400">No data</p>
             ) : (
               <>
                 <ResponsiveContainer width="100%" height={160}>
@@ -1992,9 +1937,10 @@ function Inventory_db() {
                       data={packagingStatusData}
                       dataKey="count"
                       nameKey="status"
-                      innerRadius={40}
-                      outerRadius={60}
-                      paddingAngle={3}
+                      innerRadius={42}
+                      outerRadius={64}
+                      paddingAngle={4}
+                      stroke="none"
                       onClick={handlePackagingStatusClick}
                       cursor="pointer"
                     >
@@ -2007,7 +1953,7 @@ function Inventory_db() {
                         if (!active || !payload?.length) return null;
                         const d = payload[0].payload;
                         return (
-                          <div className="bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2 text-xs">
+                          <div className="bg-white border border-gray-200 rounded-lg shadow-xl px-3.5 py-2.5 text-sm">
                             <p
                               className="font-semibold"
                               style={{ color: d.color }}
@@ -2027,7 +1973,7 @@ function Inventory_db() {
                   {packagingStatusData.map((s) => (
                     <li
                       key={s.status}
-                      className="flex items-center justify-between text-xs"
+                      className="flex items-center justify-between text-sm"
                     >
                       <span className="flex items-center gap-1.5 text-gray-600">
                         <span
@@ -2048,7 +1994,7 @@ function Inventory_db() {
         </div>
 
         <Card className="p-6">
-          <h2 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+          <h2 className="text-base font-semibold text-gray-700 mb-3 flex items-center gap-2">
             Packaging needing reorder
             {!loading && (
               <span
@@ -2070,7 +2016,7 @@ function Inventory_db() {
               ))}
             </div>
           ) : packagingLowStock.length === 0 ? (
-            <p className="text-xs text-gray-400">
+            <p className="text-sm text-gray-400">
               All packaging materials are sufficiently stocked.
             </p>
           ) : (
@@ -2094,15 +2040,15 @@ function Inventory_db() {
                     }
                   >
                     <div className="min-w-0">
-                      <p className="text-xs font-medium text-gray-700 truncate">
+                      <p className="text-sm font-medium text-gray-700 truncate">
                         {m.item_name}
                       </p>
-                      <p className="text-xs text-gray-400 truncate">
+                      <p className="text-sm text-gray-400 truncate">
                         {m.category || "Uncategorized"}
                       </p>
                     </div>
                     <span
-                      className="ml-3 shrink-0 px-1.5 py-0.5 text-xs rounded font-medium"
+                      className="ml-3 shrink-0 px-1.5 py-0.5 text-sm rounded font-medium"
                       style={{ color: isOut ? C.accent : C.warning }}
                     >
                       {fmt(m.current_stock)} {PM_UNIT}
@@ -2133,7 +2079,7 @@ function Inventory_db() {
                   <h2 className="text-sm font-semibold text-gray-900">
                     {breakdown.label}
                   </h2>
-                  <span className="text-xs text-gray-400">
+                  <span className="text-sm text-gray-400">
                     ({fmt(breakdown.products.length)} item
                     {breakdown.products.length !== 1 ? "s" : ""})
                     {breakdown.type === "platform" &&
@@ -2150,7 +2096,7 @@ function Inventory_db() {
 
               <div className="overflow-y-auto px-5 py-4">
                 {breakdown.products.length === 0 ? (
-                  <p className="text-xs text-gray-400">No items found.</p>
+                  <p className="text-sm text-gray-400">No items found.</p>
                 ) : (
                   <div className="space-y-3">
                     {breakdown.products.map((p, i) => (
@@ -2160,17 +2106,17 @@ function Inventory_db() {
                       >
                         <div className="flex items-center justify-between">
                           <div>
-                            <p className="text-xs font-medium text-gray-700">
+                            <p className="text-sm font-medium text-gray-700">
                               {p.name}
                             </p>
                             {p.code && (
-                              <p className="text-xs font-mono text-gray-400">
+                              <p className="text-sm font-mono text-gray-400">
                                 {p.code}
                               </p>
                             )}
                           </div>
                           <span
-                            className="text-xs font-semibold shrink-0"
+                            className="text-sm font-semibold shrink-0"
                             style={{ color: C.accent }}
                           >
                             {fmt(p.qty)} {p.unit || "units"}

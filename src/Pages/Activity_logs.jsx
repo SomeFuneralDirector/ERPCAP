@@ -55,8 +55,12 @@ const USERS_TABLE = 'profiles'
 
 // Which page of the app each archived table belongs to.
 // Add your own table names here; anything missing falls back to a readable table name.
+// Note: Inventory archives products with table_name 'inventory'.
 const PAGE_LABELS = {
+  inventory: 'Inventory',
   products: 'Inventory',
+  raw_materials: 'Raw Materials',
+  packaging_materials: 'Packaging',
   ledger_entries: 'Cash Book',
   ledger_categories: 'Cash Book',
 }
@@ -637,8 +641,10 @@ function Activity_logs() {
   const [imports, setImports] = useState([])
   const [archivedRecords, setArchivedRecords] = useState([])
   const [archivedEntries, setArchivedEntries] = useState([])
+  const [archivedMaterials, setArchivedMaterials] = useState([])
+  const [archivedPackaging, setArchivedPackaging] = useState([])
 
-  // Date range — same pattern as Admin / Finance dashboards
+  // Date range, same pattern as Admin / Finance dashboards
   const [dateFrom, setDateFrom] = useState(firstOfMonthKey)
   const [dateTo, setDateTo] = useState(localDateKey)
 
@@ -648,6 +654,8 @@ function Activity_logs() {
     imports: true,
     archivedRecords: true,
     archivedEntries: true,
+    archivedMaterials: true,
+    archivedPackaging: true,
   })
   const [errorMsg, setErrorMsg] = useState({
     logins: '',
@@ -655,6 +663,8 @@ function Activity_logs() {
     imports: '',
     archivedRecords: '',
     archivedEntries: '',
+    archivedMaterials: '',
+    archivedPackaging: '',
   })
   const [search, setSearch] = useState('')
   const [expandedImport, setExpandedImport] = useState(null)
@@ -742,9 +752,12 @@ function Activity_logs() {
         mode
       )
 
+      // Archived snapshots (products are archived through archive_record()).
+      // Each product snapshot is checked against the live inventory row so a
+      // product that was restored some other way never lingers in this list.
       loadSource(
         'archivedRecords',
-        () => {
+        async () => {
           let q = supabase
             .from('archived_records')
             .select('id, table_name, record_id, record_label, data, archived_by_email, archived_at')
@@ -752,7 +765,33 @@ function Activity_logs() {
             .limit(FETCH_LIMIT)
           if (fromIso) q = q.gte('archived_at', fromIso)
           if (toIso) q = q.lte('archived_at', toIso)
-          return q
+
+          const { data, error } = await q
+          if (error) return { data: null, error }
+
+          const rows = data || []
+          const productIds = rows
+            .filter((r) => r.table_name === 'inventory')
+            .map((r) => r.record_id)
+          if (productIds.length === 0) return { data: rows, error: null }
+
+          const { data: stillArchived, error: invError } = await supabase
+            .from('inventory')
+            .select('id')
+            .in('id', productIds)
+            .eq('archived', true)
+          if (invError) {
+            console.warn("Couldn't verify archived products:", invError.message)
+            return { data: rows, error: null }
+          }
+
+          const archivedIds = new Set((stillArchived || []).map((r) => String(r.id)))
+          return {
+            data: rows.filter(
+              (r) => r.table_name !== 'inventory' || archivedIds.has(String(r.record_id))
+            ),
+            error: null,
+          }
         },
         setArchivedRecords,
         mode
@@ -790,6 +829,43 @@ function Activity_logs() {
           }
         },
         setArchivedEntries,
+        mode
+      )
+
+      // Raw materials and packaging are archived by flipping their own
+      // `archived` flag (no snapshot in archived_records), so read them
+      // straight from their tables.
+      loadSource(
+        'archivedMaterials',
+        () => {
+          let q = supabase
+            .from('raw_materials')
+            .select('id, material_name, category, current_stock, archived_at, updated_at')
+            .eq('archived', true)
+            .order('archived_at', { ascending: false })
+            .limit(FETCH_LIMIT)
+          if (fromIso) q = q.gte('archived_at', fromIso)
+          if (toIso) q = q.lte('archived_at', toIso)
+          return q
+        },
+        setArchivedMaterials,
+        mode
+      )
+
+      loadSource(
+        'archivedPackaging',
+        () => {
+          let q = supabase
+            .from('packaging_materials')
+            .select('id, item_name, category, current_stock, archived_at, updated_at')
+            .eq('archived', true)
+            .order('archived_at', { ascending: false })
+            .limit(FETCH_LIMIT)
+          if (fromIso) q = q.gte('archived_at', fromIso)
+          if (toIso) q = q.lte('archived_at', toIso)
+          return q
+        },
+        setArchivedPackaging,
         mode
       )
     },
@@ -845,6 +921,13 @@ function Activity_logs() {
       const res = await supabase.rpc('restore_archived_record', {
         p_archive_id: restoreTarget.record.id,
       })
+      error = res.error
+    } else if (restoreTarget.kind === 'material' || restoreTarget.kind === 'packaging') {
+      const table = restoreTarget.kind === 'material' ? 'raw_materials' : 'packaging_materials'
+      const res = await supabase
+        .from(table)
+        .update({ archived: false, archived_at: null, updated_at: new Date().toISOString() })
+        .eq('id', restoreTarget.row.id)
       error = res.error
     } else {
       const res = await supabase
@@ -910,8 +993,22 @@ function Activity_logs() {
       time: e.archived_at || e.date,
       entry: e,
     }))
-    return [...records, ...entries].sort((a, b) => new Date(b.time) - new Date(a.time))
-  }, [archivedRecords, archivedEntries])
+    const materials = archivedMaterials.map((m) => ({
+      kind: 'material',
+      key: `mat-${m.id}`,
+      time: m.archived_at || m.updated_at,
+      row: m,
+    }))
+    const packaging = archivedPackaging.map((p) => ({
+      kind: 'packaging',
+      key: `pkg-${p.id}`,
+      time: p.archived_at || p.updated_at,
+      row: p,
+    }))
+    return [...records, ...entries, ...materials, ...packaging].sort(
+      (a, b) => new Date(b.time) - new Date(a.time)
+    )
+  }, [archivedRecords, archivedEntries, archivedMaterials, archivedPackaging])
 
   const filteredArchive = q
     ? archiveItems.filter((item) => {
@@ -923,6 +1020,16 @@ function Activity_logs() {
             r.record_label?.toLowerCase().includes(q) ||
             r.archived_by_email?.toLowerCase().includes(q) ||
             JSON.stringify(r.data || {}).toLowerCase().includes(q)
+          )
+        }
+        if (item.kind === 'material' || item.kind === 'packaging') {
+          const r = item.row
+          const name = item.kind === 'material' ? r.material_name : r.item_name
+          const page = item.kind === 'material' ? 'raw materials' : 'packaging'
+          return (
+            page.includes(q) ||
+            name?.toLowerCase().includes(q) ||
+            r.category?.toLowerCase().includes(q)
           )
         }
         const e = item.entry
@@ -944,13 +1051,36 @@ function Activity_logs() {
     return list.slice((p - 1) * PAGE_SIZE, p * PAGE_SIZE)
   }
 
-  const archiveLoading = loading.archivedRecords || loading.archivedEntries
-  const archiveError = errorMsg.archivedRecords || errorMsg.archivedEntries
+  const archiveLoading =
+    loading.archivedRecords ||
+    loading.archivedEntries ||
+    loading.archivedMaterials ||
+    loading.archivedPackaging
+  const archiveError =
+    errorMsg.archivedRecords ||
+    errorMsg.archivedEntries ||
+    errorMsg.archivedMaterials ||
+    errorMsg.archivedPackaging
 
   const restoreLabel =
     restoreTarget?.kind === 'record'
       ? restoreTarget.record.record_label || restoreTarget.record.table_name
-      : restoreTarget?.entry?.detail
+      : restoreTarget?.kind === 'material'
+        ? restoreTarget.row.material_name
+        : restoreTarget?.kind === 'packaging'
+          ? restoreTarget.row.item_name
+          : restoreTarget?.entry?.detail
+
+  const restoreMessage = (() => {
+    if (!restoreTarget) return ''
+    if (restoreTarget.kind === 'entry')
+      return 'This entry goes back to the Cash Book and counts in your reports again.'
+    if (restoreTarget.kind === 'material')
+      return 'This item goes back to the Raw Materials page and counts in the Inventory dashboard again.'
+    if (restoreTarget.kind === 'packaging')
+      return 'This item goes back to the Packaging Materials page and counts in the Inventory dashboard again.'
+    return `This record goes back into ${restoreTarget.record.table_name} exactly as it was when it was archived.`
+  })()
 
   const actionTone = (action) => {
     if (action === 'created') return 'success'
@@ -1057,6 +1187,25 @@ function Activity_logs() {
               })}
             </div>
             <div className="relative w-full md:w-64">
+              <input
+                type="text"
+                placeholder="Search…"
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value)
+                  setPage(1)
+                }}
+                className="w-full border rounded-md pl-3 pr-8 py-1.5 text-sm focus:outline-none"
+                style={{ borderColor: C.borderStrong, color: C.text }}
+                onFocus={(e) => {
+                  e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`
+                  e.target.style.borderColor = C.accent
+                }}
+                onBlur={(e) => {
+                  e.target.style.boxShadow = 'none'
+                  e.target.style.borderColor = C.borderStrong
+                }}
+              />
               {search && (
                 <button
                   onClick={() => {
@@ -1328,6 +1477,48 @@ function Activity_logs() {
                       )
                     }
 
+                    if (item.kind === 'material' || item.kind === 'packaging') {
+                      const r = item.row
+                      const isMaterial = item.kind === 'material'
+                      const name = isMaterial ? r.material_name : r.item_name
+                      const unit = isMaterial ? 'L' : 'pcs'
+                      return (
+                        <LogRow key={item.key}>
+                          <td className={TD}>
+                            <StatusChip
+                              label={isMaterial ? 'Raw Materials' : 'Packaging'}
+                              tone="neutral"
+                            />
+                          </td>
+                          <td className={TD} style={{ color: C.text }}>
+                            —
+                          </td>
+                          <td className={TD} style={{ color: C.text }}>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-medium">{name}</span>
+                              {r.category && (
+                                <span
+                                  className="inline-block px-2 py-0.5 rounded-full text-sm font-medium"
+                                  style={{ backgroundColor: C.surface, color: C.textMuted }}
+                                >
+                                  {r.category}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-sm mt-0.5" style={{ color: C.textFaint }}>
+                              Stock when archived: {(Number(r.current_stock) || 0).toLocaleString()} {unit}
+                            </div>
+                          </td>
+                          <DateCell value={r.archived_at || r.updated_at} />
+                          <ActionsCell>
+                            <RestoreButton
+                              onClick={() => setRestoreTarget({ kind: item.kind, row: r })}
+                            />
+                          </ActionsCell>
+                        </LogRow>
+                      )
+                    }
+
                     const r = item.record
                     const data = r.data && typeof r.data === 'object' ? r.data : null
                     const isExpanded = expandedArchive === item.key
@@ -1384,9 +1575,7 @@ function Activity_logs() {
                 <span className="font-semibold">{restoreLabel}</span>
               </p>
               <p className="text-sm" style={{ color: C.textMuted }}>
-                {restoreTarget.kind === 'entry'
-                  ? 'This entry goes back to the Cash Book and counts in your reports again.'
-                  : `This record goes back into ${restoreTarget.record.table_name} exactly as it was when it was archived.`}
+                {restoreMessage}
               </p>
             </div>
             <div className="px-5 py-4 flex justify-end gap-2" style={{ borderTop: `1px solid ${C.border}` }}>
