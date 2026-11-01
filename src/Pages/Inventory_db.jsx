@@ -1197,9 +1197,6 @@ function Inventory_db() {
           <p className="text-sm mb-4" style={{ color: C.accent }}>
             {errorMsg}
           </p>
-          <PrimaryButton onClick={() => fetchAll("initial")}>
-            Retry
-          </PrimaryButton>
         </Card>
       </div>
     );
@@ -1216,11 +1213,7 @@ function Inventory_db() {
             <h1 className="text-2xl font-semibold text-gray-900">
               Inventory - Dashboard
             </h1>
-            {lastUpdated && !loading && (
-              <p className="text-sm text-gray-400 mt-0.5">
-                Updated {formatLogTime(lastUpdated.toISOString())}
-              </p>
-            )}
+            
           </div>
 
           <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">

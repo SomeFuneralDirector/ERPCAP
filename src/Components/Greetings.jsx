@@ -3,8 +3,8 @@ import { X } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
 const ACCENT = "#B3211B";
-const ACCENT_SOFT = "#FDF2F1";
-const ACCENT_BORDER = "#F0D0CD";
+const ACCENT_SOFT = "#f7f7f7";
+const ACCENT_BORDER = "#eceaea";
 
 const GREETINGS = [
   "Welcome back",
@@ -60,10 +60,11 @@ function Greetings() {
 
   return (
     <div
-      className="relative overflow-hidden rounded-xl border px-6 py-5 shadow-sm"
+      className="relative overflow-hidden rounded-xl border px-6 py-5 shadow-lg"
       style={{
         backgroundColor: ACCENT_SOFT,
         borderColor: ACCENT_BORDER,
+        boxShadow: "0 4px 14px rgba(0, 0, 0, 0.29), 0 2px 6px rgba(2, 2, 2, 0.20)",
       }}
     >
       <button

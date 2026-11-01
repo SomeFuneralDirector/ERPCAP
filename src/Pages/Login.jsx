@@ -193,7 +193,7 @@ function Login() {
         admin: '/admin',
         marketing: '/marketing',
         sales: '/sales',
-        inventory: '/inventory',
+        inventory: '/inventory_db',
         production: '/production',
       };
 
