@@ -5,8 +5,6 @@ import {
   ResponsiveContainer,
   AreaChart,
   Area,
-  BarChart,
-  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -29,7 +27,8 @@ const C = {
   warningBorder: "#F1DDB8",
 };
 
-const FETCH_CHUNK = 1000; // Supabase returns at most 1000 rows per request
+const TRACK_COLOR = "#F3F4F6";
+const FETCH_CHUNK = 1000;
 
 const fmtAxis = (v) => `₱${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`;
 
@@ -56,7 +55,7 @@ async function fetchAllEntries(dateFrom, dateTo) {
       .lte("date", dateTo)
       .eq("archived", false)
       .order("date", { ascending: true })
-      .order("id", { ascending: true }) // stable order across pages
+      .order("id", { ascending: true })
       .range(from, from + FETCH_CHUNK - 1);
 
     if (error) return { data: null, error };
@@ -84,13 +83,58 @@ function Card({ children, className = "" }) {
 function TrendTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-white border border-gray-200 rounded-md shadow-lg px-4 py-3.5 text-sm">
-      <p className="font-semibold text-gray-700 mb-1">{label}</p>
+    <div className="bg-white border border-gray-200 rounded-lg shadow-xl px-3.5 py-2.5 text-sm min-w-[160px]">
+      <p className="font-semibold text-gray-800 mb-1.5">{label}</p>
       {payload.map((p) => (
-        <p key={p.dataKey} style={{ color: p.stroke }}>
+        <p key={p.dataKey} className="tabular-nums" style={{ color: p.stroke }}>
           {p.name}: ₱{Number(p.value || 0).toLocaleString()}
         </p>
       ))}
+    </div>
+  );
+}
+
+/** Progress-style ranking bars for category breakdown */
+function RankingBars({ data, valueKey = "amount", color = C.accent, formatter = (v) => `₱${Number(v).toLocaleString()}` }) {
+  if (!data || data.length === 0) return null;
+  const max = Math.max(...data.map((d) => d[valueKey] || 0), 1);
+
+  return (
+    <div className="space-y-3">
+      {data.map((row, i) => {
+        const value = row[valueKey] || 0;
+        const pct = Math.round((value / max) * 100);
+        return (
+          <div key={row.name}>
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <div className="flex items-center gap-2 min-w-0">
+                <span
+                  className="w-5 h-5 shrink-0 flex items-center justify-center rounded-full text-[10px] font-bold text-white"
+                  style={{ backgroundColor: i < 3 ? color : "#9CA3AF" }}
+                >
+                  {i + 1}
+                </span>
+                <span className="text-sm font-medium text-gray-700 truncate" title={row.name}>
+                  {row.name}
+                </span>
+              </div>
+              <span className="text-sm font-semibold text-gray-800 tabular-nums shrink-0">
+                {formatter(value)}
+              </span>
+            </div>
+            <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: TRACK_COLOR }}>
+              <div
+                className="h-full rounded-full transition-all duration-500 ease-out"
+                style={{
+                  width: `${pct}%`,
+                  backgroundColor: color,
+                  opacity: 1 - i * 0.05,
+                }}
+              />
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -218,7 +262,7 @@ function Finance() {
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
-                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none"
+                className="border border-gray-300 rounded-md px-2 py-1.5 text-base text-gray-700 cursor-pointer focus:outline-none"
                 onFocus={focusDateInput}
                 onBlur={blurDateInput}
               />
@@ -227,7 +271,7 @@ function Finance() {
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
-                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none"
+                className="border border-gray-300 rounded-md px-2 py-1.5 text-base text-gray-700 cursor-pointer focus:outline-none"
                 onFocus={focusDateInput}
                 onBlur={blurDateInput}
               />
@@ -237,8 +281,12 @@ function Finance() {
 
         {error && (
           <div
-            className="rounded-md border px-4 py-4 text-sm"
-            style={{ backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder, color: C.accent }}
+            className="rounded-md border px-4 py-3 text-sm"
+            style={{
+              backgroundColor: C.accentSoft,
+              borderColor: C.accentSoftBorder,
+              color: C.accent,
+            }}
           >
             {error}
           </div>
@@ -247,71 +295,117 @@ function Finance() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Card className="p-4">
             <p className="text-sm text-gray-500">Total expenses</p>
-            {loading ? <Skeleton /> : <p className="text-3xl font-semibold mt-1 text-gray-900">{formatPeso(totalExpenses)}</p>}
+            {loading ? (
+              <Skeleton />
+            ) : (
+              <p className="text-3xl font-semibold mt-1 text-gray-900 tabular-nums">
+                {formatPeso(totalExpenses)}
+              </p>
+            )}
           </Card>
           <Card className="p-4">
             <p className="text-sm text-gray-500">Total revenue</p>
-            {loading ? <Skeleton /> : <p className="text-3xl font-semibold mt-1 text-gray-900">{formatPeso(totalRevenue)}</p>}
+            {loading ? (
+              <Skeleton />
+            ) : (
+              <p className="text-3xl font-semibold mt-1 text-gray-900 tabular-nums">
+                {formatPeso(totalRevenue)}
+              </p>
+            )}
           </Card>
           <Card className="p-4">
             <p className="text-sm text-gray-500">{isProfit ? "Net income" : "Net loss"}</p>
             {loading ? (
               <Skeleton />
             ) : (
-              <p className="text-3xl font-semibold mt-1" style={{ color: isProfit ? C.success : C.accent }}>
+              <p
+                className="text-3xl font-semibold mt-1 tabular-nums"
+                style={{ color: isProfit ? C.success : C.accent }}
+              >
                 {formatPeso(Math.abs(net))}
               </p>
             )}
           </Card>
         </div>
 
+        {/* Revenue vs expenses trend */}
         <Card className="p-6">
-          <h2 className="text-base font-semibold text-gray-700 mb-3">Revenue vs expenses</h2>
+          <h2 className="text-base font-semibold text-gray-700 mb-1">Revenue vs expenses</h2>
+          <p className="text-sm text-gray-400 mb-4">Monthly comparison across the selected range.</p>
           {loading ? (
             <Skeleton className="h-72 w-full" />
           ) : monthlyTrend.length === 0 ? (
             <p className="text-sm text-gray-400">No data for current filters.</p>
           ) : (
             <ResponsiveContainer width="100%" height={330}>
-              <AreaChart data={monthlyTrend} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+              <AreaChart data={monthlyTrend} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={C.success} stopOpacity={0.35} />
+                    <stop offset="0%" stopColor={C.success} stopOpacity={0.28} />
                     <stop offset="100%" stopColor={C.success} stopOpacity={0} />
                   </linearGradient>
                   <linearGradient id="expensesFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={C.accent} stopOpacity={0.35} />
+                    <stop offset="0%" stopColor={C.accent} stopOpacity={0.28} />
                     <stop offset="100%" stopColor={C.accent} stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                <XAxis dataKey="month" tick={{ fontSize: 14, fill: "#000000" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 14, fill: "#000000" }} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
+                <XAxis
+                  dataKey="month"
+                  tick={{ fontSize: 12, fill: "#6B7280" }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 12, fill: "#6B7280" }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={fmtAxis}
+                />
                 <Tooltip content={<TrendTooltip />} />
-                <Legend verticalAlign="top" height={36} iconType="line" wrapperStyle={{ fontSize: 15 }} />
-                <Area type="monotone" dataKey="revenue" name="Revenue" stroke={C.success} strokeWidth={2} fill="url(#revenueFill)" dot={{ r: 3, fill: C.success, strokeWidth: 0 }} activeDot={{ r: 5 }} />
-                <Area type="monotone" dataKey="expenses" name="Expenses" stroke={C.accent} strokeWidth={2} fill="url(#expensesFill)" dot={{ r: 3, fill: C.accent, strokeWidth: 0 }} activeDot={{ r: 5 }} />
+                <Legend
+                  verticalAlign="top"
+                  height={36}
+                  iconType="circle"
+                  wrapperStyle={{ fontSize: 13, paddingBottom: 4 }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="revenue"
+                  name="Revenue"
+                  stroke={C.success}
+                  strokeWidth={2.5}
+                  fill="url(#revenueFill)"
+                  dot={{ r: 4, fill: C.success, strokeWidth: 0 }}
+                  activeDot={{ r: 6, fill: C.success, strokeWidth: 0 }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="expenses"
+                  name="Expenses"
+                  stroke={C.accent}
+                  strokeWidth={2.5}
+                  fill="url(#expensesFill)"
+                  dot={{ r: 4, fill: C.accent, strokeWidth: 0 }}
+                  activeDot={{ r: 6, fill: C.accent, strokeWidth: 0 }}
+                />
               </AreaChart>
             </ResponsiveContainer>
           )}
         </Card>
 
+        {/* Money by category — ranking bars */}
         <Card className="p-6">
-          <h2 className="text-base font-semibold text-gray-700 mb-3">Utilized Money By Category</h2>
+          <h2 className="text-base font-semibold text-gray-700 mb-1">Utilized money by category</h2>
+          <p className="text-sm text-gray-400 mb-5">
+            How spending and income break down across ledger categories.
+          </p>
           {loading ? (
             <Skeleton className="h-72 w-full" />
           ) : byCategory.length === 0 ? (
             <p className="text-sm text-gray-400">No categorized entries in this range.</p>
           ) : (
-            <ResponsiveContainer width="100%" height={Math.max(300, byCategory.length * 56)}>
-              <BarChart data={byCategory} layout="vertical" margin={{ top: 0, right: 64, left: 8, bottom: 0 }} barCategoryGap={12}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 14, fill: "#000000" }} axisLine={false} tickLine={false} tickFormatter={(v) => `₱${Number(v).toLocaleString()}`} />
-                <YAxis type="category" dataKey="name" width={200} tick={{ fontSize: 14, fill: "#000000" }} axisLine={false} tickLine={false} />
-                <Tooltip formatter={(v) => `₱${Number(v || 0).toLocaleString()}`} contentStyle={{ fontSize: 15, borderRadius: 8, borderColor: C.border }} />
-                <Bar dataKey="amount" name="Amount" fill={C.accent} radius={[0, 4, 4, 0]} barSize={26} />
-              </BarChart>
-            </ResponsiveContainer>
+            <RankingBars data={byCategory} valueKey="amount" color={C.accent} />
           )}
         </Card>
       </div>

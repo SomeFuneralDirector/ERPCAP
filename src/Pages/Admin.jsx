@@ -63,19 +63,17 @@ const MATERIAL_STATUS_STYLES = {
   "Out of Stock": { color: C.accent, backgroundColor: C.accentSoft },
 };
 
-// Chart colors. Red stays reserved for alerts; everything else uses neutral or semantic colors.
 const PLATFORM_COLORS = { Shopee: "#EE4D2D", Lazada: "#0F146D", TikTok: "#101113", Other: "#9CA3AF" };
 const CATEGORY_COLORS = { Men: "#1D4E89", Women: "#8B2976", Unisex: "#475569" };
 const STOCK_STATUS_HEX = { "In Stock": "#15803D", "Low Stock": "#D97706", "Out of Stock": "#B3211B" };
 const CAMPAIGN_HEX = { Active: "#15803D", Upcoming: "#D97706", Ended: "#9CA3AF", Cancelled: "#D1D5DB" };
 const WO_HEX = { Pending: "#D97706", "In Progress": "#2563EB", Completed: "#059669", Cancelled: "#9CA3AF" };
 const SUPPLIER_COLORS = ["#0E7490", "#92400E", "#166534", "#9F1239", "#1E3A8A", "#57534E"];
+const TRACK_COLOR = "#F3F4F6";
 
 const PAGE_SIZE = 5;
-const FETCH_CHUNK = 1000; // Supabase returns at most 1000 rows per request
+const FETCH_CHUNK = 1000;
 
-/* Fetch every row of a query, paging past the 1000-row cap.
-   buildQuery must return a fresh query (with a stable order) on each call. */
 async function fetchAllPages(buildQuery) {
   let all = [];
   let from = 0;
@@ -187,7 +185,6 @@ function stockValue(value) {
   return Math.max(0, toNumber(value));
 }
 
-// Same date-boundary helpers used by Sales Dashboard
 const safeDate = (value) => {
   if (!value) return null;
   const date = new Date(value);
@@ -238,38 +235,76 @@ function bucketWeeklyUnits(workOrders) {
     .slice(-6);
 }
 
-/* Small donut with a value legend. data: [{ name, value, color }] */
-function DonutWithLegend({ data, height = 150, formatter = (v) => Number(v).toLocaleString(), inline = false }) {
+/* Donut with center total + legend */
+function DonutWithLegend({
+  data,
+  height = 160,
+  formatter = (v) => Number(v).toLocaleString(),
+  inline = false,
+  showTotal = true,
+}) {
   if (!data || data.length === 0) return <EmptyRow>No data.</EmptyRow>;
+  const total = data.reduce((s, d) => s + (d.value || 0), 0);
+
   return (
     <div className={inline ? "flex items-center gap-4" : ""}>
-      <div className={inline ? "w-1/2 shrink-0" : ""}>
+      <div className={`relative ${inline ? "w-1/2 shrink-0" : ""}`}>
         <ResponsiveContainer width="100%" height={height}>
           <PieChart>
             <Pie
               data={data}
               dataKey="value"
               nameKey="name"
-              innerRadius={Math.round(height * 0.28)}
-              outerRadius={Math.round(height * 0.44)}
-              paddingAngle={3}
+              innerRadius={Math.round(height * 0.32)}
+              outerRadius={Math.round(height * 0.46)}
+              paddingAngle={4}
+              stroke="none"
             >
               {data.map((entry) => (
                 <Cell key={entry.name} fill={entry.color} />
               ))}
             </Pie>
-            <Tooltip formatter={(v, n) => [formatter(v), n]} />
+            <Tooltip
+              formatter={(v, n) => [
+                `${formatter(v)}${total > 0 ? ` (${((v / total) * 100).toFixed(0)}%)` : ""}`,
+                n,
+              ]}
+              contentStyle={{
+                borderRadius: 8,
+                border: "1px solid #e5e7eb",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+                fontSize: 13,
+              }}
+            />
           </PieChart>
         </ResponsiveContainer>
+        {showTotal && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+            <span className="text-xs text-gray-400 uppercase tracking-wide">Total</span>
+            <span className="text-sm font-bold text-gray-800 tabular-nums">
+              {formatter(total)}
+            </span>
+          </div>
+        )}
       </div>
-      <ul className={`space-y-1 ${inline ? "flex-1" : "mt-2"}`}>
+      <ul className={`space-y-1.5 ${inline ? "flex-1" : "mt-2"}`}>
         {data.map((entry) => (
           <li key={entry.name} className="flex items-center justify-between text-sm gap-2">
             <span className="flex items-center gap-1.5 text-gray-600 min-w-0">
-              <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: entry.color }} />
+              <span
+                className="w-2.5 h-2.5 rounded-full shrink-0"
+                style={{ background: entry.color }}
+              />
               <span className="truncate">{entry.name}</span>
             </span>
-            <span className="font-medium text-gray-700 shrink-0">{formatter(entry.value)}</span>
+            <span className="font-semibold text-gray-800 shrink-0 tabular-nums">
+              {formatter(entry.value)}
+              {total > 0 && (
+                <span className="text-gray-400 font-normal ml-1">
+                  {((entry.value / total) * 100).toFixed(0)}%
+                </span>
+              )}
+            </span>
           </li>
         ))}
       </ul>
@@ -277,23 +312,76 @@ function DonutWithLegend({ data, height = 150, formatter = (v) => Number(v).toLo
   );
 }
 
-/* Small column chart (values show in the tooltip). data: [{ name, value, color }] */
-function MiniBar({ data, height = 150, formatter = (v) => Number(v).toLocaleString() }) {
+/* Progress-style ranking bars (replaces plain column charts for ranked lists) */
+function RankingBars({ data, valueKey = "value", color = C.accent, formatter = (v) => Number(v).toLocaleString() }) {
+  if (!data || data.length === 0) return <EmptyRow>No data.</EmptyRow>;
+  const max = Math.max(...data.map((d) => d[valueKey] || 0), 1);
+
+  return (
+    <div className="space-y-3">
+      {data.map((row, i) => {
+        const value = row[valueKey] || 0;
+        const pct = Math.round((value / max) * 100);
+        return (
+          <div key={row.name}>
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <div className="flex items-center gap-2 min-w-0">
+                <span
+                  className="w-5 h-5 shrink-0 flex items-center justify-center rounded-full text-[10px] font-bold text-white"
+                  style={{ backgroundColor: i < 3 ? color : "#9CA3AF" }}
+                >
+                  {i + 1}
+                </span>
+                <span className="text-sm font-medium text-gray-700 truncate" title={row.name}>
+                  {row.name}
+                </span>
+              </div>
+              <span className="text-sm font-semibold text-gray-800 tabular-nums shrink-0">
+                {formatter(value)}
+              </span>
+            </div>
+            <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: TRACK_COLOR }}>
+              <div
+                className="h-full rounded-full transition-all duration-500 ease-out"
+                style={{
+                  width: `${pct}%`,
+                  backgroundColor: row.color || color,
+                  opacity: 1 - i * 0.06,
+                }}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* Compact column chart for small series */
+function MiniBar({ data, height = 160, formatter = (v) => Number(v).toLocaleString() }) {
   if (!data || data.length === 0) return <EmptyRow>No data.</EmptyRow>;
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <BarChart data={data} margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
+      <BarChart data={data} margin={{ top: 8, right: 8, left: 4, bottom: 0 }} barCategoryGap="28%">
         <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
         <XAxis
           dataKey="name"
-          tick={{ fontSize: 12, fill: "#374151" }}
+          tick={{ fontSize: 12, fill: "#6B7280" }}
           axisLine={false}
           tickLine={false}
           interval={0}
         />
         <YAxis hide />
-        <Tooltip formatter={(v) => formatter(v)} />
-        <Bar dataKey="value" radius={[4, 4, 0, 0]} maxBarSize={38}>
+        <Tooltip
+          formatter={(v) => formatter(v)}
+          contentStyle={{
+            borderRadius: 8,
+            border: "1px solid #e5e7eb",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+            fontSize: 13,
+          }}
+        />
+        <Bar dataKey="value" radius={[5, 5, 0, 0]} maxBarSize={40}>
           {data.map((entry) => (
             <Cell key={entry.name} fill={entry.color || C.accent} />
           ))}
@@ -332,7 +420,7 @@ function KpiCard({ label, value, sub, loading, tone = "gray" }) {
       {loading ? (
         <Skeleton className="h-8 w-24" />
       ) : (
-        <p className="text-3xl font-semibold mt-1" style={{ color: toneColor }}>
+        <p className="text-3xl font-semibold mt-1 tabular-nums" style={{ color: toneColor }}>
           {value}
         </p>
       )}
@@ -440,7 +528,6 @@ function Admin() {
         workOrdersRes,
         balancesRes,
       ] = await Promise.all([
-        // Paged: ledger entries can pass 1000 rows in a wide date range
         fetchAllPages(() =>
           supabase
             .from("ledger_entries")
@@ -448,7 +535,7 @@ function Admin() {
             .gte("date", dateFrom)
             .lte("date", dateTo)
             .eq("archived", false)
-            .order("id", { ascending: true }) // stable order across pages
+            .order("id", { ascending: true })
         ),
         supabase
           .from("inventory")
@@ -460,22 +547,20 @@ function Admin() {
         supabase
           .from("campaigns")
           .select("id, name, platform, discount_type, discount_value, start_date, end_date, status"),
-        // Paged: this was the bug. A plain query stops at 1000 rows.
         fetchAllPages(() =>
           supabase
             .from("orders")
             .select("id, platform, total_amount, completed_at, created_at, paid_time, status")
             .eq("status", "COMPLETED")
-            .order("id", { ascending: true }) // stable order across pages
+            .order("id", { ascending: true })
         ),
-        // Paged: work orders have no filter, so they grow forever
         fetchAllPages(() =>
           supabase
             .from("work_orders")
             .select(
               "id, wo_number, product_name, quantity, platform, status, due_date, completed_at, created_at"
             )
-            .order("id", { ascending: true }) // stable order across pages
+            .order("id", { ascending: true })
         ),
         supabase.rpc("account_balances", { p_from: dateFrom, p_to: dateTo }),
       ]);
@@ -535,7 +620,6 @@ function Admin() {
     return () => supabase.removeChannel(channel);
   }, [loadDashboard]);
 
-  // True P&L (RPC returns cents → convert to pesos)
   const financeStats = useMemo(() => {
     const rows = (accountBalances || [])
       .filter((r) => r.name && r.classification)
@@ -558,7 +642,6 @@ function Admin() {
     return { revenue, expenses, net: revenue - expenses };
   }, [accountBalances]);
 
-  // Monthly chart: only revenue & expense categories (cents → pesos)
   const monthlyNet = useMemo(() => {
     const map = {};
     ledgerEntries.forEach((e) => {
@@ -612,9 +695,21 @@ function Admin() {
     const productTotal = (p) =>
       stockValue(p.shopee_stock) + stockValue(p.lazada_stock) + stockValue(p.tiktok_stock);
     const platformStock = [
-      { name: "Shopee", value: products.reduce((s, p) => s + stockValue(p.shopee_stock), 0), color: PLATFORM_COLORS.Shopee },
-      { name: "Lazada", value: products.reduce((s, p) => s + stockValue(p.lazada_stock), 0), color: PLATFORM_COLORS.Lazada },
-      { name: "TikTok", value: products.reduce((s, p) => s + stockValue(p.tiktok_stock), 0), color: PLATFORM_COLORS.TikTok },
+      {
+        name: "Shopee",
+        value: products.reduce((s, p) => s + stockValue(p.shopee_stock), 0),
+        color: PLATFORM_COLORS.Shopee,
+      },
+      {
+        name: "Lazada",
+        value: products.reduce((s, p) => s + stockValue(p.lazada_stock), 0),
+        color: PLATFORM_COLORS.Lazada,
+      },
+      {
+        name: "TikTok",
+        value: products.reduce((s, p) => s + stockValue(p.tiktok_stock), 0),
+        color: PLATFORM_COLORS.TikTok,
+      },
     ].filter((x) => x.value > 0);
     const categoryMap = {};
     products.forEach((p) => {
@@ -648,7 +743,15 @@ function Admin() {
       .map(([name, value]) => ({ name, value: Math.round(value * 10) / 10 }))
       .sort((a, b) => b.value - a.value)
       .map((x, i) => ({ ...x, color: SUPPLIER_COLORS[i % SUPPLIER_COLORS.length] }));
-    return { count: materials.length, low, out, attention: [...out, ...low], litres, statusData, supplierData };
+    return {
+      count: materials.length,
+      low,
+      out,
+      attention: [...out, ...low],
+      litres,
+      statusData,
+      supplierData,
+    };
   }, [materials]);
 
   const lowStockAlertCount =
@@ -676,7 +779,6 @@ function Admin() {
     return { activeCount: active.length, active: active.slice(0, 4), statusData };
   }, [campaigns]);
 
-  // Sales: same date-boundary logic as Sales Dashboard
   const salesStats = useMemo(() => {
     const fromTime = localDateBoundary(dateFrom);
     const toTime = localDateBoundary(dateTo, true);
@@ -757,7 +859,7 @@ function Admin() {
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#F6F6F7" }}>
       <div className="p-6 space-y-4">
-        <Greetings/>
+        <Greetings />
         <Card className="px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
             <h1 className="text-3xl font-semibold text-gray-900">Dashboard</h1>
@@ -768,7 +870,7 @@ function Admin() {
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
-                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none"
+                className="border border-gray-300 rounded-md px-2 py-1.5 text-base text-gray-700 cursor-pointer focus:outline-none"
                 onFocus={focusDateInput}
                 onBlur={blurDateInput}
               />
@@ -777,7 +879,7 @@ function Admin() {
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
-                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none"
+                className="border border-gray-300 rounded-md px-2 py-1.5 text-base text-gray-700 cursor-pointer focus:outline-none"
                 onFocus={focusDateInput}
                 onBlur={blurDateInput}
               />
@@ -787,8 +889,12 @@ function Admin() {
 
         {errorMsg && (
           <div
-            className="rounded-md border px-4 py-4 text-sm"
-            style={{ backgroundColor: C.warningSoft, borderColor: C.warningBorder, color: C.warning }}
+            className="rounded-md border px-4 py-3 text-sm"
+            style={{
+              backgroundColor: C.warningSoft,
+              borderColor: C.warningBorder,
+              color: C.warning,
+            }}
           >
             {errorMsg}
           </div>
@@ -829,18 +935,35 @@ function Admin() {
             <div className="grid grid-cols-3 gap-3 mb-4">
               <div>
                 <p className="text-sm text-gray-400">Expenses</p>
-                {loading ? <Skeleton /> : <p className="text-xl font-semibold text-gray-900">{fmtPeso(financeStats.expenses)}</p>}
-              </div>
-              <div>
-                <p className="text-sm text-gray-400">Revenue</p>
-                {loading ? <Skeleton /> : <p className="text-xl font-semibold text-gray-900">{fmtPeso(financeStats.revenue)}</p>}
-              </div>
-              <div>
-                <p className="text-sm text-gray-400">{financeStats.net >= 0 ? "Net income" : "Net loss"}</p>
                 {loading ? (
                   <Skeleton />
                 ) : (
-                  <p className="text-xl font-semibold" style={{ color: financeStats.net >= 0 ? C.success : C.accent }}>
+                  <p className="text-xl font-semibold text-gray-900 tabular-nums">
+                    {fmtPeso(financeStats.expenses)}
+                  </p>
+                )}
+              </div>
+              <div>
+                <p className="text-sm text-gray-400">Revenue</p>
+                {loading ? (
+                  <Skeleton />
+                ) : (
+                  <p className="text-xl font-semibold text-gray-900 tabular-nums">
+                    {fmtPeso(financeStats.revenue)}
+                  </p>
+                )}
+              </div>
+              <div>
+                <p className="text-sm text-gray-400">
+                  {financeStats.net >= 0 ? "Net income" : "Net loss"}
+                </p>
+                {loading ? (
+                  <Skeleton />
+                ) : (
+                  <p
+                    className="text-xl font-semibold tabular-nums"
+                    style={{ color: financeStats.net >= 0 ? C.success : C.accent }}
+                  >
                     {fmtPeso(Math.abs(financeStats.net))}
                   </p>
                 )}
@@ -852,12 +975,34 @@ function Admin() {
               <EmptyRow>No ledger entries in the selected range.</EmptyRow>
             ) : (
               <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={monthlyNet} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <BarChart
+                  data={monthlyNet}
+                  margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+                  barCategoryGap="28%"
+                >
                   <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 14, fill: "#000000" }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 14, fill: "#000000" }} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
-                  <Tooltip formatter={(v) => fmtPeso(v)} labelFormatter={(l) => `Net: ${l}`} />
-                  <Bar dataKey="net" radius={[4, 4, 4, 4]}>
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fontSize: 12, fill: "#6B7280" }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 12, fill: "#6B7280" }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={fmtAxis}
+                  />
+                  <Tooltip
+                    formatter={(v) => fmtPeso(v)}
+                    contentStyle={{
+                      borderRadius: 8,
+                      border: "1px solid #e5e7eb",
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+                      fontSize: 13,
+                    }}
+                  />
+                  <Bar dataKey="net" radius={[5, 5, 0, 0]}>
                     {monthlyNet.map((m, i) => (
                       <Cell key={i} fill={m.net >= 0 ? C.success : C.accent} />
                     ))}
@@ -868,15 +1013,30 @@ function Admin() {
           </SectionCard>
 
           {/* Sales */}
-          <SectionCard title="Sales: finished products" icon={TrendingUp} onView={() => goTo("sales_db")}>
+          <SectionCard
+            title="Sales: finished products"
+            icon={TrendingUp}
+          >
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div>
                 <p className="text-sm text-gray-400">In range</p>
-                {loading ? <Skeleton /> : <p className="text-xl font-semibold text-gray-900">{fmtPeso(salesStats.total)}</p>}
+                {loading ? (
+                  <Skeleton />
+                ) : (
+                  <p className="text-xl font-semibold text-gray-900 tabular-nums">
+                    {fmtPeso(salesStats.total)}
+                  </p>
+                )}
               </div>
               <div>
                 <p className="text-sm text-gray-400">Avg order value</p>
-                {loading ? <Skeleton /> : <p className="text-xl font-semibold text-gray-900">{fmtPeso(salesStats.avgOrder)}</p>}
+                {loading ? (
+                  <Skeleton />
+                ) : (
+                  <p className="text-xl font-semibold text-gray-900 tabular-nums">
+                    {fmtPeso(salesStats.avgOrder)}
+                  </p>
+                )}
               </div>
             </div>
             {loading ? (
@@ -885,53 +1045,103 @@ function Admin() {
               <EmptyRow>No completed orders in the selected range.</EmptyRow>
             ) : (
               <ResponsiveContainer width="100%" height={210}>
-                <AreaChart data={salesStats.trend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <AreaChart
+                  data={salesStats.trend}
+                  margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+                >
                   <defs>
                     <linearGradient id="adminSalesFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={C.accent} stopOpacity={0.35} />
+                      <stop offset="0%" stopColor={C.accent} stopOpacity={0.28} />
                       <stop offset="100%" stopColor={C.accent} stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 14, fill: "#000000" }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 14, fill: "#000000" }} axisLine={false} tickLine={false} tickFormatter={fmtAxis} />
-                  <Tooltip formatter={(v) => fmtPeso(v)} />
-                  <Area type="monotone" dataKey="value" stroke={C.accent} strokeWidth={2} fill="url(#adminSalesFill)" />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fontSize: 12, fill: "#6B7280" }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 12, fill: "#6B7280" }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={fmtAxis}
+                  />
+                  <Tooltip
+                    formatter={(v) => fmtPeso(v)}
+                    contentStyle={{
+                      borderRadius: 8,
+                      border: "1px solid #e5e7eb",
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+                      fontSize: 13,
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="value"
+                    stroke={C.accent}
+                    strokeWidth={2.5}
+                    fill="url(#adminSalesFill)"
+                    dot={{ r: 4, fill: C.accent, strokeWidth: 0 }}
+                    activeDot={{ r: 6, fill: C.accent, strokeWidth: 0 }}
+                  />
                 </AreaChart>
               </ResponsiveContainer>
             )}
             {!loading && salesStats.byPlatform.length > 0 && (
               <div className="mt-4 pt-4 border-t border-gray-100">
                 <p className="text-sm font-semibold text-gray-500 mb-2">Sales by platform</p>
-                <DonutWithLegend data={salesStats.byPlatform} formatter={fmtPeso} height={150} inline />
+                <DonutWithLegend
+                  data={salesStats.byPlatform}
+                  formatter={fmtPeso}
+                  height={160}
+                  inline
+                />
               </div>
             )}
           </SectionCard>
 
           {/* Inventory: products */}
-          <SectionCard title="Inventory: finished products" icon={Package} onView={() => goTo("inventory")}>
+          <SectionCard
+            title="Inventory: finished products"
+            icon={Package}
+          >
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div>
                 <p className="text-sm text-gray-400">Products</p>
-                {loading ? <Skeleton /> : <p className="text-xl font-semibold text-gray-900">{productStats.count.toLocaleString()}</p>}
+                {loading ? (
+                  <Skeleton />
+                ) : (
+                  <p className="text-xl font-semibold text-gray-900 tabular-nums">
+                    {productStats.count.toLocaleString()}
+                  </p>
+                )}
               </div>
               <div>
                 <p className="text-sm text-gray-400">Total stock (all platforms)</p>
-                {loading ? <Skeleton /> : <p className="text-xl font-semibold text-gray-900">{productStats.totalStock.toLocaleString()}</p>}
+                {loading ? (
+                  <Skeleton />
+                ) : (
+                  <p className="text-xl font-semibold text-gray-900 tabular-nums">
+                    {productStats.totalStock.toLocaleString()}
+                  </p>
+                )}
               </div>
             </div>
-            {!loading && (productStats.platformStock.length > 0 || productStats.categoryStock.length > 0) && (
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                <div>
-                  <p className="text-sm font-semibold text-gray-500 mb-1">Stock by platform</p>
-                  <DonutWithLegend data={productStats.platformStock} height={150} />
+            {!loading &&
+              (productStats.platformStock.length > 0 || productStats.categoryStock.length > 0) && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-500 mb-2">Stock by platform</p>
+                    <DonutWithLegend data={productStats.platformStock} height={160} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-500 mb-2">Stock by category</p>
+                    <RankingBars data={productStats.categoryStock} color="#1D4E89" />
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-semibold text-gray-500 mb-1">Stock by category</p>
-                  <MiniBar data={productStats.categoryStock} height={150} />
-                </div>
-              </div>
-            )}
+              )}
 
             {loading ? (
               <Skeleton className="h-24 w-full" />
@@ -939,6 +1149,7 @@ function Admin() {
               <EmptyRow>Nothing is low on stock.</EmptyRow>
             ) : (
               <>
+                <p className="text-sm font-semibold text-gray-500 mb-2">Low stock</p>
                 <ul className="space-y-1.5">
                   {lowStockProductsPage.pageItems.map((p) => {
                     const total =
@@ -950,7 +1161,11 @@ function Admin() {
                         <span className="text-gray-700 truncate pr-2">{p.product_name}</span>
                         <StatusChip
                           label={`${total.toLocaleString()} left`}
-                          style={{ color: C.accent, backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder }}
+                          style={{
+                            color: C.accent,
+                            backgroundColor: C.accentSoft,
+                            borderColor: C.accentSoftBorder,
+                          }}
                         />
                       </li>
                     );
@@ -971,19 +1186,31 @@ function Admin() {
           </SectionCard>
 
           {/* Inventory: materials */}
-          <SectionCard title="Inventory: raw materials" icon={Boxes} onView={() => goTo("production_rm")}>
+          <SectionCard
+            title="Inventory: raw materials"
+            icon={Boxes}
+          >
             <div className="grid grid-cols-3 gap-3 mb-4">
               <div>
                 <p className="text-sm text-gray-400">Materials tracked</p>
-                {loading ? <Skeleton /> : <p className="text-xl font-semibold text-gray-900">{materialStats.count.toLocaleString()}</p>}
+                {loading ? (
+                  <Skeleton />
+                ) : (
+                  <p className="text-xl font-semibold text-gray-900 tabular-nums">
+                    {materialStats.count.toLocaleString()}
+                  </p>
+                )}
               </div>
               <div>
                 <p className="text-sm text-gray-400">Total volume</p>
                 {loading ? (
                   <Skeleton />
                 ) : (
-                  <p className="text-xl font-semibold text-gray-900">
-                    {materialStats.litres.toLocaleString(undefined, { maximumFractionDigits: 1 })} L
+                  <p className="text-xl font-semibold text-gray-900 tabular-nums">
+                    {materialStats.litres.toLocaleString(undefined, {
+                      maximumFractionDigits: 1,
+                    })}{" "}
+                    L
                   </p>
                 )}
               </div>
@@ -992,24 +1219,26 @@ function Admin() {
                 {loading ? (
                   <Skeleton />
                 ) : (
-                  <p className="text-xl font-semibold text-gray-900">
+                  <p className="text-xl font-semibold text-gray-900 tabular-nums">
                     {(materialStats.low.length + materialStats.out.length).toLocaleString()}
                   </p>
                 )}
               </div>
             </div>
             {!loading && materialStats.count > 0 && (
-              <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                 <div>
-                  <p className="text-sm font-semibold text-gray-500 mb-1">Stock status</p>
-                  <DonutWithLegend data={materialStats.statusData} height={150} />
+                  <p className="text-sm font-semibold text-gray-500 mb-2">Stock status</p>
+                  <DonutWithLegend data={materialStats.statusData} height={160} />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-gray-500 mb-1">Volume by supplier (L)</p>
-                  <MiniBar
+                  <p className="text-sm font-semibold text-gray-500 mb-2">Volume by supplier (L)</p>
+                  <RankingBars
                     data={materialStats.supplierData}
-                    height={150}
-                    formatter={(v) => `${Number(v).toLocaleString(undefined, { maximumFractionDigits: 1 })} L`}
+                    color="#0E7490"
+                    formatter={(v) =>
+                      `${Number(v).toLocaleString(undefined, { maximumFractionDigits: 1 })} L`
+                    }
                   />
                 </div>
               </div>
@@ -1021,12 +1250,15 @@ function Admin() {
               <EmptyRow>All raw materials are in stock.</EmptyRow>
             ) : (
               <>
+                <p className="text-sm font-semibold text-gray-500 mb-2">Needs attention</p>
                 <ul className="space-y-1.5">
                   {materialsAttentionPage.pageItems.map((m) => (
                     <li key={m.id} className="flex items-center justify-between text-sm">
                       <span className="text-gray-700 truncate pr-2">{m.material_name}</span>
                       <StatusChip
-                        label={`${Number(m.current_stock).toLocaleString(undefined, { maximumFractionDigits: 1 })} L`}
+                        label={`${Number(m.current_stock).toLocaleString(undefined, {
+                          maximumFractionDigits: 1,
+                        })} L`}
                         style={MATERIAL_STATUS_STYLES[m.status] || {}}
                       />
                     </li>
@@ -1047,21 +1279,24 @@ function Admin() {
           </SectionCard>
 
           {/* Marketing */}
-          <SectionCard title="Marketing campaigns" icon={Megaphone} onView={() => goTo("marketing")}>
+          <SectionCard
+            title="Marketing campaigns"
+            icon={Megaphone}
+          >
             <div className="mb-4">
               <p className="text-sm text-gray-400">Active / upcoming</p>
               {loading ? (
                 <Skeleton />
               ) : (
-                <p className="text-xl font-semibold text-gray-900">
+                <p className="text-xl font-semibold text-gray-900 tabular-nums">
                   {campaignStats.activeCount.toLocaleString()}
                 </p>
               )}
             </div>
             {!loading && campaignStats.statusData.length > 0 && (
               <div className="mb-4">
-                <p className="text-sm font-semibold text-gray-500 mb-1">Campaigns by status</p>
-                <DonutWithLegend data={campaignStats.statusData} height={150} inline />
+                <p className="text-sm font-semibold text-gray-500 mb-2">Campaigns by status</p>
+                <DonutWithLegend data={campaignStats.statusData} height={160} inline />
               </div>
             )}
 
@@ -1077,10 +1312,15 @@ function Admin() {
                       <p className="text-gray-700 font-medium truncate">{c.name}</p>
                       <p className="text-gray-400">
                         {c.platform}
-                        {c.end_date ? ` · ends ${new Date(c.end_date).toLocaleDateString()}` : ""}
+                        {c.end_date
+                          ? ` · ends ${new Date(c.end_date).toLocaleDateString()}`
+                          : ""}
                       </p>
                     </div>
-                    <StatusChip label={c._status} style={CAMPAIGN_STATUS_STYLES[c._status] || {}} />
+                    <StatusChip
+                      label={c._status}
+                      style={CAMPAIGN_STATUS_STYLES[c._status] || {}}
+                    />
                   </li>
                 ))}
               </ul>
@@ -1088,14 +1328,18 @@ function Admin() {
           </SectionCard>
 
           {/* Production */}
-          <SectionCard wide title="Production" icon={Factory} onView={() => goTo("production_wo")}>
+          <SectionCard
+            wide
+            title="Production"
+            icon={Factory}
+          >
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div>
                 <p className="text-sm text-gray-400">Units finished</p>
                 {loading ? (
                   <Skeleton />
                 ) : (
-                  <p className="text-xl font-semibold text-gray-900">
+                  <p className="text-xl font-semibold text-gray-900 tabular-nums">
                     {productionStats.unitsFinished.toLocaleString()}
                   </p>
                 )}
@@ -1105,7 +1349,7 @@ function Admin() {
                 {loading ? (
                   <Skeleton />
                 ) : (
-                  <p className="text-xl font-semibold text-gray-900">
+                  <p className="text-xl font-semibold text-gray-900 tabular-nums">
                     {productionStats.finishedOrdersCount.toLocaleString()}
                   </p>
                 )}
@@ -1113,14 +1357,14 @@ function Admin() {
             </div>
 
             {!loading && (
-              <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                 <div>
-                  <p className="text-sm font-semibold text-gray-500 mb-1">Work orders by status</p>
-                  <DonutWithLegend data={productionStats.statusData} height={150} />
+                  <p className="text-sm font-semibold text-gray-500 mb-2">Work orders by status</p>
+                  <DonutWithLegend data={productionStats.statusData} height={160} />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-gray-500 mb-1">Units finished per week</p>
-                  <MiniBar data={productionStats.weeklyUnits} height={150} />
+                  <p className="text-sm font-semibold text-gray-500 mb-2">Units finished per week</p>
+                  <MiniBar data={productionStats.weeklyUnits} height={160} />
                 </div>
               </div>
             )}
@@ -1129,7 +1373,7 @@ function Admin() {
               <Skeleton className="h-24 w-full" />
             ) : (
               <div>
-                <p className="text-sm font-semibold text-gray-500 mb-1">Due soon</p>
+                <p className="text-sm font-semibold text-gray-500 mb-2">Due soon</p>
                 {productionStats.dueSoon.length === 0 ? (
                   <EmptyRow>No active work orders with a due date.</EmptyRow>
                 ) : (
@@ -1140,7 +1384,11 @@ function Admin() {
                           {wo.wo_number} · {wo.product_name}
                         </span>
                         <StatusChip
-                          label={wo.due_date ? new Date(wo.due_date).toLocaleDateString() : "No date"}
+                          label={
+                            wo.due_date
+                              ? new Date(wo.due_date).toLocaleDateString()
+                              : "No date"
+                          }
                           style={WO_STATUS_STYLES[wo.status] || {}}
                         />
                       </li>
