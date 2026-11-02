@@ -57,11 +57,20 @@ const centsToPesos = (c) => Math.max(0, toNumber(c)) / 100;
 
 const axisTick = { fontSize: 12, fill: "#6B7280" };
 
+// orders.created_at / completed_at are TEXT in two formats: "MM/DD/YYYY HH:mm"
+// and ISO "YYYY-MM-DD HH:mm:ss". Parse the first one explicitly.
 const safeDate = (value) => {
   if (!value) return null;
-  const date = new Date(value);
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  const m = String(value).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2}))?/);
+  const date = m
+    ? new Date(+m[3], +m[1] - 1, +m[2], +(m[4] || 0), +(m[5] || 0))
+    : new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
 };
+
+const toDateKey = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 const localDateBoundary = (value, endOfDay = false) => {
   if (!value) return null;
@@ -415,6 +424,8 @@ function Sales_db({ onGoToImport }) {
   const [dateFrom, setDateFrom] = useState(firstOfMonthKey());
   const [dateTo, setDateTo] = useState(localDateKey());
   const [platformFilter, setPlatformFilter] = useState("all");
+  // Until the user picks dates themselves, the range follows the newest imported order.
+  const [rangeIsManual, setRangeIsManual] = useState(false);
 
   const lastOrderSyncAtRef = useRef(null);
   const inFlightRef = useRef(false);
@@ -517,6 +528,25 @@ function Sales_db({ onGoToImport }) {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [fetchAll]);
+
+  // Date (yyyy-mm-dd) of the newest order across everything imported, ignoring filters.
+  const latestOrderKey = useMemo(() => {
+    let max = 0;
+    orders.forEach((o) => {
+      const t = safeDate(orderDate(o))?.getTime();
+      if (t && t > max) max = t;
+    });
+    return max ? toDateKey(new Date(max)) : null;
+  }, [orders]);
+
+  // Auto-adjust the default range to the latest import: month start -> newest order date.
+  // Re-runs whenever a new import moves the latest date, unless the user set dates by hand.
+  useEffect(() => {
+    if (!latestOrderKey || rangeIsManual) return;
+    const [y, m] = latestOrderKey.split("-");
+    setDateFrom(`${y}-${m}-01`);
+    setDateTo(latestOrderKey);
+  }, [latestOrderKey, rangeIsManual]);
 
   const filteredOrders = useMemo(() => {
     let result = orders;
@@ -648,16 +678,32 @@ function Sales_db({ onGoToImport }) {
               <input
                 type="date"
                 value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
+                onChange={(e) => {
+                  setRangeIsManual(true);
+                  setDateFrom(e.target.value);
+                }}
                 className="border border-gray-300 rounded-md px-3 py-2 text-base text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
               />
               <span className="text-gray-400 text-base">to</span>
               <input
                 type="date"
                 value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
+                onChange={(e) => {
+                  setRangeIsManual(true);
+                  setDateTo(e.target.value);
+                }}
                 className="border border-gray-300 rounded-md px-3 py-2 text-base text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-300"
               />
+              {rangeIsManual && latestOrderKey && (
+                <button
+                  onClick={() => setRangeIsManual(false)}
+                  className="text-sm font-medium cursor-pointer hover:underline"
+                  style={{ color: C.accent }}
+                  title={`Jump back to the latest imported date (${latestOrderKey})`}
+                >
+                  Latest import
+                </button>
+              )}
             </div>
           </div>
         </Card>

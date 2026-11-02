@@ -87,28 +87,6 @@ const WATCHED_TABLES = ["inventory", "raw_materials", "packaging_materials"];
 const PAGE_SIZE = 1000;
 const ORDER_ID_CHUNK_SIZE = 150;
 
-function localDateKey(d = new Date()) {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-function firstOfMonthKey() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
-}
-
-function focusDateInput(e) {
-  e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`;
-  e.target.style.borderColor = C.accent;
-}
-
-function blurDateInput(e) {
-  e.target.style.boxShadow = "none";
-  e.target.style.borderColor = "#D1D5DB";
-}
-
 // ─── Helpers ──────────────────────────────────────────────────
 
 function toNumber(value) {
@@ -124,21 +102,6 @@ function safeDate(value) {
   if (!value) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
-}
-
-/** Local midnight / end-of-day boundaries for YYYY-MM-DD date filters. */
-function localDateBoundary(value, endOfDay = false) {
-  if (!value) return null;
-  const [year, month, day] = value.split("-").map(Number);
-  const date = new Date(year, month - 1, day);
-  if (Number.isNaN(date.getTime())) return null;
-  date.setHours(
-    endOfDay ? 23 : 0,
-    endOfDay ? 59 : 0,
-    endOfDay ? 59 : 0,
-    endOfDay ? 999 : 0,
-  );
-  return date.getTime();
 }
 
 function totalStock(row) {
@@ -198,21 +161,6 @@ function mergeById(prev, fresh) {
  */
 function mergeActive(prev, fresh) {
   return mergeById(prev, fresh).filter((r) => !r.archived);
-}
-
-/** Keep only rows whose updated_at falls inside the date range. */
-function filterByUpdatedAt(rows, dateFrom, dateTo) {
-  const fromTime = localDateBoundary(dateFrom);
-  const toTime = localDateBoundary(dateTo, true);
-  if (fromTime === null && toTime === null) return rows;
-
-  return rows.filter((m) => {
-    const t = safeDate(m.updated_at)?.getTime();
-    if (t == null) return false;
-    if (fromTime !== null && t < fromTime) return false;
-    if (toTime !== null && t > toTime) return false;
-    return true;
-  });
 }
 
 // ─── Data fetching helpers ──────────────────────────────────
@@ -453,10 +401,8 @@ function Inventory_db() {
   const [packagingErrorMsg, setPackagingErrorMsg] = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
 
-  // Filters (same UX as Sales dashboard)
+  // Only filter: platform. It shows what is available right now.
   const [platformFilter, setPlatformFilter] = useState("all");
-  const [dateFrom, setDateFrom] = useState(firstOfMonthKey);
-  const [dateTo, setDateTo] = useState(localDateKey);
 
   // Drill-down state
   const [breakdown, setBreakdown] = useState(null);
@@ -741,12 +687,9 @@ function Inventory_db() {
     };
   }, [fetchAll]);
 
-  // ── Filtered inventory (platform + date on updated_at) ─────
+  // ── Filtered inventory (platform only, current stock) ──────
 
   const filteredInventory = useMemo(() => {
-    const fromTime = localDateBoundary(dateFrom);
-    const toTime = localDateBoundary(dateTo, true);
-
     return rawInventory.filter((r) => {
       // Platform: product has stock on that shop
       if (platformFilter === "Shopee" && nonNegative(r.shopee_stock) <= 0)
@@ -756,27 +699,13 @@ function Inventory_db() {
       if (platformFilter === "TikTok" && nonNegative(r.tiktok_stock) <= 0)
         return false;
 
-      // Date range on updated_at
-      if (fromTime !== null || toTime !== null) {
-        const t = safeDate(r.updated_at)?.getTime();
-        if (t == null) return false;
-        if (fromTime !== null && t < fromTime) return false;
-        if (toTime !== null && t > toTime) return false;
-      }
-
       return true;
     });
-  }, [rawInventory, platformFilter, dateFrom, dateTo]);
+  }, [rawInventory, platformFilter]);
 
-  const filteredMaterials = useMemo(
-    () => filterByUpdatedAt(rawMaterials, dateFrom, dateTo),
-    [rawMaterials, dateFrom, dateTo],
-  );
-
-  const filteredPackaging = useMemo(
-    () => filterByUpdatedAt(rawPackaging, dateFrom, dateTo),
-    [rawPackaging, dateFrom, dateTo],
-  );
+  // Raw and packaging materials always show what is available right now.
+  const filteredMaterials = rawMaterials;
+  const filteredPackaging = rawPackaging;
 
   // ── Derived chart data: products (from filtered inventory) ─
 
@@ -1227,28 +1156,6 @@ function Inventory_db() {
                   {p === "all" ? "All" : p}
                 </button>
               ))}
-            </div>
-
-            <div className="flex items-center gap-2">
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="border border-gray-300 rounded-md px-2 py-1.5 text-base text-gray-700 cursor-pointer focus:outline-none"
-                onFocus={focusDateInput}
-                onBlur={blurDateInput}
-                title="Updated from"
-              />
-              <span className="text-gray-400 text-sm">to</span>
-              <input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="border border-gray-300 rounded-md px-2 py-1.5 text-base text-gray-700 cursor-pointer focus:outline-none"
-                onFocus={focusDateInput}
-                onBlur={blurDateInput}
-                title="Updated to"
-              />
             </div>
           </div>
         </Card>

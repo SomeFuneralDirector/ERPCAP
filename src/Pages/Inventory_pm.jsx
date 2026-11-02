@@ -413,7 +413,6 @@ function ReceiveDeliveryModal({ onClose, onSaved, materials }) {
 
     setSaving(true);
     const { error: rpcError } = await supabase.rpc("receive_packaging_stock", {
-      p_supplier: "",
       p_received_date: receivedDate,
       p_items: filled.map((l) => ({
         material_id: l.material_id,
