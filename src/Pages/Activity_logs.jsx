@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { supabase } from '../api/supabase'
 import { formatPeso } from '../lib/Finance'
 
-/* ── Design tokens (aligned with Inventory / platform palette) ───────────── */
 const C = {
   accent: '#B3211B',
   accentHover: '#8E1A15',
@@ -31,9 +30,26 @@ const TABS = [
   { key: 'archive', label: 'Archive' },
 ]
 
-const PAGE_SIZE = 20 // rows shown per page
-const FETCH_LIMIT = 500 // most recent rows loaded per log (paged + searched on the client)
+const PAGE_SIZE = 20
+const FETCH_LIMIT = 500
 const POLL_INTERVAL_MS = 5000
+
+const TH = 'px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide whitespace-nowrap text-white'
+const TD = 'px-5 py-3.5 align-middle'
+
+// Table holding user ids + emails (for "archived by"). Change if yours differs.
+const USERS_TABLE = 'profiles'
+
+const PAGE_LABELS = {
+  inventory: 'Inventory',
+  products: 'Inventory',
+  raw_materials: 'Raw Materials',
+  packaging_materials: 'Packaging',
+  ledger_entries: 'Cash Book',
+  ledger_categories: 'Cash Book',
+}
+
+const CASH_TYPE_LABEL = { debit: 'Cash In', credit: 'Cash Out' }
 
 function localDateKey(d = new Date()) {
   const yyyy = d.getFullYear()
@@ -47,31 +63,9 @@ function firstOfMonthKey() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
 }
 
-const CASH_TYPE_LABEL = { debit: 'Cash In', credit: 'Cash Out' }
-
-// Table that holds your users' id + email (used to show who archived a cash book entry).
-// Change this to match your project, e.g. 'profiles' or 'users'.
-const USERS_TABLE = 'profiles'
-
-// Which page of the app each archived table belongs to.
-// Add your own table names here; anything missing falls back to a readable table name.
-// Note: Inventory archives products with table_name 'inventory'.
-const PAGE_LABELS = {
-  inventory: 'Inventory',
-  products: 'Inventory',
-  raw_materials: 'Raw Materials',
-  packaging_materials: 'Packaging',
-  ledger_entries: 'Cash Book',
-  ledger_categories: 'Cash Book',
-}
-
 function pageLabel(table) {
   return PAGE_LABELS[table] || humanLabel(table) || '—'
 }
-
-// Shared cell classes so the tables have identical spacing
-const TH = 'px-5 py-3 text-left text-sm font-semibold whitespace-nowrap'
-const TD = 'px-5 py-3.5 align-middle'
 
 function formatExact(iso) {
   if (!iso) return '—'
@@ -113,7 +107,6 @@ function formatValue(v) {
   return String(v)
 }
 
-/** Turn snake_case / camelCase keys into readable labels */
 function humanLabel(key) {
   if (!key) return ''
   return key
@@ -131,8 +124,6 @@ function parseDevice(userAgent) {
   if (isMobile) return 'Mobile'
   return 'Desktop'
 }
-
-/* ── Status / action chips ───────────────────────────────────────────────── */
 
 function StatusChip({ label, tone = 'neutral' }) {
   const styles = {
@@ -171,7 +162,6 @@ function PlatformChip({ platform }) {
   )
 }
 
-/** Small grey tag used for table names */
 function TableTag({ children }) {
   return (
     <span
@@ -183,7 +173,16 @@ function TableTag({ children }) {
   )
 }
 
-/* ── Shared list/table building blocks ───────────────────────────────────── */
+function Tag({ children }) {
+  return (
+    <span
+      className="inline-block px-2 py-0.5 rounded-full text-xs font-medium"
+      style={{ backgroundColor: C.surface, color: C.textMuted }}
+    >
+      {children}
+    </span>
+  )
+}
 
 function ErrorBanner({ message }) {
   if (!message) return null
@@ -201,7 +200,6 @@ function ErrorBanner({ message }) {
   )
 }
 
-/** Page numbers with gaps: 1 … 4 5 6 … 12 */
 function pageNumbers(page, pages) {
   const set = new Set([1, pages, page - 1, page, page + 1])
   const nums = [...set].filter((n) => n >= 1 && n <= pages).sort((a, b) => a - b)
@@ -218,7 +216,8 @@ function Pagination({ page, total, onChange }) {
   const from = (page - 1) * PAGE_SIZE + 1
   const to = Math.min(page * PAGE_SIZE, total)
 
-  const btn = 'min-w-[2.25rem] px-3 py-1.5 rounded-md text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer'
+  const btn =
+    'min-w-[2.25rem] px-3 py-1.5 rounded-md text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer'
 
   return (
     <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-4">
@@ -270,7 +269,6 @@ function Pagination({ page, total, onChange }) {
   )
 }
 
-/** Handles error / loading / empty states + pagination the same way for every tab */
 function LogPanel({ error, loading, noRows, emptyText, page, total, onPageChange, children }) {
   return (
     <>
@@ -299,10 +297,10 @@ function LogTable({ headers, children }) {
   return (
     <div className="overflow-x-auto rounded-lg" style={{ border: `1px solid ${C.border}` }}>
       <table className="w-full text-base">
-        <thead style={{ backgroundColor: C.surface, borderBottom: `1px solid ${C.border}` }}>
+        <thead className="bg-red-900">
           <tr>
             {headers.map((h, i) => (
-              <th key={i} className={TH} style={{ color: C.textMuted }}>
+              <th key={i} className={TH}>
                 {h}
               </th>
             ))}
@@ -314,7 +312,6 @@ function LogTable({ headers, children }) {
   )
 }
 
-/** One row style + one hover style for all tabs */
 function LogRow({ expandable = false, expanded = false, onToggle, children }) {
   const rest = expanded ? C.accentSoft : 'transparent'
   return (
@@ -338,7 +335,6 @@ function DateCell({ value }) {
   )
 }
 
-/** Right-aligned last column: details toggle and/or action buttons */
 function ActionsCell({ children }) {
   return (
     <td className={`${TD} text-right whitespace-nowrap`}>
@@ -374,7 +370,6 @@ function RestoreButton({ onClick }) {
   )
 }
 
-/** Row shown under an expanded row; holds a DetailPanel */
 function ExpandedRow({ colSpan, children }) {
   return (
     <tr style={{ backgroundColor: C.surface, borderBottom: `1px solid ${C.border}` }}>
@@ -385,7 +380,6 @@ function ExpandedRow({ colSpan, children }) {
   )
 }
 
-/** "Table · record label" cell with an optional sub-line */
 function RecordCell({ table, label, note }) {
   return (
     <td className={TD} style={{ color: C.text }}>
@@ -403,7 +397,36 @@ function RecordCell({ table, label, note }) {
   )
 }
 
-/* ── Detail panels ───────────────────────────────────────────────────────── */
+function MobileCard({ children }) {
+  return (
+    <div
+      className="rounded-lg bg-white p-3 space-y-2"
+      style={{ border: `1px solid ${C.border}` }}
+    >
+      {children}
+    </div>
+  )
+}
+
+function MobileMeta({ children }) {
+  return (
+    <p className="text-xs" style={{ color: C.textMuted }}>
+      {children}
+    </p>
+  )
+}
+
+function MobileAction({ onClick, children }) {
+  return (
+    <button
+      onClick={onClick}
+      className="text-xs font-medium cursor-pointer"
+      style={{ color: C.accent }}
+    >
+      {children}
+    </button>
+  )
+}
 
 const HIDDEN_KEYS = ['id', 'user_id', 'created_by', 'updated_by', 'archived', 'archived_at', 'archived_by']
 const TIMESTAMP_KEYS = ['created_at', 'updated_at']
@@ -427,7 +450,6 @@ function isEmpty(v) {
   return v === null || v === undefined || v === ''
 }
 
-/** Format a value based on what the field looks like */
 function renderFieldValue(key, v) {
   if (isEmpty(v)) {
     return <span style={{ color: C.textFaint, fontStyle: 'italic' }}>Not set</span>
@@ -464,7 +486,7 @@ function DetailPanel({ title, subtitle, tone = 'neutral', children }) {
     >
       {(title || subtitle) && (
         <div
-          className="px-4 py-2.5 flex items-center justify-between gap-3"
+          className="px-4 py-2.5 flex flex-wrap items-center justify-between gap-2"
           style={{ backgroundColor: C.surface, borderBottom: `1px solid ${C.border}` }}
         >
           <p className="text-sm font-semibold" style={{ color: C.text }}>
@@ -502,7 +524,6 @@ function DeltaBadge({ oldVal, newVal }) {
   )
 }
 
-/** "updated" logs shaped like { field: { old, new } } */
 function ChangeDiffPanel({ detail }) {
   const entries = Object.entries(detail || {}).filter(([k]) => !HIDDEN_KEYS.includes(k))
 
@@ -554,7 +575,10 @@ function ChangeDiffPanel({ detail }) {
         ))}
 
         {extras.length > 0 && (
-          <div className="pt-3 space-y-2" style={{ borderTop: diffs.length ? `1px dashed ${C.border}` : 'none' }}>
+          <div
+            className="pt-3 space-y-2"
+            style={{ borderTop: diffs.length ? `1px dashed ${C.border}` : 'none' }}
+          >
             {extras.map(([field, value]) => (
               <div key={field} className="grid grid-cols-1 sm:grid-cols-[9rem_1fr] gap-1 sm:gap-4">
                 <span className="text-sm" style={{ color: C.textMuted }}>
@@ -572,7 +596,6 @@ function ChangeDiffPanel({ detail }) {
   )
 }
 
-/** create / delete / generic snapshots */
 function RecordSnapshotPanel({ data, action, exclude = [] }) {
   if (!data || typeof data !== 'object') return null
 
@@ -630,8 +653,6 @@ function RecordSnapshotPanel({ data, action, exclude = [] }) {
   )
 }
 
-/* ── Main component ──────────────────────────────────────────────────────── */
-
 function Activity_logs() {
   const [activeTab, setActiveTab] = useState('logins')
   const [page, setPage] = useState(1)
@@ -644,7 +665,6 @@ function Activity_logs() {
   const [archivedMaterials, setArchivedMaterials] = useState([])
   const [archivedPackaging, setArchivedPackaging] = useState([])
 
-  // Date range, same pattern as Admin / Finance dashboards
   const [dateFrom, setDateFrom] = useState(firstOfMonthKey)
   const [dateTo, setDateTo] = useState(localDateKey)
 
@@ -697,7 +717,6 @@ function Activity_logs() {
 
   const loadAll = useCallback(
     (mode) => {
-      // Inclusive end-of-day so the selected "to" date is fully covered
       const fromIso = dateFrom ? `${dateFrom}T00:00:00` : null
       const toIso = dateTo ? `${dateTo}T23:59:59.999` : null
 
@@ -752,9 +771,6 @@ function Activity_logs() {
         mode
       )
 
-      // Archived snapshots (products are archived through archive_record()).
-      // Each product snapshot is checked against the live inventory row so a
-      // product that was restored some other way never lingers in this list.
       loadSource(
         'archivedRecords',
         async () => {
@@ -812,7 +828,6 @@ function Activity_logs() {
           const { data, error } = await q
           if (error) return { data: null, error }
 
-          // Look up who archived each entry (no foreign key needed)
           const ids = [...new Set((data || []).map((r) => r.archived_by).filter(Boolean))]
           if (ids.length === 0) return { data, error: null }
 
@@ -820,7 +835,8 @@ function Activity_logs() {
             .from(USERS_TABLE)
             .select('id, email')
             .in('id', ids)
-          if (usersError) console.warn(`Couldn't load archiver emails from "${USERS_TABLE}":`, usersError.message)
+          if (usersError)
+            console.warn(`Couldn't load archiver emails from "${USERS_TABLE}":`, usersError.message)
 
           const emailById = Object.fromEntries((users || []).map((u) => [u.id, u.email]))
           return {
@@ -832,9 +848,6 @@ function Activity_logs() {
         mode
       )
 
-      // Raw materials and packaging are archived by flipping their own
-      // `archived` flag (no snapshot in archived_records), so read them
-      // straight from their tables.
       loadSource(
         'archivedMaterials',
         () => {
@@ -1043,7 +1056,6 @@ function Activity_logs() {
       })
     : archiveItems
 
-  // ── Pagination (client-side, shared by every tab) ──
   const pageCount = (n) => Math.max(1, Math.ceil(n / PAGE_SIZE))
   const currentPage = (n) => Math.min(page, pageCount(n))
   const pageSlice = (list) => {
@@ -1102,70 +1114,54 @@ function Activity_logs() {
     return 'neutral'
   }
 
+  const dateInputProps = (value, onChange) => ({
+    type: 'date',
+    value,
+    onChange: (e) => {
+      onChange(e.target.value)
+      setPage(1)
+    },
+    className:
+      'border rounded-md px-2 py-1.5 text-sm cursor-pointer focus:outline-none min-w-0',
+    style: { borderColor: C.borderStrong, color: C.text },
+    onFocus: (e) => {
+      e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`
+      e.target.style.borderColor = C.accent
+    },
+    onBlur: (e) => {
+      e.target.style.boxShadow = 'none'
+      e.target.style.borderColor = C.borderStrong
+    },
+  })
+
   return (
     <div className="min-h-screen" style={{ backgroundColor: C.surface }}>
-      <div className="p-6 space-y-4">
-        {/* Header */}
+      <div className="p-4 sm:p-6 space-y-4">
         <div
-          className="bg-white rounded-lg shadow-sm px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3"
+          className="bg-white rounded-lg shadow-sm px-4 sm:px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-3"
           style={{ border: `1px solid ${C.border}` }}
         >
-          <h1 className="text-3xl font-semibold" style={{ color: C.text }}>
+          <h1 className="text-2xl sm:text-3xl font-semibold" style={{ color: C.text }}>
             Activity Logs
           </h1>
-          <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
-            <div className="flex items-center gap-2">
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => {
-                  setDateFrom(e.target.value)
-                  setPage(1)
-                }}
-                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none"
-                style={{ borderColor: C.borderStrong, color: C.text }}
-                onFocus={(e) => {
-                  e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`
-                  e.target.style.borderColor = C.accent
-                }}
-                onBlur={(e) => {
-                  e.target.style.boxShadow = 'none'
-                  e.target.style.borderColor = C.borderStrong
-                }}
-              />
-              <span className="text-sm" style={{ color: C.textFaint }}>
-                to
-              </span>
-              <input
-                type="date"
-                value={dateTo}
-                onChange={(e) => {
-                  setDateTo(e.target.value)
-                  setPage(1)
-                }}
-                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm text-gray-700 cursor-pointer focus:outline-none"
-                style={{ borderColor: C.borderStrong, color: C.text }}
-                onFocus={(e) => {
-                  e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`
-                  e.target.style.borderColor = C.accent
-                }}
-                onBlur={(e) => {
-                  e.target.style.boxShadow = 'none'
-                  e.target.style.borderColor = C.borderStrong
-                }}
-              />
-            </div>
+          <div className="flex flex-wrap items-center gap-2 self-start md:self-auto w-full md:w-auto">
+            <input {...dateInputProps(dateFrom, setDateFrom)} className="flex-1 md:flex-none md:w-auto border rounded-md px-2 py-1.5 text-sm cursor-pointer focus:outline-none" />
+            <span className="text-sm" style={{ color: C.textFaint }}>
+              to
+            </span>
+            <input {...dateInputProps(dateTo, setDateTo)} className="flex-1 md:flex-none md:w-auto border rounded-md px-2 py-1.5 text-sm cursor-pointer focus:outline-none" />
           </div>
         </div>
 
-        {/* Main card */}
         <div
-          className="bg-white rounded-lg shadow-sm p-5"
+          className="bg-white rounded-lg shadow-sm p-4 sm:p-5"
           style={{ border: `1px solid ${C.border}` }}
         >
-          {/* Tabs + search */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-5">
-            <div className="flex gap-1 border-b md:border-0" style={{ borderColor: C.border }}>
+            <div
+              className="flex gap-1 overflow-x-auto border-b md:border-0 -mx-4 sm:mx-0 px-4 sm:px-0"
+              style={{ borderColor: C.border }}
+            >
               {TABS.map((t) => {
                 const active = activeTab === t.key
                 return (
@@ -1175,7 +1171,7 @@ function Activity_logs() {
                       setActiveTab(t.key)
                       setPage(1)
                     }}
-                    className="px-4 py-2.5 font-semibold cursor-pointer text-base border-b-2 transition-colors"
+                    className="px-4 py-2.5 font-semibold cursor-pointer text-base border-b-2 transition-colors whitespace-nowrap shrink-0"
                     style={{
                       borderColor: active ? C.accent : 'transparent',
                       color: active ? C.accent : C.textMuted,
@@ -1221,7 +1217,6 @@ function Activity_logs() {
             </div>
           </div>
 
-          {/* ── Login History ── */}
           {activeTab === 'logins' && (
             <LogPanel
               error={errorMsg.logins}
@@ -1232,26 +1227,47 @@ function Activity_logs() {
               total={filteredLogins.length}
               onPageChange={setPage}
             >
-              <LogTable headers={['Status', 'User', 'Device', 'Date/Time']}>
+              <div className="hidden md:block">
+                <LogTable headers={['Status', 'User', 'Device', 'Date/Time']}>
+                  {pageSlice(filteredLogins).map((l) => (
+                    <LogRow key={l.id}>
+                      <td className={TD}>
+                        <StatusChip label={l.status || 'unknown'} tone={loginTone(l.status)} />
+                      </td>
+                      <td className={TD} style={{ color: C.text }}>
+                        {l.user_email || '—'}
+                      </td>
+                      <td
+                        className={`${TD} text-sm`}
+                        style={{ color: C.textMuted }}
+                        title={l.user_agent || ''}
+                      >
+                        {parseDevice(l.user_agent)}
+                      </td>
+                      <DateCell value={l.created_at} />
+                    </LogRow>
+                  ))}
+                </LogTable>
+              </div>
+              <div className="md:hidden space-y-2">
                 {pageSlice(filteredLogins).map((l) => (
-                  <LogRow key={l.id}>
-                    <td className={TD}>
+                  <MobileCard key={l.id}>
+                    <div className="flex items-center justify-between gap-2">
                       <StatusChip label={l.status || 'unknown'} tone={loginTone(l.status)} />
-                    </td>
-                    <td className={TD} style={{ color: C.text }}>
+                      <span className="text-xs whitespace-nowrap" style={{ color: C.textFaint }}>
+                        {formatExact(l.created_at)}
+                      </span>
+                    </div>
+                    <p className="text-sm break-words" style={{ color: C.text }}>
                       {l.user_email || '—'}
-                    </td>
-                    <td className={`${TD} text-sm`} style={{ color: C.textMuted }} title={l.user_agent || ''}>
-                      {parseDevice(l.user_agent)}
-                    </td>
-                    <DateCell value={l.created_at} />
-                  </LogRow>
+                    </p>
+                    <MobileMeta>{parseDevice(l.user_agent)}</MobileMeta>
+                  </MobileCard>
                 ))}
-              </LogTable>
+              </div>
             </LogPanel>
           )}
 
-          {/* ── Data Changes ── */}
           {activeTab === 'changes' && (
             <LogPanel
               error={errorMsg.changes}
@@ -1262,54 +1278,123 @@ function Activity_logs() {
               total={filteredChanges.length}
               onPageChange={setPage}
             >
-              <LogTable headers={['Action', 'User', 'Record', 'Date/Time', '']}>
+              <div className="hidden md:block">
+                <LogTable headers={['Action', 'User', 'Record', 'Date/Time', '']}>
+                  {pageSlice(filteredChanges).map((c) => {
+                    const detail = parseDetail(c.detail)
+                    const isExpanded = expandedChange === c.id
+                    const isUpdateWithDiff =
+                      c.action === 'updated' &&
+                      detail &&
+                      Object.values(detail).some(
+                        (v) => v && typeof v === 'object' && ('old' in v || 'new' in v)
+                      )
+
+                    return (
+                      <React.Fragment key={c.id}>
+                        <LogRow
+                          expandable={!!detail}
+                          expanded={isExpanded}
+                          onToggle={() => setExpandedChange(isExpanded ? null : c.id)}
+                        >
+                          <td className={TD}>
+                            <StatusChip label={c.action || 'changed'} tone={actionTone(c.action)} />
+                          </td>
+                          <td className={TD} style={{ color: C.text }}>
+                            {c.user_email || '—'}
+                          </td>
+                          <RecordCell
+                            table={c.table_name}
+                            label={c.record_label}
+                            note={c.detail && !detail ? c.detail : null}
+                          />
+                          <DateCell value={c.created_at} />
+                          <ActionsCell>
+                            {detail && <DetailsToggle expanded={isExpanded} />}
+                          </ActionsCell>
+                        </LogRow>
+
+                        {isExpanded && detail && (
+                          <ExpandedRow colSpan={5}>
+                            {isUpdateWithDiff ? (
+                              <ChangeDiffPanel detail={detail} />
+                            ) : (
+                              <RecordSnapshotPanel data={detail} action={c.action} />
+                            )}
+                          </ExpandedRow>
+                        )}
+                      </React.Fragment>
+                    )
+                  })}
+                </LogTable>
+              </div>
+              <div className="md:hidden space-y-2">
                 {pageSlice(filteredChanges).map((c) => {
                   const detail = parseDetail(c.detail)
                   const isExpanded = expandedChange === c.id
                   const isUpdateWithDiff =
                     c.action === 'updated' &&
                     detail &&
-                    Object.values(detail).some((v) => v && typeof v === 'object' && ('old' in v || 'new' in v))
+                    Object.values(detail).some(
+                      (v) => v && typeof v === 'object' && ('old' in v || 'new' in v)
+                    )
+                  const note = c.detail && !detail ? c.detail : null
 
                   return (
-                    <React.Fragment key={c.id}>
-                      <LogRow
-                        expandable={!!detail}
-                        expanded={isExpanded}
-                        onToggle={() => setExpandedChange(isExpanded ? null : c.id)}
-                      >
-                        <td className={TD}>
+                    <div
+                      key={c.id}
+                      className="rounded-lg bg-white overflow-hidden"
+                      style={{ border: `1px solid ${C.border}` }}
+                    >
+                      <div className="p-3 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
                           <StatusChip label={c.action || 'changed'} tone={actionTone(c.action)} />
-                        </td>
-                        <td className={TD} style={{ color: C.text }}>
-                          {c.user_email || '—'}
-                        </td>
-                        <RecordCell
-                          table={c.table_name}
-                          label={c.record_label}
-                          note={c.detail && !detail ? c.detail : null}
-                        />
-                        <DateCell value={c.created_at} />
-                        <ActionsCell>{detail && <DetailsToggle expanded={isExpanded} />}</ActionsCell>
-                      </LogRow>
-
+                          <span
+                            className="text-xs whitespace-nowrap"
+                            style={{ color: C.textFaint }}
+                          >
+                            {formatExact(c.created_at)}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {c.table_name && <TableTag>{c.table_name}</TableTag>}
+                          {c.record_label && (
+                            <span className="text-sm font-medium break-words" style={{ color: C.text }}>
+                              {c.record_label}
+                            </span>
+                          )}
+                        </div>
+                        {note && (
+                          <p className="text-xs break-words" style={{ color: C.textFaint }}>
+                            {note}
+                          </p>
+                        )}
+                        <MobileMeta>{c.user_email || '—'}</MobileMeta>
+                        {detail && (
+                          <MobileAction onClick={() => setExpandedChange(isExpanded ? null : c.id)}>
+                            {isExpanded ? 'Hide details ▾' : 'Show details ▸'}
+                          </MobileAction>
+                        )}
+                      </div>
                       {isExpanded && detail && (
-                        <ExpandedRow colSpan={5}>
+                        <div
+                          className="p-3 border-t"
+                          style={{ backgroundColor: C.surface, borderColor: C.border }}
+                        >
                           {isUpdateWithDiff ? (
                             <ChangeDiffPanel detail={detail} />
                           ) : (
                             <RecordSnapshotPanel data={detail} action={c.action} />
                           )}
-                        </ExpandedRow>
+                        </div>
                       )}
-                    </React.Fragment>
+                    </div>
                   )
                 })}
-              </LogTable>
+              </div>
             </LogPanel>
           )}
 
-          {/* ── File Imports (original design, shared hover) ── */}
           {activeTab === 'imports' && (
             <LogPanel
               error={errorMsg.imports}
@@ -1320,35 +1405,19 @@ function Activity_logs() {
               total={filteredImports.length}
               onPageChange={setPage}
             >
-              <div className="overflow-x-auto rounded-lg" style={{ border: `1px solid ${C.border}` }}>
+              <div className="hidden md:block overflow-x-auto rounded-lg" style={{ border: `1px solid ${C.border}` }}>
                 <table className="w-full text-base">
-                  <thead style={{ backgroundColor: C.surface, borderBottom: `1px solid ${C.border}` }}>
+                  <thead className="bg-red-900">
                     <tr>
-                      <th className="px-4 py-3 text-left text-sm font-semibold w-8" style={{ color: C.textMuted }} />
-                      <th className="px-4 py-3 text-left text-sm font-semibold" style={{ color: C.textMuted }}>
-                        File
-                      </th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold" style={{ color: C.textMuted }}>
-                        Platform
-                      </th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold" style={{ color: C.textMuted }}>
-                        Date range
-                      </th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold" style={{ color: C.textMuted }}>
-                        Rows
-                      </th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold" style={{ color: C.textMuted }}>
-                        Inserted
-                      </th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold" style={{ color: C.textMuted }}>
-                        Skipped
-                      </th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold" style={{ color: C.textMuted }}>
-                        Status
-                      </th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold" style={{ color: C.textMuted }}>
-                        When
-                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-white w-8" />
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-white">File</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-white">Platform</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-white">Date range</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-white">Rows</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-white">Inserted</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-white">Skipped</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-white">Status</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-white">When</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1365,7 +1434,10 @@ function Activity_logs() {
                             <td className="px-4 py-3.5 text-center text-sm" style={{ color: C.textFaint }}>
                               {hasDetail && (isExpanded ? '▾' : '▸')}
                             </td>
-                            <td className="px-4 py-3.5 font-mono text-sm truncate max-w-[200px]" style={{ color: C.textMuted }}>
+                            <td
+                              className="px-4 py-3.5 font-mono text-sm truncate max-w-[200px]"
+                              style={{ color: C.textMuted }}
+                            >
                               {i.filename || '—'}
                             </td>
                             <td className="px-4 py-3.5">
@@ -1394,7 +1466,12 @@ function Activity_logs() {
                           </LogRow>
 
                           {isExpanded && (
-                            <tr style={{ backgroundColor: C.accentSoft, borderBottom: `1px solid ${C.accentSoftBorder}` }}>
+                            <tr
+                              style={{
+                                backgroundColor: C.accentSoft,
+                                borderBottom: `1px solid ${C.accentSoftBorder}`,
+                              }}
+                            >
                               <td colSpan={9} className="px-6 py-4">
                                 {i.reject_reason && (
                                   <p className="text-sm mb-2" style={{ color: C.accent }}>
@@ -1403,10 +1480,16 @@ function Activity_logs() {
                                 )}
                                 {i.errors && i.errors.length > 0 && (
                                   <>
-                                    <p className="text-sm font-semibold mb-1.5 uppercase tracking-wide" style={{ color: C.textMuted }}>
+                                    <p
+                                      className="text-sm font-semibold mb-1.5 uppercase tracking-wide"
+                                      style={{ color: C.textMuted }}
+                                    >
                                       Row errors ({i.errors.length})
                                     </p>
-                                    <ul className="text-sm space-y-1 list-disc list-inside" style={{ color: C.text }}>
+                                    <ul
+                                      className="text-sm space-y-1 list-disc list-inside"
+                                      style={{ color: C.text }}
+                                    >
                                       {i.errors.map((err, idx) => (
                                         <li key={idx}>{err}</li>
                                       ))}
@@ -1422,10 +1505,86 @@ function Activity_logs() {
                   </tbody>
                 </table>
               </div>
+              <div className="md:hidden space-y-2">
+                {pageSlice(filteredImports).map((i) => {
+                  const hasDetail = (i.errors && i.errors.length > 0) || i.reject_reason
+                  const isExpanded = expandedImport === i.id
+                  return (
+                    <div
+                      key={i.id}
+                      className="rounded-lg bg-white overflow-hidden"
+                      style={{ border: `1px solid ${C.border}` }}
+                    >
+                      <div className="p-3 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <PlatformChip platform={i.platform} />
+                          <StatusChip label={i.status || 'unknown'} tone={importTone(i.status)} />
+                        </div>
+                        <p className="font-mono text-sm break-all" style={{ color: C.text }}>
+                          {i.filename || '—'}
+                        </p>
+                        <p className="text-xs" style={{ color: C.textMuted }}>
+                          {i.date_from || i.date_to
+                            ? `${i.date_from || '—'} → ${i.date_to || '—'}`
+                            : '—'}
+                        </p>
+                        <div className="flex flex-wrap gap-3 text-xs" style={{ color: C.textMuted }}>
+                          <span>
+                            Rows <strong style={{ color: C.text }}>{i.row_count ?? 0}</strong>
+                          </span>
+                          <span>
+                            Inserted <strong style={{ color: C.success }}>{i.inserted ?? 0}</strong>
+                          </span>
+                          <span>
+                            Skipped <strong style={{ color: C.warning }}>{i.skipped ?? 0}</strong>
+                          </span>
+                        </div>
+                        <p className="text-xs" style={{ color: C.textFaint }}>
+                          {formatExact(i.imported_at)}
+                        </p>
+                        {hasDetail && (
+                          <MobileAction onClick={() => setExpandedImport(isExpanded ? null : i.id)}>
+                            {isExpanded ? 'Hide details ▾' : 'Show details ▸'}
+                          </MobileAction>
+                        )}
+                      </div>
+                      {isExpanded && hasDetail && (
+                        <div
+                          className="p-3 border-t"
+                          style={{ backgroundColor: C.accentSoft, borderColor: C.accentSoftBorder }}
+                        >
+                          {i.reject_reason && (
+                            <p className="text-sm mb-2" style={{ color: C.accent }}>
+                              <span className="font-semibold">Rejected:</span> {i.reject_reason}
+                            </p>
+                          )}
+                          {i.errors && i.errors.length > 0 && (
+                            <>
+                              <p
+                                className="text-xs font-semibold mb-1.5 uppercase tracking-wide"
+                                style={{ color: C.textMuted }}
+                              >
+                                Row errors ({i.errors.length})
+                              </p>
+                              <ul
+                                className="text-sm space-y-1 list-disc list-inside"
+                                style={{ color: C.text }}
+                              >
+                                {i.errors.map((err, idx) => (
+                                  <li key={idx}>{err}</li>
+                                ))}
+                              </ul>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
             </LogPanel>
           )}
 
-          {/* ── Archive ── */}
           {activeTab === 'archive' && (
             <>
               <ErrorBanner message={actionError} />
@@ -1438,42 +1597,142 @@ function Activity_logs() {
                 total={filteredArchive.length}
                 onPageChange={setPage}
               >
-                <LogTable headers={['Page', 'User', 'Item', 'Date/Time', '']}>
+                <div className="hidden md:block">
+                  <LogTable headers={['Page', 'User', 'Item', 'Date/Time', '']}>
+                    {pageSlice(filteredArchive).map((item) => {
+                      if (item.kind === 'entry') {
+                        const e = item.entry
+                        return (
+                          <LogRow key={item.key}>
+                            <td className={TD}>
+                              <StatusChip label="Cash Book" tone="neutral" />
+                            </td>
+                            <td className={TD} style={{ color: C.text }}>
+                              {e.archiver_email || '—'}
+                            </td>
+                            <td className={TD} style={{ color: C.text }}>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-medium">{e.detail}</span>
+                                {e.ledger_categories?.name && <Tag>{e.ledger_categories.name}</Tag>}
+                              </div>
+                              <div className="text-sm mt-0.5" style={{ color: C.textFaint }}>
+                                Entry dated {e.date} ·{' '}
+                                <span style={{ color: e.type === 'debit' ? C.success : C.accent }}>
+                                  {CASH_TYPE_LABEL[e.type] || e.type} {formatPeso(e.amount)}
+                                </span>
+                              </div>
+                            </td>
+                            <DateCell value={e.archived_at} />
+                            <ActionsCell>
+                              <RestoreButton
+                                onClick={() => setRestoreTarget({ kind: 'entry', entry: e })}
+                              />
+                            </ActionsCell>
+                          </LogRow>
+                        )
+                      }
+
+                      if (item.kind === 'material' || item.kind === 'packaging') {
+                        const r = item.row
+                        const isMaterial = item.kind === 'material'
+                        const name = isMaterial ? r.material_name : r.item_name
+                        const unit = isMaterial ? 'L' : 'pcs'
+                        return (
+                          <LogRow key={item.key}>
+                            <td className={TD}>
+                              <StatusChip
+                                label={isMaterial ? 'Raw Materials' : 'Packaging'}
+                                tone="neutral"
+                              />
+                            </td>
+                            <td className={TD} style={{ color: C.text }}>
+                              —
+                            </td>
+                            <td className={TD} style={{ color: C.text }}>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-medium">{name}</span>
+                                {r.category && <Tag>{r.category}</Tag>}
+                              </div>
+                              <div className="text-sm mt-0.5" style={{ color: C.textFaint }}>
+                                Stock when archived: {(Number(r.current_stock) || 0).toLocaleString()}{' '}
+                                {unit}
+                              </div>
+                            </td>
+                            <DateCell value={r.archived_at || r.updated_at} />
+                            <ActionsCell>
+                              <RestoreButton
+                                onClick={() => setRestoreTarget({ kind: item.kind, row: r })}
+                              />
+                            </ActionsCell>
+                          </LogRow>
+                        )
+                      }
+
+                      const r = item.record
+                      const data = r.data && typeof r.data === 'object' ? r.data : null
+                      const isExpanded = expandedArchive === item.key
+                      return (
+                        <React.Fragment key={item.key}>
+                          <LogRow
+                            expandable={!!data}
+                            expanded={isExpanded}
+                            onToggle={() => setExpandedArchive(isExpanded ? null : item.key)}
+                          >
+                            <td className={TD}>
+                              <StatusChip label={pageLabel(r.table_name)} tone="neutral" />
+                            </td>
+                            <td className={TD} style={{ color: C.text }}>
+                              {r.archived_by_email || '—'}
+                            </td>
+                            <RecordCell label={r.record_label} />
+                            <DateCell value={r.archived_at} />
+                            <ActionsCell>
+                              {data && <DetailsToggle expanded={isExpanded} />}
+                              <RestoreButton
+                                onClick={() => setRestoreTarget({ kind: 'record', record: r })}
+                              />
+                            </ActionsCell>
+                          </LogRow>
+
+                          {isExpanded && data && (
+                            <ExpandedRow colSpan={5}>
+                              <RecordSnapshotPanel data={data} action="deleted" />
+                            </ExpandedRow>
+                          )}
+                        </React.Fragment>
+                      )
+                    })}
+                  </LogTable>
+                </div>
+                <div className="md:hidden space-y-2">
                   {pageSlice(filteredArchive).map((item) => {
                     if (item.kind === 'entry') {
                       const e = item.entry
                       return (
-                        <LogRow key={item.key}>
-                          <td className={TD}>
+                        <MobileCard key={item.key}>
+                          <div className="flex items-center justify-between gap-2">
                             <StatusChip label="Cash Book" tone="neutral" />
-                          </td>
-                          <td className={TD} style={{ color: C.text }}>
-                            {e.archiver_email || '—'}
-                          </td>
-                          <td className={TD} style={{ color: C.text }}>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="font-medium">{e.detail}</span>
-                              {e.ledger_categories?.name && (
-                                <span
-                                  className="inline-block px-2 py-0.5 rounded-full text-sm font-medium"
-                                  style={{ backgroundColor: C.surface, color: C.textMuted }}
-                                >
-                                  {e.ledger_categories.name}
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-sm mt-0.5" style={{ color: C.textFaint }}>
-                              Entry dated {e.date} ·{' '}
-                              <span style={{ color: e.type === 'debit' ? C.success : C.accent }}>
-                                {CASH_TYPE_LABEL[e.type] || e.type} {formatPeso(e.amount)}
-                              </span>
-                            </div>
-                          </td>
-                          <DateCell value={e.archived_at} />
-                          <ActionsCell>
-                            <RestoreButton onClick={() => setRestoreTarget({ kind: 'entry', entry: e })} />
-                          </ActionsCell>
-                        </LogRow>
+                            <span className="text-xs whitespace-nowrap" style={{ color: C.textFaint }}>
+                              {formatExact(e.archived_at)}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-sm font-medium break-words" style={{ color: C.text }}>
+                              {e.detail}
+                            </span>
+                            {e.ledger_categories?.name && <Tag>{e.ledger_categories.name}</Tag>}
+                          </div>
+                          <p className="text-xs" style={{ color: C.textFaint }}>
+                            Entry dated {e.date} ·{' '}
+                            <span style={{ color: e.type === 'debit' ? C.success : C.accent }}>
+                              {CASH_TYPE_LABEL[e.type] || e.type} {formatPeso(e.amount)}
+                            </span>
+                          </p>
+                          <MobileMeta>{e.archiver_email || '—'}</MobileMeta>
+                          <RestoreButton
+                            onClick={() => setRestoreTarget({ kind: 'entry', entry: e })}
+                          />
+                        </MobileCard>
                       )
                     }
 
@@ -1483,39 +1742,30 @@ function Activity_logs() {
                       const name = isMaterial ? r.material_name : r.item_name
                       const unit = isMaterial ? 'L' : 'pcs'
                       return (
-                        <LogRow key={item.key}>
-                          <td className={TD}>
+                        <MobileCard key={item.key}>
+                          <div className="flex items-center justify-between gap-2">
                             <StatusChip
                               label={isMaterial ? 'Raw Materials' : 'Packaging'}
                               tone="neutral"
                             />
-                          </td>
-                          <td className={TD} style={{ color: C.text }}>
-                            —
-                          </td>
-                          <td className={TD} style={{ color: C.text }}>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="font-medium">{name}</span>
-                              {r.category && (
-                                <span
-                                  className="inline-block px-2 py-0.5 rounded-full text-sm font-medium"
-                                  style={{ backgroundColor: C.surface, color: C.textMuted }}
-                                >
-                                  {r.category}
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-sm mt-0.5" style={{ color: C.textFaint }}>
-                              Stock when archived: {(Number(r.current_stock) || 0).toLocaleString()} {unit}
-                            </div>
-                          </td>
-                          <DateCell value={r.archived_at || r.updated_at} />
-                          <ActionsCell>
-                            <RestoreButton
-                              onClick={() => setRestoreTarget({ kind: item.kind, row: r })}
-                            />
-                          </ActionsCell>
-                        </LogRow>
+                            <span className="text-xs whitespace-nowrap" style={{ color: C.textFaint }}>
+                              {formatExact(r.archived_at || r.updated_at)}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-sm font-medium break-words" style={{ color: C.text }}>
+                              {name}
+                            </span>
+                            {r.category && <Tag>{r.category}</Tag>}
+                          </div>
+                          <p className="text-xs" style={{ color: C.textFaint }}>
+                            Stock when archived: {(Number(r.current_stock) || 0).toLocaleString()}{' '}
+                            {unit}
+                          </p>
+                          <RestoreButton
+                            onClick={() => setRestoreTarget({ kind: item.kind, row: r })}
+                          />
+                        </MobileCard>
                       )
                     }
 
@@ -1523,42 +1773,57 @@ function Activity_logs() {
                     const data = r.data && typeof r.data === 'object' ? r.data : null
                     const isExpanded = expandedArchive === item.key
                     return (
-                      <React.Fragment key={item.key}>
-                        <LogRow
-                          expandable={!!data}
-                          expanded={isExpanded}
-                          onToggle={() => setExpandedArchive(isExpanded ? null : item.key)}
-                        >
-                          <td className={TD}>
+                      <div
+                        key={item.key}
+                        className="rounded-lg bg-white overflow-hidden"
+                        style={{ border: `1px solid ${C.border}` }}
+                      >
+                        <div className="p-3 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
                             <StatusChip label={pageLabel(r.table_name)} tone="neutral" />
-                          </td>
-                          <td className={TD} style={{ color: C.text }}>
-                            {r.archived_by_email || '—'}
-                          </td>
-                          <RecordCell label={r.record_label} />
-                          <DateCell value={r.archived_at} />
-                          <ActionsCell>
-                            {data && <DetailsToggle expanded={isExpanded} />}
-                            <RestoreButton onClick={() => setRestoreTarget({ kind: 'record', record: r })} />
-                          </ActionsCell>
-                        </LogRow>
-
+                            <span className="text-xs whitespace-nowrap" style={{ color: C.textFaint }}>
+                              {formatExact(r.archived_at)}
+                            </span>
+                          </div>
+                          {r.record_label && (
+                            <p className="text-sm font-medium break-words" style={{ color: C.text }}>
+                              {r.record_label}
+                            </p>
+                          )}
+                          <MobileMeta>{r.archived_by_email || '—'}</MobileMeta>
+                          <div className="flex items-center gap-3 flex-wrap">
+                            {data && (
+                              <MobileAction
+                                onClick={() =>
+                                  setExpandedArchive(isExpanded ? null : item.key)
+                                }
+                              >
+                                {isExpanded ? 'Hide details ▾' : 'Show details ▸'}
+                              </MobileAction>
+                            )}
+                            <RestoreButton
+                              onClick={() => setRestoreTarget({ kind: 'record', record: r })}
+                            />
+                          </div>
+                        </div>
                         {isExpanded && data && (
-                          <ExpandedRow colSpan={5}>
+                          <div
+                            className="p-3 border-t"
+                            style={{ backgroundColor: C.surface, borderColor: C.border }}
+                          >
                             <RecordSnapshotPanel data={data} action="deleted" />
-                          </ExpandedRow>
+                          </div>
                         )}
-                      </React.Fragment>
+                      </div>
                     )
                   })}
-                </LogTable>
+                </div>
               </LogPanel>
             </>
           )}
         </div>
       </div>
 
-      {/* Restore confirmation modal */}
       {restoreTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div
@@ -1571,14 +1836,17 @@ function Activity_logs() {
               </h2>
             </div>
             <div className="px-5 py-4">
-              <p className="text-base mb-1" style={{ color: C.text }}>
+              <p className="text-base mb-1 break-words" style={{ color: C.text }}>
                 <span className="font-semibold">{restoreLabel}</span>
               </p>
               <p className="text-sm" style={{ color: C.textMuted }}>
                 {restoreMessage}
               </p>
             </div>
-            <div className="px-5 py-4 flex justify-end gap-2" style={{ borderTop: `1px solid ${C.border}` }}>
+            <div
+              className="px-5 py-4 flex justify-end gap-2"
+              style={{ borderTop: `1px solid ${C.border}` }}
+            >
               <button
                 type="button"
                 onClick={() => setRestoreTarget(null)}

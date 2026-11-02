@@ -1,8 +1,15 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../api/supabase'
-import { Eye, EyeOff } from 'lucide-react'
 
 const ROLES = ['admin', 'inventory', 'marketing', 'sales', 'production']
+
+const C = {
+  accent: '#B3211B',
+  accentHover: '#8E1A15',
+  accentSoft: '#FBEAE9',
+  textMuted: '#6B6B70',
+  border: '#E4E4E7',
+}
 
 function User_Management() {
   const [users, setUsers] = useState([])
@@ -54,21 +61,23 @@ function User_Management() {
   }
 
   async function handleToggleActive(user) {
-  setSavingId(user.id)
-  const { error } = await supabase
-    .from('profiles')
-    .update({ active: !user.active })
-    .eq('id', user.id)
+    setSavingId(user.id)
+    const newActive = !user.active
 
-  if (error) {
-    setError(error.message)
-  } else {
-    setUsers(prev =>
-      prev.map(u => (u.id === user.id ? { ...u, active: !u.active } : u))
-    )
+    const { error } = await supabase
+      .from('profiles')
+      .update({ active: newActive })
+      .eq('id', user.id)
+
+    if (error) {
+      setError(error.message)
+    } else {
+      setUsers(prev =>
+        prev.map(u => (u.id === user.id ? { ...u, active: newActive } : u))
+      )
+    }
+    setSavingId(null)
   }
-  setSavingId(null)
-}
 
   function openAddModal() {
     setEditingUser(null)
@@ -182,26 +191,37 @@ function User_Management() {
 
   function statusBadge(user) {
     if (user.active === false) {
-      return <span className="px-2 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">Inactive</span>
+      return (
+        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">
+          Inactive
+        </span>
+      )
     }
     if (user.status === 'invited') {
-      return <span className="px-2 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">Invited</span>
+      return (
+        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700">
+          Invited
+        </span>
+      )
     }
-    return <span className="px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">Active</span>
+    return (
+      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700">
+        Active
+      </span>
+    )
   }
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between bg-white rounded-lg shadow p-6 mb-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">
-            User Management
-          </h1>
-        </div>
+    <div className="p-6" style={{ backgroundColor: '#F6F6F7', minHeight: '100vh' }}>
+      <div className="bg-white rounded-lg border border-gray-200 shadow-sm px-5 py-4 flex items-center justify-between mb-4">
+        <h1 className="text-2xl font-semibold text-gray-900">User Management</h1>
         {activeTab !== 'deactivated' && (
           <button
             onClick={openAddModal}
-            className="bg-red-700 hover:bg-red-600 text-white font-semibold px-4 py-2 rounded-lg shadow transition cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium text-white transition-colors cursor-pointer"
+            style={{ backgroundColor: C.accent }}
+            onMouseEnter={e => (e.currentTarget.style.backgroundColor = C.accentHover)}
+            onMouseLeave={e => (e.currentTarget.style.backgroundColor = C.accent)}
           >
             + Add User
           </button>
@@ -209,96 +229,86 @@ function User_Management() {
       </div>
 
       {error && (
-        <div className="bg-white border border-red-300 text-red-600 rounded-lg shadow p-4 mb-4">
+        <div
+          className="rounded-md px-4 py-3 mb-4 text-sm border"
+          style={{
+            color: C.accent,
+            backgroundColor: C.accentSoft,
+            borderColor: '#F3C9C7',
+          }}
+        >
           {error}
         </div>
       )}
 
-      <div className="bg-white rounded-lg shadow p-6">
-        <div className="flex gap-2 mb-6 border-b border-gray-200">
-          <button
-            onClick={() => setActiveTab('active')}
-            className={`px-4 py-2 cursor-pointer font-semibold text-sm border-b-2 transition ${
-              activeTab === 'active'
-                ? 'border-red-600 text-red-600'
-                : 'border-transparent text-gray-500 hover:text-red-500'
-            }`}
-          >
-            Active Users ({activeCount})
-          </button>
-          <button
-            onClick={() => setActiveTab('invited')}
-            className={`px-4 py-2 cursor-pointer font-semibold text-sm border-b-2 transition ${
-              activeTab === 'invited'
-                ? 'border-amber-500 text-amber-600'
-                : 'border-transparent text-gray-500 hover:text-amber-500'
-            }`}
-          >
-            Invited ({invitedCount})
-          </button>
-          <button
-            onClick={() => setActiveTab('deactivated')}
-            className={`px-4 py-2 font-semibold cursor-pointer text-sm border-b-2 transition ${
-              activeTab === 'deactivated'
-                ? 'border-red-600 text-red-600'
-                : 'border-transparent text-gray-500 hover:text-red-500'
-            }`}
-          >
-            Deactivated ({deactivatedCount})
-          </button>
+      <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-5">
+        <div className="flex gap-1 mb-5 border-b border-gray-200">
+          {[
+            { key: 'active', label: `Active Users (${activeCount})` },
+            { key: 'invited', label: `Invited (${invitedCount})` },
+            { key: 'deactivated', label: `Deactivated (${deactivatedCount})` },
+          ].map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors cursor-pointer ${
+                activeTab === tab.key
+                  ? 'border-red-700 text-red-700'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
 
-        <div className="flex flex-col md:flex-row md:items-center gap-3 mb-5">
-          <div className="flex flex-wrap gap-2">
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="Search name or email..."
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                className="w-full md:w-64 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-red-400"
-              />
-              {search && (
-                <button
-                  onClick={() => setSearch('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none"
-                >
-                  ×
-                </button>
-              )}
-            </div>
-
-            <select
-              value={roleFilter}
-              onChange={e => setRoleFilter(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-red-400 bg-white"
-            >
-              <option value="all">All roles</option>
-              {ROLES.map(r => (
-                <option key={r} value={r}>
-                  {r.charAt(0).toUpperCase() + r.slice(1)}
-                </option>
-              ))}
-            </select>
+        <div className="flex flex-col md:flex-row gap-3 mb-5">
+          <div className="relative flex-1 max-w-xs">
+            <input
+              type="text"
+              placeholder="Search name or email…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="w-full pl-3 pr-8 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-200 focus:border-red-600"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none"
+              >
+                ×
+              </button>
+            )}
           </div>
+
+          <select
+            value={roleFilter}
+            onChange={e => setRoleFilter(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-md text-sm bg-white focus:outline-none focus:ring-2 focus:ring-red-200 focus:border-red-600 cursor-pointer"
+          >
+            <option value="all">All roles</option>
+            {ROLES.map(r => (
+              <option key={r} value={r}>
+                {r.charAt(0).toUpperCase() + r.slice(1)}
+              </option>
+            ))}
+          </select>
         </div>
 
         {loading ? (
-          <p className="text-gray-500 text-sm">Loading users...</p>
+          <p className="text-sm text-gray-500">Loading users…</p>
         ) : filteredUsers.length === 0 ? (
-          <p className="text-gray-400 text-sm italic">
-            No {activeTab} users found.
-          </p>
+          <p className="text-sm text-gray-400 italic">No {activeTab} users found.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
+          <div className="overflow-x-auto rounded-md border border-gray-200">
+            <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-200 text-gray-500 uppercase text-xs">
-                  <th className="py-2 pr-4 font-semibold">Name</th>
-                  <th className="py-2 pr-4 font-semibold">Email</th>
-                  <th className="py-2 pr-4 font-semibold">Role</th>
-                  <th className="py-2 pr-4 font-semibold">Status</th>
-                  <th className="py-2 pr-4 font-semibold text-right">Actions</th>
+                <tr className="bg-red-900 text-white">
+                  <th className="py-2.5 px-3 text-left text-xs font-semibold tracking-wide">Name</th>
+                  <th className="py-2.5 px-3 text-left text-xs font-semibold tracking-wide">Email</th>
+                  <th className="py-2.5 px-3 text-left text-xs font-semibold tracking-wide">Role</th>
+                  <th className="py-2.5 px-3 text-left text-xs font-semibold tracking-wide">Status</th>
+                  <th className="py-2.5 px-3 text-right text-xs font-semibold tracking-wide">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -309,14 +319,13 @@ function User_Management() {
                   return (
                     <tr
                       key={user.id}
-                      className={`border-b border-gray-100 hover:bg-red-50/40"
-                      }`}
+                      className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
                     >
-                      <td className="py-2 pr-4 font-medium text-gray-700">
+                      <td className="py-2.5 px-3 font-medium text-gray-800">
                         {user.full_name || '—'}
                       </td>
-                      <td className="py-2 pr-4 text-gray-600">{user.email}</td>
-                      <td className="py-2 pr-4">
+                      <td className="py-2.5 px-3 text-gray-600">{user.email}</td>
+                      <td className="py-2.5 px-3">
                         {isDeactivated || isInvited ? (
                           <span className="text-xs text-gray-500 capitalize">
                             {user.role}
@@ -326,7 +335,7 @@ function User_Management() {
                             value={user.role}
                             disabled={savingId === user.id}
                             onChange={e => handleRoleChange(user.id, e.target.value)}
-                            className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-red-400 bg-white"
+                            className="border border-gray-300 rounded-md px-2 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-red-300 cursor-pointer"
                           >
                             {ROLES.map(r => (
                               <option key={r} value={r}>
@@ -336,27 +345,50 @@ function User_Management() {
                           </select>
                         )}
                       </td>
-                      <td className="py-2 pr-4">{statusBadge(user)}</td>
-                      <td className="py-2 pr-4 text-right">
+                      <td className="py-2.5 px-3">{statusBadge(user)}</td>
+                      <td className="py-2.5 px-3 text-right">
                         <div className="flex items-center justify-end gap-2">
                           {!isDeactivated && !isInvited && (
                             <button
                               onClick={() => openEditModal(user)}
-                              className="text-red-600 hover:underline text-xs font-semibold"
+                              className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 transition-colors cursor-pointer"
                             >
                               Edit
                             </button>
                           )}
+
                           <button
                             onClick={() => handleToggleActive(user)}
                             disabled={savingId === user.id}
-                            className={`text-xs font-semibold transition disabled:opacity-50 ${
+                            className="px-3 py-1.5 text-xs font-medium rounded-md transition-colors disabled:opacity-50 cursor-pointer"
+                            style={
                               isDeactivated
-                                ? 'text-gray-500 hover:text-gray-700 hover:underline'
-                                : 'text-gray-400 hover:text-red-600 hover:underline'
-                            }`}
+                                ? {
+                                    backgroundColor: '#F3F4F6',
+                                    color: '#374151',
+                                    border: '1px solid #D1D5DB',
+                                  }
+                                : {
+                                    backgroundColor: C.accent,
+                                    color: '#fff',
+                                  }
+                            }
+                            onMouseEnter={e => {
+                              if (!isDeactivated && !e.currentTarget.disabled) {
+                                e.currentTarget.style.backgroundColor = C.accentHover
+                              }
+                            }}
+                            onMouseLeave={e => {
+                              if (!isDeactivated) {
+                                e.currentTarget.style.backgroundColor = C.accent
+                              }
+                            }}
                           >
-                            {isDeactivated ? 'Restore' : isInvited ? 'Cancel invite' : 'Deactivate'}
+                            {isDeactivated
+                              ? 'Restore'
+                              : isInvited
+                              ? 'Cancel invite'
+                              : 'Deactivate'}
                           </button>
                         </div>
                       </td>
@@ -392,29 +424,37 @@ function UserModal({ user, saving, onClose, onSave }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
-        <h2 className="text-lg font-bold text-gray-800 mb-4">
-          {user ? 'Edit User' : 'Add User'}
-        </h2>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl border border-gray-200 w-full max-w-md">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+          <h2 className="text-sm font-semibold text-gray-900">
+            {user ? 'Edit User' : 'Add User'}
+          </h2>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
+          >
+            ×
+          </button>
+        </div>
 
-        <form onSubmit={handleSubmit} className="space-y-3">
+        <form onSubmit={handleSubmit} className="px-5 py-4 space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">
-              Full Name
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              Full Name <span style={{ color: C.accent }}>*</span>
             </label>
             <input
               type="text"
               value={fullName}
               onChange={e => setFullName(e.target.value)}
               required
-              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-red-400"
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-200 focus:border-red-600"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">
-              Email
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              Email <span style={{ color: C.accent }}>*</span>
             </label>
             <input
               type="email"
@@ -422,18 +462,16 @@ function UserModal({ user, saving, onClose, onSave }) {
               onChange={e => setEmail(e.target.value)}
               required
               disabled={!!user}
-              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-red-400 disabled:bg-gray-100"
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-200 focus:border-red-600 disabled:bg-gray-50 disabled:text-gray-500"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">
-              Role
-            </label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Role</label>
             <select
               value={role}
               onChange={e => setRole(e.target.value)}
-              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-red-400 bg-white cursor-pointer"
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-red-200 focus:border-red-600 cursor-pointer"
             >
               {ROLES.map(r => (
                 <option key={r} value={r}>
@@ -449,20 +487,27 @@ function UserModal({ user, saving, onClose, onSave }) {
             </p>
           )}
 
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-lg text-sm font-semibold text-gray-600 hover:bg-gray-100"
+              className="px-4 py-2 rounded-md text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="px-4 py-2 rounded-lg text-sm font-semibold bg-red-700 hover:bg-red-600 text-white disabled:opacity-50 cursor-pointer"
+              className="px-4 py-2 rounded-md text-sm font-medium text-white transition-colors disabled:opacity-50 cursor-pointer"
+              style={{ backgroundColor: C.accent }}
+              onMouseEnter={e => {
+                if (!saving) e.currentTarget.style.backgroundColor = C.accentHover
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.backgroundColor = C.accent
+              }}
             >
-              {saving ? 'Sending...' : user ? 'Save Changes' : 'Send Invite'}
+              {saving ? 'Sending…' : user ? 'Save Changes' : 'Send Invite'}
             </button>
           </div>
         </form>

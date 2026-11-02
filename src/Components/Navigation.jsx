@@ -136,6 +136,7 @@ function Sidebar({
   onToggleGroup,
   onNavigate,
   onLogout,
+  isLoggingOut,
   filteredNavItems,
   authLoading,
   userRole,
@@ -155,7 +156,6 @@ function Sidebar({
         borderRight: `1px solid ${C.border}`,
       }}
     >
-      {/* Edge toggle: same position in both states, centered on the header */}
       {onToggleCollapsed && (
         <button
           onClick={onToggleCollapsed}
@@ -178,7 +178,6 @@ function Sidebar({
         </button>
       )}
 
-      {/* Brand */}
       <div
         className={`flex items-center h-16 flex-shrink-0 gap-2 ${
           collapsed ? "justify-center px-2" : "justify-between px-3"
@@ -215,14 +214,12 @@ function Sidebar({
         )}
       </div>
 
-      {/* Nav */}
       <nav className="flex-1 px-2 py-3 space-y-1 overflow-y-auto overflow-x-hidden">
         {filteredNavItems.length > 0 ? (
           filteredNavItems.map(({ id, label, icon: Icon, children }) => {
             const isOpen = !collapsed && !!openGroups[id];
             const hasActiveChild = children?.some((c) => c.id === active);
 
-            // Collapsed: show every page icon (children), not just the section
             if (collapsed) {
               return (
                 <div key={id} className="space-y-1">
@@ -261,7 +258,6 @@ function Sidebar({
               );
             }
 
-            // Expanded: group header + children
             return (
               <div key={id}>
                 <button
@@ -355,26 +351,44 @@ function Sidebar({
         )}
       </nav>
 
-      {/* Footer */}
       <div className="px-2 py-3 space-y-1" style={{ borderTop: `1px solid ${C.border}` }}>
         <button
           onClick={onLogout}
+          disabled={isLoggingOut}
           title={collapsed ? "Logout" : undefined}
-          className={`w-full flex items-center gap-2.5 rounded-lg text-sm font-medium transition-all cursor-pointer ${
-            collapsed ? "justify-center py-2.5" : "px-2.5 py-2"
-          }`}
-          style={{ color: C.textMuted }}
+          className={`w-full flex items-center gap-2.5 rounded-lg text-sm font-medium transition-all ${
+            isLoggingOut ? "cursor-not-allowed opacity-70" : "cursor-pointer"
+          } ${collapsed ? "justify-center py-2.5" : "px-2.5 py-2"}`}
+          style={{ color: isLoggingOut ? C.accent : C.textMuted }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = C.accentSoft;
-            e.currentTarget.style.color = C.accent;
+            if (!isLoggingOut) {
+              e.currentTarget.style.backgroundColor = C.accentSoft;
+              e.currentTarget.style.color = C.accent;
+            }
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = "transparent";
-            e.currentTarget.style.color = C.textMuted;
+            if (!isLoggingOut) {
+              e.currentTarget.style.backgroundColor = "transparent";
+              e.currentTarget.style.color = C.textMuted;
+            }
           }}
         >
-          <LogOut size={16} className="flex-shrink-0" strokeWidth={1.8} />
-          {!collapsed && <span className="flex-1 text-left">Logout</span>}
+          {isLoggingOut ? (
+            <span
+              className="w-4 h-4 border-2 rounded-full animate-spin flex-shrink-0"
+              style={{
+                borderColor: `${C.accent}40`,
+                borderTopColor: C.accent,
+              }}
+            />
+          ) : (
+            <LogOut size={16} className="flex-shrink-0" strokeWidth={1.8} />
+          )}
+          {!collapsed && (
+            <span className="flex-1 text-left">
+              {isLoggingOut ? "Logging out..." : "Logout"}
+            </span>
+          )}
         </button>
 
         {userRole && (
@@ -412,6 +426,7 @@ function Nav() {
   const { user, role: userRole, fullName, loading: authLoading } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [active, setActive] = useState(() => childIdForPath(location.pathname));
   const [openGroups, setOpenGroups] = useState(() => {
     const id = groupIdForPath(location.pathname);
@@ -437,6 +452,9 @@ function Nav() {
   };
 
   const handleLogout = async () => {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+
     try {
       const { supabase } = await import("../api/supabase");
       await supabase.auth.signOut();
@@ -447,6 +465,7 @@ function Nav() {
       setMobileOpen(false);
     } catch (error) {
       console.error("Error logging out:", error);
+      setIsLoggingOut(false);
     }
   };
 
@@ -482,6 +501,7 @@ function Nav() {
     onToggleGroup: toggleGroup,
     onNavigate: handleNavigation,
     onLogout: handleLogout,
+    isLoggingOut,
     filteredNavItems,
     authLoading,
     userRole,
@@ -527,6 +547,35 @@ function Nav() {
           onClose={() => setMobileOpen(false)}
         />
       </div>
+
+      {isLoggingOut && (
+        <div
+          className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm"
+          role="dialog"
+          aria-live="assertive"
+          aria-busy="true"
+          aria-label="Logging out"
+        >
+          <div
+            className="bg-white rounded-xl px-8 py-6 flex flex-col items-center gap-3 shadow-xl"
+            style={{ border: `1px solid ${C.border}` }}
+          >
+            <span
+              className="w-9 h-9 border-[3px] rounded-full animate-spin"
+              style={{
+                borderColor: `${C.accent}30`,
+                borderTopColor: C.accent,
+              }}
+            />
+            <p className="text-sm font-semibold" style={{ color: C.text }}>
+              Logging out…
+            </p>
+            <p className="text-xs" style={{ color: C.textMuted }}>
+              Please wait a moment.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
