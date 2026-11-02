@@ -1,4 +1,4 @@
-/*
+
 import { useState, useMemo } from "react";
 import { X } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
@@ -95,8 +95,8 @@ function Greetings() {
 }
 
 export default Greetings;
-*/
 
+/*
 import { useState, useMemo, useEffect } from "react";
 import { X } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
@@ -247,3 +247,4 @@ function Greetings() {
 }
 
 export default Greetings;
+*/
