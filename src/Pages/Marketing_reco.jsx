@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { supabase } from "../api/supabase";
 
-/* Design tokens – shared with Inventory / Sales / Marketing pages */
+/* Design tokens, shared with Inventory / Sales / Marketing pages */
 const C = {
   accent: "#B3211B",
   accentHover: "#8E1A15",
@@ -112,11 +112,14 @@ const THRESHOLDS = {
   platformGapStockMin: 3,
 
   // Priority scoring weights
+  // Each type has its own score band, so a more specific problem always
+  // wins over a general one: Declining > Platform Gap > Rising > Needs Promo.
+  // The extra points inside each band only rank products of the same type.
   priority: {
-    declining: 100,
-    promo_candidate: 70,
-    platform_gap: 55,
-    rising_star: 40,
+    declining: 300, // 300 to 330
+    platform_gap: 200, // 200 to 220
+    rising_star: 150, // 150 to 180
+    promo_candidate: 100, // 100 to 145
   },
 };
 
@@ -135,25 +138,25 @@ const TYPE_META = {
     label: "Declining",
     icon: TrendingDown,
     tone: TONES.accent,
-    description: "Sales are falling – act fast",
+    description: "Sales are going down",
   },
   promo_candidate: {
-    label: "Promo Candidate",
+    label: "Needs Promo",
     icon: Megaphone,
     tone: TONES.warning,
-    description: "Slow mover with excess stock",
+    description: "Too much stock, slow sales",
   },
   platform_gap: {
     label: "Platform Gap",
     icon: ArrowLeftRight,
     tone: TONES.blue,
-    description: "Strong on one platform, weak on another",
+    description: "Sells on one platform only",
   },
   rising_star: {
     label: "Rising",
     icon: TrendingUp,
     tone: TONES.success,
-    description: "Sales are accelerating",
+    description: "Sales are going up",
   },
 };
 
@@ -252,36 +255,34 @@ function computeProductMetrics(inventoryRows, orderItems, orderDateById) {
   });
 }
 
-function platformHasActiveCampaign(campaignsWithStatus, platform) {
-  return campaignsWithStatus.some(
-    (c) =>
-      c.derivedStatus === "Active" &&
-      (c.platform === platform || c.platform === "All Platforms")
-  );
-}
-
 function generateProductRecommendations(products, campaignsWithStatus) {
   const recs = [];
 
   products.forEach((p) => {
-    // ── 1. Promo Candidate (slow mover) ────────────────────────
-    if (
+    // All matches for THIS product are collected here first.
+    // At the end we keep only the highest priority one (one card per product).
+    const productRecs = [];
+
+    // ── Shared flags (computed once so the rules can see each other) ──
+    const hasEnoughVolume =
+      p.unitsSoldLast30 >= THRESHOLDS.minUnitsForTrend ||
+      p.unitsSoldPrev30 >= THRESHOLDS.minUnitsForTrend;
+
+    const isRising = hasEnoughVolume && p.trendPct >= THRESHOLDS.risingStarTrendPct;
+    const isDeclining =
+      hasEnoughVolume && p.trendPct <= THRESHOLDS.decliningTrendPct;
+
+    const isOverstocked =
       p.currentStock >= THRESHOLDS.slowMoverMinStock &&
       p.sellThroughRate < THRESHOLDS.slowMoverSellThrough &&
-      p.unitsSoldLast60 >= THRESHOLDS.slowMoverMinHistory
-    ) {
-      const strongPlatform = Object.entries(p.byPlatformLast30).sort(
-        (a, b) => b[1] - a[1]
-      )[0]?.[0];
+      p.unitsSoldLast60 >= THRESHOLDS.slowMoverMinHistory;
 
-      const alreadyPromoted =
-        strongPlatform &&
-        platformHasActiveCampaign(campaignsWithStatus, strongPlatform);
-
+    // ── 1. Promo Candidate (slow mover) ────────────────────────
+    if (isOverstocked) {
       const severityBoost =
         p.sellThroughRate < 0.08 ? 25 : p.sellThroughRate < 0.12 ? 15 : 0;
 
-      recs.push({
+      productRecs.push({
         type: "promo_candidate",
         title: p.product_name,
         subtitle: p.category,
@@ -289,9 +290,7 @@ function generateProductRecommendations(products, campaignsWithStatus) {
           THRESHOLDS.priority.promo_candidate +
           severityBoost +
           Math.min(20, Math.floor(p.currentStock / 10)),
-        message: alreadyPromoted
-          ? `Only ${fmtPct(p.sellThroughRate * 100)} of stock sold in 30 days with ${p.currentStock} units left. An active campaign already exists on ${strongPlatform}, but it’s not moving the needle. Try a deeper discount, bundle, or featured placement.`
-          : `Only ${fmtPct(p.sellThroughRate * 100)} of stock sold in 30 days with ${p.currentStock} units left (~${p.daysOfStock} days of cover). A targeted promo or bundle can clear inventory.`,
+        message: `Only ${fmtPct(p.sellThroughRate * 100)} of stock sold in 30 days. ${p.currentStock} units left (about ${p.daysOfStock} days of stock). Try a promo or bundle.`,
         metrics: [
           { label: "Stock Sold", value: fmtPct(p.sellThroughRate * 100) },
           { label: "Stock", value: p.currentStock },
@@ -302,22 +301,18 @@ function generateProductRecommendations(products, campaignsWithStatus) {
     }
 
     // ── 2. Rising Star / Declining ─────────────────────────────
-    const hasEnoughVolume =
-      p.unitsSoldLast30 >= THRESHOLDS.minUnitsForTrend ||
-      p.unitsSoldPrev30 >= THRESHOLDS.minUnitsForTrend;
-
-    if (hasEnoughVolume) {
+    if (isRising || isDeclining) {
       const displayTrend = cappedTrendPct(p.trendPct);
 
-      if (p.trendPct >= THRESHOLDS.risingStarTrendPct) {
-        recs.push({
+      if (isRising) {
+        productRecs.push({
           type: "rising_star",
           title: p.product_name,
           subtitle: p.category,
           priority:
             THRESHOLDS.priority.rising_star +
             Math.min(30, Math.floor(Math.min(p.trendPct, 200) / 5)),
-          message: `Sales jumped ${fmtPct(displayTrend)} vs the previous 30 days (${p.unitsSoldPrev30} → ${p.unitsSoldLast30} units, ${fmtPHP(p.revenueLast30)}). Feature it, increase ad spend, or expand stock while momentum is high.`,
+          message: `Sales up ${fmtPct(displayTrend)} vs the previous 30 days (${p.unitsSoldPrev30} → ${p.unitsSoldLast30} units). Consider more ads or more stock.`,
           metrics: [
             { label: "Trend", value: `+${fmtPct(displayTrend)}` },
             { label: "Revenue (30d)", value: fmtPHP(p.revenueLast30) },
@@ -325,16 +320,16 @@ function generateProductRecommendations(products, campaignsWithStatus) {
           ],
           product: p,
         });
-      } else if (p.trendPct <= THRESHOLDS.decliningTrendPct) {
+      } else {
         const dropSeverity =
           p.trendPct <= -60 ? 30 : p.trendPct <= -45 ? 15 : 0;
 
-        recs.push({
+        productRecs.push({
           type: "declining",
           title: p.product_name,
           subtitle: p.category,
           priority: THRESHOLDS.priority.declining + dropSeverity,
-          message: `Sales dropped ${fmtPct(Math.abs(displayTrend))} vs the previous 30 days (${p.unitsSoldPrev30} → ${p.unitsSoldLast30} units). Investigate pricing, competition, or listing quality — or run a recovery promo.`,
+          message: `Sales down ${fmtPct(Math.abs(displayTrend))} vs the previous 30 days (${p.unitsSoldPrev30} → ${p.unitsSoldLast30} units). Check the price and listing, or run a promo.`,
           metrics: [
             { label: "Trend", value: fmtPct(displayTrend) },
             { label: "Sold (30d)", value: p.unitsSoldLast30 },
@@ -353,29 +348,45 @@ function generateProductRecommendations(products, campaignsWithStatus) {
     );
 
     if (strongUnits >= THRESHOLDS.platformGapMinUnits) {
+      // Collect every weak platform for this product into ONE gap card.
+      const weakPlatforms = [];
       platforms.forEach(([platform, units]) => {
         if (platform === strongPlatform) return;
         const stockThere = p.platformStock[platform] || 0;
-
         if (units === 0 && stockThere >= THRESHOLDS.platformGapStockMin) {
-          recs.push({
-            type: "platform_gap",
-            title: p.product_name,
-            subtitle: p.category,
-            priority:
-              THRESHOLDS.priority.platform_gap +
-              Math.min(20, Math.floor(strongUnits / 5)),
-            message: `Strong on ${strongPlatform} (${strongUnits} units sold) but zero sales on ${platform} despite ${stockThere} units in stock. Check the listing, price, or run a platform-specific promo.`,
-            metrics: [
-              { label: strongPlatform, value: strongUnits },
-              { label: platform, value: 0 },
-              { label: "Stock on " + platform, value: stockThere },
-            ],
-            product: p,
-          });
+          weakPlatforms.push({ platform, stockThere });
         }
       });
+
+      if (weakPlatforms.length > 0) {
+        const names = weakPlatforms.map((w) => w.platform).join(" and ");
+
+        productRecs.push({
+          type: "platform_gap",
+          title: p.product_name,
+          subtitle: p.category,
+          priority:
+            THRESHOLDS.priority.platform_gap +
+            Math.min(20, Math.floor(strongUnits / 5)),
+          message: `Sells well on ${strongPlatform} (${strongUnits} sold) but no sales on ${names}. Check the listing and price, or run a promo there.`,
+          metrics: [
+            { label: strongPlatform, value: strongUnits },
+            ...weakPlatforms.map((w) => ({ label: w.platform, value: 0 })),
+            ...weakPlatforms.map((w) => ({
+              label: "Stock on " + w.platform,
+              value: w.stockThere,
+            })),
+          ],
+          product: p,
+        });
+      }
     }
+
+    // ── One card per product ───────────────────────────────────
+    if (productRecs.length === 0) return;
+
+    productRecs.sort((a, b) => b.priority - a.priority);
+    recs.push(productRecs[0]);
   });
 
   return recs.sort((a, b) => b.priority - a.priority);
@@ -440,6 +451,7 @@ function RecommendationCard({ rec }) {
           </span>
         ))}
       </div>
+
     </div>
   );
 }
@@ -572,7 +584,7 @@ function Marketing_reco() {
   }, [recommendations]);
 
   const highPriorityCount = useMemo(
-    () => recommendations.filter((r) => r.priority >= 90).length,
+    () => recommendations.filter((r) => r.priority >= 200).length,
     [recommendations]
   );
 
@@ -582,7 +594,7 @@ function Marketing_reco() {
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-gray-900">
-            Marketing - Recommendations
+            Marketing Recommendations
           </h1>
         </div>
       </div>
@@ -613,7 +625,7 @@ function Marketing_reco() {
             <p className="text-2xl font-semibold mt-1 text-gray-900 tabular-nums">
               {recommendations.length}
             </p>
-            <p className="text-xs mt-1 text-gray-400">recommendations</p>
+            <p className="text-xs mt-1 text-gray-400">products to review</p>
           </div>
 
           <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
@@ -635,18 +647,18 @@ function Marketing_reco() {
             >
               {countsByType.declining || 0}
             </p>
-            <p className="text-xs mt-1 text-gray-400">sales falling</p>
+            <p className="text-xs mt-1 text-gray-400">sales going down</p>
           </div>
 
           <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
-            <p className="text-xs text-gray-500">Promo Ready</p>
+            <p className="text-xs text-gray-500">Needs Promo</p>
             <p
               className="text-2xl font-semibold mt-1 tabular-nums"
               style={{ color: C.warning }}
             >
               {countsByType.promo_candidate || 0}
             </p>
-            <p className="text-xs mt-1 text-gray-400">slow movers with excess stock</p>
+            <p className="text-xs mt-1 text-gray-400">too much stock</p>
           </div>
         </div>
       )}
@@ -663,8 +675,8 @@ function Marketing_reco() {
             onClick={() => setTypeFilter("all")}
             className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-all border ${
               typeFilter === "all"
-                ? "bg-[#B3211B] text-white border-[#B3211B] shadow-sm"
-                : "bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+                ? "bg-[#B3211B] text-white border-[#B3211B] shadow-sm cursor-pointer"
+                : "bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-gray-50 cursor-pointer"
             }`}
           >
             All
@@ -675,7 +687,7 @@ function Marketing_reco() {
             <button
               key={type}
               onClick={() => setTypeFilter(type)}
-              className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-all border inline-flex items-center gap-1.5 ${
+              className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-all border inline-flex items-center gap-1.5 cursor-pointer ${
                 typeFilter === type
                   ? "text-white shadow-sm"
                   : "bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-gray-50"
@@ -731,8 +743,8 @@ function Marketing_reco() {
             </p>
             <p className="text-sm text-gray-400 mt-1 max-w-sm mx-auto">
               {recommendations.length === 0
-                ? "Nothing crossed the current thresholds. Check back after more sales data comes in, or lower the thresholds if needed."
-                : "Try clearing the search or selecting a different type."}
+                ? "No products meet the current rules."
+                : "Try a different search or filter."}
             </p>
           </div>
         ) : (

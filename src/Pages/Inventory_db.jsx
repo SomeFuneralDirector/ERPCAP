@@ -63,6 +63,13 @@ const UNIT = "L";
 // Packaging materials are counted in pieces.
 const PM_UNIT = "pcs";
 
+// Platforms checked for low stock, in display order.
+const LOW_STOCK_PLATFORMS = [
+  ["Shopee", "shopee_stock"],
+  ["Lazada", "lazada_stock"],
+  ["TikTok", "tiktok_stock"],
+];
+
 const SEGMENT_WRAP = "flex gap-0.5 bg-gray-100 rounded-md p-0.5";
 const SEGMENT_BTN = (active) =>
   `px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer ${
@@ -87,28 +94,6 @@ const WATCHED_TABLES = ["inventory", "raw_materials", "packaging_materials"];
 const PAGE_SIZE = 1000;
 const ORDER_ID_CHUNK_SIZE = 150;
 
-function localDateKey(d = new Date()) {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-function firstOfMonthKey() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
-}
-
-function focusDateInput(e) {
-  e.target.style.boxShadow = `0 0 0 3px ${C.accentSoft}`;
-  e.target.style.borderColor = C.accent;
-}
-
-function blurDateInput(e) {
-  e.target.style.boxShadow = "none";
-  e.target.style.borderColor = "#D1D5DB";
-}
-
 // ─── Helpers ──────────────────────────────────────────────────
 
 function toNumber(value) {
@@ -124,21 +109,6 @@ function safeDate(value) {
   if (!value) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
-}
-
-/** Local midnight / end-of-day boundaries for YYYY-MM-DD date filters. */
-function localDateBoundary(value, endOfDay = false) {
-  if (!value) return null;
-  const [year, month, day] = value.split("-").map(Number);
-  const date = new Date(year, month - 1, day);
-  if (Number.isNaN(date.getTime())) return null;
-  date.setHours(
-    endOfDay ? 23 : 0,
-    endOfDay ? 59 : 0,
-    endOfDay ? 59 : 0,
-    endOfDay ? 999 : 0,
-  );
-  return date.getTime();
 }
 
 function totalStock(row) {
@@ -198,21 +168,6 @@ function mergeById(prev, fresh) {
  */
 function mergeActive(prev, fresh) {
   return mergeById(prev, fresh).filter((r) => !r.archived);
-}
-
-/** Keep only rows whose updated_at falls inside the date range. */
-function filterByUpdatedAt(rows, dateFrom, dateTo) {
-  const fromTime = localDateBoundary(dateFrom);
-  const toTime = localDateBoundary(dateTo, true);
-  if (fromTime === null && toTime === null) return rows;
-
-  return rows.filter((m) => {
-    const t = safeDate(m.updated_at)?.getTime();
-    if (t == null) return false;
-    if (fromTime !== null && t < fromTime) return false;
-    if (toTime !== null && t > toTime) return false;
-    return true;
-  });
 }
 
 // ─── Data fetching helpers ──────────────────────────────────
@@ -453,10 +408,8 @@ function Inventory_db() {
   const [packagingErrorMsg, setPackagingErrorMsg] = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
 
-  // Filters (same UX as Sales dashboard)
+  // Only filter: platform. It shows what is available right now.
   const [platformFilter, setPlatformFilter] = useState("all");
-  const [dateFrom, setDateFrom] = useState(firstOfMonthKey);
-  const [dateTo, setDateTo] = useState(localDateKey);
 
   // Drill-down state
   const [breakdown, setBreakdown] = useState(null);
@@ -741,12 +694,9 @@ function Inventory_db() {
     };
   }, [fetchAll]);
 
-  // ── Filtered inventory (platform + date on updated_at) ─────
+  // ── Filtered inventory (platform only, current stock) ──────
 
   const filteredInventory = useMemo(() => {
-    const fromTime = localDateBoundary(dateFrom);
-    const toTime = localDateBoundary(dateTo, true);
-
     return rawInventory.filter((r) => {
       // Platform: product has stock on that shop
       if (platformFilter === "Shopee" && nonNegative(r.shopee_stock) <= 0)
@@ -756,27 +706,13 @@ function Inventory_db() {
       if (platformFilter === "TikTok" && nonNegative(r.tiktok_stock) <= 0)
         return false;
 
-      // Date range on updated_at
-      if (fromTime !== null || toTime !== null) {
-        const t = safeDate(r.updated_at)?.getTime();
-        if (t == null) return false;
-        if (fromTime !== null && t < fromTime) return false;
-        if (toTime !== null && t > toTime) return false;
-      }
-
       return true;
     });
-  }, [rawInventory, platformFilter, dateFrom, dateTo]);
+  }, [rawInventory, platformFilter]);
 
-  const filteredMaterials = useMemo(
-    () => filterByUpdatedAt(rawMaterials, dateFrom, dateTo),
-    [rawMaterials, dateFrom, dateTo],
-  );
-
-  const filteredPackaging = useMemo(
-    () => filterByUpdatedAt(rawPackaging, dateFrom, dateTo),
-    [rawPackaging, dateFrom, dateTo],
-  );
+  // Raw and packaging materials always show what is available right now.
+  const filteredMaterials = rawMaterials;
+  const filteredPackaging = rawPackaging;
 
   // ── Derived chart data: products (from filtered inventory) ─
 
@@ -811,18 +747,43 @@ function Inventory_db() {
     [filteredInventory],
   );
 
+  // One alert per product when the combined total is low, otherwise one alert
+  // per individual platform that is at or below the product's threshold.
   const lowStock = useMemo(() => {
-    return filteredInventory
-      .filter((r) => totalStock(r) <= nonNegative(r.reorder_point ?? 10))
-      .sort((a, b) => totalStock(a) - totalStock(b))
-      .slice(0, 8)
-      .map((r) => ({
-        name: r.product_name || "Unknown",
-        code: r.product_code || "N/A",
-        qty: totalStock(r),
-        reorder: nonNegative(r.reorder_point ?? 10),
-      }));
-  }, [filteredInventory]);
+    const alerts = [];
+    filteredInventory.forEach((r) => {
+      const reorder = nonNegative(r.reorder_point ?? 5);
+      const total = totalStock(r);
+      if (total <= reorder) {
+        alerts.push({
+          key: `${r.id}-total`,
+          name: r.product_name || "Unknown",
+          code: r.product_code || "N/A",
+          scope: "Total",
+          qty: total,
+          reorder,
+        });
+      } else {
+        LOW_STOCK_PLATFORMS.forEach(([label, field]) => {
+          const qty = nonNegative(r[field]);
+          if (
+            qty <= reorder &&
+            (platformFilter === "all" || platformFilter === label)
+          ) {
+            alerts.push({
+              key: `${r.id}-${label}`,
+              name: r.product_name || "Unknown",
+              code: r.product_code || "N/A",
+              scope: label,
+              qty,
+              reorder,
+            });
+          }
+        });
+      }
+    });
+    return alerts.sort((a, b) => a.qty - b.qty).slice(0, 8);
+  }, [filteredInventory, platformFilter]);
 
   const topMovers = useMemo(() => {
     return [...filteredInventory]
@@ -1228,28 +1189,6 @@ function Inventory_db() {
                 </button>
               ))}
             </div>
-
-            <div className="flex items-center gap-2">
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="border border-gray-300 rounded-md px-2 py-1.5 text-base text-gray-700 cursor-pointer focus:outline-none"
-                onFocus={focusDateInput}
-                onBlur={blurDateInput}
-                title="Updated from"
-              />
-              <span className="text-gray-400 text-sm">to</span>
-              <input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="border border-gray-300 rounded-md px-2 py-1.5 text-base text-gray-700 cursor-pointer focus:outline-none"
-                onFocus={focusDateInput}
-                onBlur={blurDateInput}
-                title="Updated to"
-              />
-            </div>
           </div>
         </Card>
 
@@ -1514,16 +1453,26 @@ function Inventory_db() {
               <div className="space-y-3">
                 {lowStock.map((p) => {
                   const isOut = p.qty === 0;
-                  const pct = isOut ? 0 : Math.round((p.qty / p.reorder) * 100);
+                  const pct = isOut
+                    ? 0
+                    : Math.min(100, Math.round((p.qty / (p.reorder || 1)) * 100));
                   return (
-                    <div key={p.code}>
+                    <div key={p.key}>
                       <div className="flex items-center justify-between mb-1">
                         <div>
                           <p className="text-sm font-medium text-gray-700">
                             {p.name}
                           </p>
                           <p className="text-sm font-mono text-gray-400">
-                            {p.code}
+                            {p.code} ·{" "}
+                            <span
+                              style={{
+                                color: PLATFORM_COLORS[p.scope] ?? C.textMuted,
+                                fontWeight: 600,
+                              }}
+                            >
+                              {p.scope}
+                            </span>
                           </p>
                         </div>
                         <span

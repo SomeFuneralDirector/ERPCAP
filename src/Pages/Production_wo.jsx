@@ -64,16 +64,23 @@ function buildBreakdown(rows) {
   }));
 }
 
-// Finished-goods stock level. Same rule as the Production dashboard and
-// Inventory's Products page: total across platforms vs reorder_point (default 5).
+// Finished-goods stock level. Same rule as the Inventory Products page and
+// dashboard: the combined total, or any single platform, at or below
+// reorder_point (default 5) counts as low.
+//   level: "out" (total is 0) | "low" | "ok"
+//   lowPlatforms: [["Shopee", 2], ["TikTok", 0]]
 function getStockInfo(p) {
-  const total =
-    (Number(p.shopee_stock) || 0) +
-    (Number(p.lazada_stock) || 0) +
-    (Number(p.tiktok_stock) || 0);
   const threshold = p.reorder_point ?? 5;
-  const level = total <= 0 ? "out" : total <= threshold ? "low" : "ok";
-  return { total, threshold, level };
+  const byPlatform = [
+    ["Shopee", Number(p.shopee_stock) || 0],
+    ["Lazada", Number(p.lazada_stock) || 0],
+    ["TikTok", Number(p.tiktok_stock) || 0],
+  ];
+  const total = byPlatform.reduce((sum, [, q]) => sum + q, 0);
+  const lowPlatforms = byPlatform.filter(([, q]) => q <= threshold);
+  const level =
+    total <= 0 ? "out" : total <= threshold || lowPlatforms.length > 0 ? "low" : "ok";
+  return { total, threshold, level, lowPlatforms };
 }
 
 const STOCK_RANK = { out: 0, low: 1, ok: 2 };
@@ -184,7 +191,11 @@ function ProductSearchInput({ productId, productName, onSelect, products }) {
               )}
               {p.stock.level === "low" && (
                 <span className="shrink-0 text-[10px] font-semibold text-amber-700 bg-amber-100 border border-amber-200 px-1.5 py-0.5 rounded">
-                  Low · {p.stock.total} left
+                  {p.stock.lowPlatforms.length > 0
+                    ? `Low: ${p.stock.lowPlatforms
+                        .map(([n, qty]) => `${n} ${qty}`)
+                        .join(", ")}`
+                    : `Low · ${p.stock.total} left`}
                 </span>
               )}
             </button>
@@ -230,7 +241,9 @@ function PlatformBadges({ platform, breakdown }) {
 }
 
 // ── Platform allocation table (the Qty | Platform rows from the sketch) ──
-function PlatformRowsTable({ rows, setRows }) {
+// lowPlatforms: names of platforms that are low on stock for the selected
+// product. Rows set to one of those (or to "All") are highlighted.
+function PlatformRowsTable({ rows, setRows, lowPlatforms = [] }) {
   const addRow = () =>
     setRows((prev) => [...prev, { id: nextRowId(), platform: "Shopee", quantity: "" }]);
 
@@ -258,44 +271,58 @@ function PlatformRowsTable({ rows, setRows }) {
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
-              <tr key={row.id} className="border-t border-gray-100">
-                <td className="px-3 py-1.5">
-                  <input
-                    type="number"
-                    min="1"
-                    value={row.quantity}
-                    onChange={(e) => updateRow(row.id, "quantity", e.target.value)}
-                    placeholder="0"
-                    className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-red-400"
-                  />
-                </td>
-                <td className="px-3 py-1.5">
-                  <select
-                    value={row.platform}
-                    onChange={(e) => updateRow(row.id, "platform", e.target.value)}
-                    className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-red-400 cursor-pointer"
-                  >
-                    <option value="Shopee">Shopee</option>
-                    <option value="Lazada">Lazada</option>
-                    <option value="TikTok">TikTok</option>
-                    <option value="All">All Platforms (full qty each)</option>
-                  </select>
-                </td>
-                <td className="px-1 py-1.5 text-center">
-                  {rows.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => removeRow(row.id)}
-                      className="text-gray-400 hover:text-red-500 cursor-pointer"
-                      title="Remove row"
+            {rows.map((row) => {
+              const rowIsLow = lowPlatforms.includes(row.platform);
+              return (
+                <tr
+                  key={row.id}
+                  className={`border-t border-gray-100 ${rowIsLow ? "bg-amber-50" : ""}`}
+                >
+                  <td className="px-3 py-1.5">
+                    <input
+                      type="number"
+                      min="1"
+                      value={row.quantity}
+                      onChange={(e) => updateRow(row.id, "quantity", e.target.value)}
+                      placeholder="0"
+                      className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-red-400"
+                    />
+                  </td>
+                  <td className="px-3 py-1.5">
+                    <select
+                      value={row.platform}
+                      onChange={(e) => updateRow(row.id, "platform", e.target.value)}
+                      className={`w-full border rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-red-400 cursor-pointer ${
+                        rowIsLow ? "border-amber-400 text-amber-800" : "border-gray-300"
+                      }`}
                     >
-                      <X size={14} />
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
+                      <option value="Shopee">
+                        Shopee{lowPlatforms.includes("Shopee") ? " (low stock)" : ""}
+                      </option>
+                      <option value="Lazada">
+                        Lazada{lowPlatforms.includes("Lazada") ? " (low stock)" : ""}
+                      </option>
+                      <option value="TikTok">
+                        TikTok{lowPlatforms.includes("TikTok") ? " (low stock)" : ""}
+                      </option>
+                      <option value="All">All Platforms (full qty each)</option>
+                    </select>
+                  </td>
+                  <td className="px-1 py-1.5 text-center">
+                    {rows.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeRow(row.id)}
+                        className="text-gray-400 hover:text-red-500 cursor-pointer"
+                        title="Remove row"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -379,10 +406,9 @@ function Production_wo() {
       .select("*")
       .order("created_at", { ascending: false });
 
-    // A work order is only visible to whoever it is assigned to, whoever
-    // created it, and admins. (The database RLS policy enforces the same
-    // rule; this filter just keeps the query explicit.)
-    if (profile && profile.role !== "admin") {
+    // Admin and Production roles see every work order (enforced by the
+    // database RLS policy too). Anyone else is limited to their own.
+    if (profile && profile.role !== "admin" && profile.role !== "production") {
       query = query.or(
         `assigned_to_id.eq.${profile.id},created_by.eq.${profile.id}`,
       );
@@ -409,22 +435,12 @@ function Production_wo() {
     if (!error) setProducts(data || []);
   }
 
+  // Preview only: the database assigns the real number when the work order is
+  // saved (create_work_order_with_materials ignores p_wo_number), so duplicates
+  // can no longer happen.
   async function generateWoNumber() {
-    const { data, error } = await supabase
-      .from("work_orders")
-      .select("wo_number");
-
-    let maxNum = 0;
-    if (!error) {
-      data?.forEach((row) => {
-        const match = row.wo_number?.match(/^WO-(\d+)$/);
-        if (match) {
-          const n = parseInt(match[1], 10);
-          if (n > maxNum) maxNum = n;
-        }
-      });
-    }
-    return `WO-${String(maxNum + 1).padStart(6, "0")}`;
+    const { data, error } = await supabase.rpc("next_wo_number");
+    return !error && data ? data : "";
   }
 
   async function openCreateForm() {
@@ -453,6 +469,18 @@ function Production_wo() {
   function handleProductSelect({ product_id, product_name }) {
     setFormData((prev) => ({ ...prev, product_id, product_name }));
   }
+
+  // Stock info for the product currently chosen in the form (null if it is
+  // free text / not matched to Inventory).
+  const selectedStock = useMemo(() => {
+    if (!formData.product_id) return null;
+    const prod = products.find((x) => x.id === formData.product_id);
+    return prod ? getStockInfo(prod) : null;
+  }, [formData.product_id, products]);
+
+  const lowPlatformNames = selectedStock
+    ? selectedStock.lowPlatforms.map(([name]) => name)
+    : [];
 
   // Cleans up the raised Postgres exception text
   // ("INSUFFICIENT_MATERIALS: Oil A: need 480ml, have 210ml; ") into
@@ -744,9 +772,31 @@ function Production_wo() {
                   If this product has a recipe set up in Production → Recipes, raw materials will
                   be checked and deducted automatically when you create this work order.
                 </p>
+
+                {/* Low-stock notice for the chosen product */}
+                {selectedStock && selectedStock.level === "out" && (
+                  <p className="text-[11px] text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1 mt-1">
+                    No stock on any platform. This product needs production.
+                  </p>
+                )}
+                {selectedStock &&
+                  selectedStock.level !== "out" &&
+                  selectedStock.lowPlatforms.length > 0 && (
+                    <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-1">
+                      Low stock on:{" "}
+                      {selectedStock.lowPlatforms
+                        .map(([n, q]) => `${n} (${q})`)
+                        .join(", ")}
+                      . Consider allocating to these platforms.
+                    </p>
+                  )}
               </div>
 
-              <PlatformRowsTable rows={platformRows} setRows={setPlatformRows} />
+              <PlatformRowsTable
+                rows={platformRows}
+                setRows={setPlatformRows}
+                lowPlatforms={lowPlatformNames}
+              />
 
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1">
