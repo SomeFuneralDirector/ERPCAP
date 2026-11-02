@@ -63,6 +63,13 @@ const UNIT = "L";
 // Packaging materials are counted in pieces.
 const PM_UNIT = "pcs";
 
+// Platforms checked for low stock, in display order.
+const LOW_STOCK_PLATFORMS = [
+  ["Shopee", "shopee_stock"],
+  ["Lazada", "lazada_stock"],
+  ["TikTok", "tiktok_stock"],
+];
+
 const SEGMENT_WRAP = "flex gap-0.5 bg-gray-100 rounded-md p-0.5";
 const SEGMENT_BTN = (active) =>
   `px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer ${
@@ -740,18 +747,43 @@ function Inventory_db() {
     [filteredInventory],
   );
 
+  // One alert per product when the combined total is low, otherwise one alert
+  // per individual platform that is at or below the product's threshold.
   const lowStock = useMemo(() => {
-    return filteredInventory
-      .filter((r) => totalStock(r) <= nonNegative(r.reorder_point ?? 10))
-      .sort((a, b) => totalStock(a) - totalStock(b))
-      .slice(0, 8)
-      .map((r) => ({
-        name: r.product_name || "Unknown",
-        code: r.product_code || "N/A",
-        qty: totalStock(r),
-        reorder: nonNegative(r.reorder_point ?? 10),
-      }));
-  }, [filteredInventory]);
+    const alerts = [];
+    filteredInventory.forEach((r) => {
+      const reorder = nonNegative(r.reorder_point ?? 5);
+      const total = totalStock(r);
+      if (total <= reorder) {
+        alerts.push({
+          key: `${r.id}-total`,
+          name: r.product_name || "Unknown",
+          code: r.product_code || "N/A",
+          scope: "Total",
+          qty: total,
+          reorder,
+        });
+      } else {
+        LOW_STOCK_PLATFORMS.forEach(([label, field]) => {
+          const qty = nonNegative(r[field]);
+          if (
+            qty <= reorder &&
+            (platformFilter === "all" || platformFilter === label)
+          ) {
+            alerts.push({
+              key: `${r.id}-${label}`,
+              name: r.product_name || "Unknown",
+              code: r.product_code || "N/A",
+              scope: label,
+              qty,
+              reorder,
+            });
+          }
+        });
+      }
+    });
+    return alerts.sort((a, b) => a.qty - b.qty).slice(0, 8);
+  }, [filteredInventory, platformFilter]);
 
   const topMovers = useMemo(() => {
     return [...filteredInventory]
@@ -1421,16 +1453,26 @@ function Inventory_db() {
               <div className="space-y-3">
                 {lowStock.map((p) => {
                   const isOut = p.qty === 0;
-                  const pct = isOut ? 0 : Math.round((p.qty / p.reorder) * 100);
+                  const pct = isOut
+                    ? 0
+                    : Math.min(100, Math.round((p.qty / (p.reorder || 1)) * 100));
                   return (
-                    <div key={p.code}>
+                    <div key={p.key}>
                       <div className="flex items-center justify-between mb-1">
                         <div>
                           <p className="text-sm font-medium text-gray-700">
                             {p.name}
                           </p>
                           <p className="text-sm font-mono text-gray-400">
-                            {p.code}
+                            {p.code} ·{" "}
+                            <span
+                              style={{
+                                color: PLATFORM_COLORS[p.scope] ?? C.textMuted,
+                                fontWeight: 600,
+                              }}
+                            >
+                              {p.scope}
+                            </span>
                           </p>
                         </div>
                         <span

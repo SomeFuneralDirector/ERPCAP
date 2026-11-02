@@ -8,8 +8,6 @@ import {
   Pencil,
   Archive,
   Bell,
-  Check,
-  XCircle,
 } from "lucide-react";
 import { supabase } from "../api/supabase";
 
@@ -48,10 +46,27 @@ const PLATFORM_FIELD = {
   TikTok: "tiktok_stock",
 };
 
-const isLowStock = (item) => {
-  const total = (item.shopee_stock || 0) + (item.lazada_stock || 0) + (item.tiktok_stock || 0);
-  return total <= (item.reorder_point ?? 5);
-};
+const PLATFORMS = [
+  { label: "Shopee", field: "shopee_stock" },
+  { label: "Lazada", field: "lazada_stock" },
+  { label: "TikTok", field: "tiktok_stock" },
+];
+
+const getThreshold = (item) => item.reorder_point ?? 5;
+
+const getTotal = (item) =>
+  (item.shopee_stock || 0) + (item.lazada_stock || 0) + (item.tiktok_stock || 0);
+
+// Platforms at or below the threshold, e.g. [{label:"Shopee", field:"shopee_stock", qty:2}]
+const getLowPlatforms = (item) =>
+  PLATFORMS.filter((p) => (item[p.field] || 0) <= getThreshold(item)).map((p) => ({
+    ...p,
+    qty: item[p.field] || 0,
+  }));
+
+// Low when the combined total OR any single platform is at/below the threshold.
+const isLowStock = (item) =>
+  getTotal(item) <= getThreshold(item) || getLowPlatforms(item).length > 0;
 
 // Lowercase and strip all whitespace so "F036 ", " f 036" and "F036" all match
 const normalize = (str) => (str ?? "").toString().toLowerCase().replace(/\s+/g, "");
@@ -264,7 +279,7 @@ function AddProductModal({ onClose, onSaved, editItem = null }) {
 
           <Field
             label="Low stock threshold"
-            hint="Flagged as low stock, and shown on Production's dashboard, at or below this combined total. Defaults to 5."
+            hint="Flagged as low stock, and shown on Production's dashboard and work orders, when the combined total or any single platform is at or below this number. Defaults to 5."
           >
             <TextInput
               type="number"
@@ -297,7 +312,25 @@ function AddProductModal({ onClose, onSaved, editItem = null }) {
 
 function ViewProductModal({ item, onClose }) {
   if (!item) return null;
-  const totalStock = (item.shopee_stock || 0) + (item.lazada_stock || 0) + (item.tiktok_stock || 0);
+  const totalStock = getTotal(item);
+  const threshold = getThreshold(item);
+  const lowFields = new Set(getLowPlatforms(item).map((p) => p.field));
+
+  const platformStat = (label, field, color) => (
+    <div>
+      <p className="text-xs text-gray-500 flex items-center gap-1.5">
+        <span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: color }} />
+        {label}
+      </p>
+      <p
+        className="text-sm mt-0.5"
+        style={lowFields.has(field) ? { color: C.accent, fontWeight: 700 } : { color: "#1f2937" }}
+      >
+        {item[field] || 0}
+        {lowFields.has(field) && <span className="text-[11px] font-semibold ml-1.5">Low</span>}
+      </p>
+    </div>
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -329,36 +362,23 @@ function ViewProductModal({ item, onClose }) {
           <div className="grid grid-cols-2 gap-4 pt-3 border-t border-gray-100">
             <div>
               <p className="text-xs text-gray-500">Total stock</p>
-              <p className="text-sm font-semibold mt-0.5" style={{ color: C.text }}>{totalStock}</p>
+              <p
+                className="text-sm font-semibold mt-0.5"
+                style={{ color: totalStock <= threshold ? C.accent : C.text }}
+              >
+                {totalStock}
+              </p>
             </div>
             <div>
               <p className="text-xs text-gray-500">Low stock threshold</p>
-              <p className="text-sm text-gray-800 mt-0.5">{item.reorder_point ?? 5}</p>
+              <p className="text-sm text-gray-800 mt-0.5">{threshold}</p>
             </div>
           </div>
 
           <div className="grid grid-cols-3 gap-4">
-            <div>
-              <p className="text-xs text-gray-500 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: C.shopee }} />
-                Shopee
-              </p>
-              <p className="text-sm text-gray-800 mt-0.5">{item.shopee_stock || 0}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: C.lazada }} />
-                Lazada
-              </p>
-              <p className="text-sm text-gray-800 mt-0.5">{item.lazada_stock || 0}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: C.tiktok }} />
-                TikTok
-              </p>
-              <p className="text-sm text-gray-800 mt-0.5">{item.tiktok_stock || 0}</p>
-            </div>
+            {platformStat("Shopee", "shopee_stock", C.shopee)}
+            {platformStat("Lazada", "lazada_stock", C.lazada)}
+            {platformStat("TikTok", "tiktok_stock", C.tiktok)}
           </div>
 
           {item.updated_at && (
@@ -726,7 +746,7 @@ function Inventory() {
 
   const StockCell = ({ item, field, accentColor, low }) => {
     const isEditing = editingStock?.id === item.id && editingStock.field === field;
-    const value = field === "stock" ? (item.shopee_stock || 0) + (item.lazada_stock || 0) + (item.tiktok_stock || 0) : item[field] || 0;
+    const value = field === "stock" ? getTotal(item) : item[field] || 0;
 
     if (isEditing) {
       return (
@@ -750,7 +770,7 @@ function Inventory() {
     return (
       <button
         onClick={() => handleStockEdit(item, field)}
-        title="Click to edit"
+        title={low ? "Low stock. Click to edit" : "Click to edit"}
         className="text-xs px-2 py-0.5 rounded cursor-pointer hover:bg-gray-100 transition-colors"
         style={low ? { color: C.accent, fontWeight: 700 } : { fontWeight: 500 }}
       >
@@ -922,9 +942,12 @@ function Inventory() {
                     let lastCat = null;
 
                     for (const item of filtered) {
-                      const total = (item.shopee_stock || 0) + (item.lazada_stock || 0) + (item.tiktok_stock || 0);
-                      const threshold = item.reorder_point ?? 5;
-                      const low = total <= threshold;
+                      const total = getTotal(item);
+                      const threshold = getThreshold(item);
+                      const totalLow = total <= threshold;
+                      const lowPlatforms = getLowPlatforms(item);
+                      const lowFields = new Set(lowPlatforms.map((p) => p.field));
+                      const low = totalLow || lowPlatforms.length > 0; // drives the badge
                       const catColor = item.category === "Men" ? C.men : C.women;
 
                       if (item.category !== lastCat) {
@@ -942,16 +965,21 @@ function Inventory() {
                         lastCat = item.category;
                       }
 
-                      const rowBg = low ? {} : rowNum % 2 === 0 ? { backgroundColor: "#FAFAFA" } : {};
+                      const rowBg = totalLow ? {} : rowNum % 2 === 0 ? { backgroundColor: "#FAFAFA" } : {};
 
                       rows.push(
                         <tr
                           key={item.id}
                           className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
                           style={
-                            low
+                            totalLow
                               ? { backgroundColor: C.accentSoft, borderLeft: `3px solid ${C.accent}` }
-                              : { ...rowBg, borderLeft: "3px solid transparent" }
+                              : {
+                                  ...rowBg,
+                                  borderLeft: lowPlatforms.length
+                                    ? `3px solid ${C.warning}`
+                                    : "3px solid transparent",
+                                }
                           }
                         >
                           <td className="px-2 py-2 text-center text-xs text-gray-400 w-8">{rowNum++}</td>
@@ -963,27 +991,29 @@ function Inventory() {
                               {item.product_name}
                               {low && (
                                 <span
-                                  title={`At or below threshold of ${threshold}, shown on Production's dashboard`}
+                                  title={`Threshold ${threshold}. Shown on Production's dashboard and work orders`}
                                   className="px-1.5 py-0.5 text-[11px] rounded font-semibold shrink-0"
-                                  style={{ color: "#fff", backgroundColor: C.accent }}
+                                  style={{ color: "#fff", backgroundColor: totalLow ? C.accent : C.warning }}
                                 >
-                                  Low stock
+                                  {totalLow
+                                    ? "Low stock"
+                                    : `Low: ${lowPlatforms.map((p) => p.label).join(", ")}`}
                                 </span>
                               )}
                             </div>
                           </td>
 
                           <td className="px-3 py-2 text-center">
-                            <StockCell item={item} field="stock" accentColor={C.accent} low={low} />
+                            <StockCell item={item} field="stock" accentColor={C.accent} low={totalLow} />
                           </td>
                           <td className="px-3 py-2 text-center">
-                            <StockCell item={item} field="shopee_stock" accentColor={C.shopee} low={low} />
+                            <StockCell item={item} field="shopee_stock" accentColor={C.shopee} low={lowFields.has("shopee_stock")} />
                           </td>
                           <td className="px-3 py-2 text-center">
-                            <StockCell item={item} field="lazada_stock" accentColor={C.lazada} low={low} />
+                            <StockCell item={item} field="lazada_stock" accentColor={C.lazada} low={lowFields.has("lazada_stock")} />
                           </td>
                           <td className="px-3 py-2 text-center">
-                            <StockCell item={item} field="tiktok_stock" accentColor={C.tiktok} low={low} />
+                            <StockCell item={item} field="tiktok_stock" accentColor={C.tiktok} low={lowFields.has("tiktok_stock")} />
                           </td>
 
                           <td className="px-1.5 py-1.5 text-center">
@@ -1039,7 +1069,7 @@ function Inventory() {
         <div className="flex gap-4 flex-wrap text-xs text-gray-500 pb-2">
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-3 rounded-sm inline-block" style={{ backgroundColor: C.accent }} />
-            Low stock: at or below each product's threshold (default 5), also shown on Production's dashboard
+            Low stock: combined total or any single platform at or below the product's threshold (default 5). The low number is shown in red, and it also appears on Production's dashboard and work orders
           </span>
         </div>
 
