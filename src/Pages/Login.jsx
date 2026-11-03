@@ -192,7 +192,7 @@ function Login() {
       const roleRoutes = {
         admin: '/admin',
         marketing: '/marketing',
-        sales: '/sales',
+        sales: '/Sales_db',
         inventory: '/inventory_db',
         production: '/production',
       };
